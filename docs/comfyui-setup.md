@@ -67,11 +67,10 @@ Check that each file ends up in the folder listed above.
 2. First start failed with `WinError 4551` on `torch\lib\shm.dll`
    ("An Application Control policy has blocked this file").
    - Cause: Windows Smart App Control was On.
-   - Fix used: NOT CONFIRMED. Jaya to fill in
-     (Smart App Control turned off, or only the Unblock-File command).
-   - If this error returns, check Smart App Control first.
+   - Fix used: Jaya turned Smart App Control off
+     (Windows Security > App & browser control > Smart App Control settings).
+   - If this error returns, check that Smart App Control is still off.
 
 ## Not done yet
 
-- Image-to-video test (time and VRAM).
-- Workflow export in API format to `presets/text-to-image-basic/workflow.json`.
+- Image-to-video test (time and VRAM). This is ticket FRG-13.
