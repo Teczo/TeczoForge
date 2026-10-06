@@ -163,7 +163,7 @@ Follow these steps for EVERY ticket. This avoids merge conflicts.
 Fill this in when the ticket that creates each part is done.
 
 - Start ComfyUI (Jaya does this): see `docs/comfyui-setup.md`
-- Backend dev: `cd backend`, then `npm run dev`
+- Backend dev: `cd backend`, then `npm run dev`. Or double-click `backend\start-backend.bat`.
 - Frontend dev: `cd frontend`, then `npm run dev`
 - Tests: (not set yet)
 - Lint: (not set yet)
