@@ -32,15 +32,16 @@ ComfyUI does the real generation work. This app is a simple, friendly layer on t
 |---|---|---|
 | Frontend | Vite + React + TypeScript | In `frontend/`. No Next.js. |
 | Backend | Node.js + Express + TypeScript | In `backend/`. Separate from the frontend. |
-| Database | MongoDB | Address from env var `MONGODB_URI`. First used in FRG-7. |
+| Database | MongoDB Atlas (cloud) | Address from env var `MONGODB_URI`. First used in FRG-7. |
 | Generation engine | ComfyUI | Installed separately on System 1. Not part of this repo. |
 | File storage | Local disk | Outputs in `data/outputs/`. |
 
 Rules:
 - Frontend and backend stay in separate folders with separate `package.json` files.
-- No Auth0, no Azure, no Stripe, no other cloud service unless a ticket says so.
+- MongoDB Atlas is the only cloud service. No Auth0, no Azure, no Stripe, no other cloud service unless a ticket says so.
 - No Docker unless Jaya asks for it.
-- Generation must still work if MongoDB cannot be reached. Show a clear warning instead of crashing.
+- Atlas needs internet. Generation must still work if MongoDB cannot be reached. Show a clear warning instead of crashing.
+- The Atlas connection string is a secret. It goes in `backend/.env` only. Never commit it. Never print it in logs.
 
 ### Allowed dependencies
 
@@ -192,12 +193,11 @@ Write it in plain English. Short sentences. No jargon.
 
 Decided:
 1. App name: TeczoForge.
-2. Database: MongoDB.
+2. Database: MongoDB Atlas (cloud).
 3. Users: Jaya and the Teczo team. So the app needs user accounts (FRG-16).
 4. Remote access: Tailscale (FRG-17).
 5. First image model: Z-Image-Turbo.
 
 Still open (ask before assuming):
-1. MongoDB location: MongoDB Atlas (cloud) or MongoDB installed on System 1. Decide before FRG-7.
-2. Login method for the team. Decide before FRG-16.
-3. Which video model to use. Jaya decides after the image-to-video test (FRG-13).
+1. Login method for the team. Decide before FRG-16.
+2. Which video model to use. Jaya decides after the image-to-video test (FRG-13).
