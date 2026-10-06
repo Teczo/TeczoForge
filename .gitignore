@@ -1,0 +1,28 @@
+# Dependencies
+node_modules/
+
+# App data: database and generated outputs
+data/
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# AI model files (very large, never commit)
+*.safetensors
+*.ckpt
+*.pt
+*.pth
+*.gguf
+*.bin
+
+# Build output
+dist/
+build/
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.vscode/
+*.log

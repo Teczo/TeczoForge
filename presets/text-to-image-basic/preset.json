@@ -1,0 +1,13 @@
+{
+  "id": "text-to-image-basic",
+  "name": "Text to Image",
+  "description": "Z-Image-Turbo. Fast text to image, 8 steps.",
+  "type": "image",
+  "inputs": [
+    { "key": "prompt", "label": "Prompt", "kind": "text", "node": "57:27", "field": "text" },
+    { "key": "seed", "label": "Seed", "kind": "seed", "node": "57:3", "field": "seed" },
+    { "key": "width", "label": "Width", "kind": "number", "node": "57:13", "field": "width", "default": 1024 },
+    { "key": "height", "label": "Height", "kind": "number", "node": "57:13", "field": "height", "default": 1024 }
+  ],
+  "output": { "node": "9" }
+}
