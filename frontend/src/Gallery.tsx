@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import type { StartValues } from "./Generate";
 
 // One job, as GET /api/jobs returns it (see backend/src/db.ts).
 type Job = {
@@ -12,7 +13,12 @@ type Job = {
   createdAt: string;
 };
 
-export default function Gallery() {
+type GalleryProps = {
+  // "Use again": open the Generate page with this job's preset and values.
+  onUseAgain: (values: StartValues) => void;
+};
+
+export default function Gallery({ onUseAgain }: GalleryProps) {
   const [jobs, setJobs] = useState<Job[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Job | null>(null);
@@ -40,7 +46,15 @@ export default function Gallery() {
 
   if (error) return <p style={{ color: "red" }}>{error}</p>;
   if (!jobs) return <p>Loading the gallery...</p>;
-  if (selected) return <Detail job={selected} onBack={() => setSelected(null)} />;
+  if (selected) {
+    return (
+      <Detail
+        job={selected}
+        onBack={() => setSelected(null)}
+        onUseAgain={() => onUseAgain({ presetId: selected.presetId, inputs: selected.inputs })}
+      />
+    );
+  }
   if (jobs.length === 0) return <p>No images yet. Make one on the Generate page.</p>;
 
   return (
@@ -69,12 +83,13 @@ export default function Gallery() {
 }
 
 // The large image with its prompt and settings.
-function Detail({ job, onBack }: { job: Job; onBack: () => void }) {
+function Detail({ job, onBack, onUseAgain }: { job: Job; onBack: () => void; onUseAgain: () => void }) {
   const { prompt, seed, width, height } = job.inputs;
 
   return (
     <section>
-      <button onClick={onBack}>&larr; Back to gallery</button>
+      <button onClick={onBack}>&larr; Back to gallery</button>{" "}
+      <button onClick={onUseAgain}>Use again</button>
       <img
         src={job.imageUrl!}
         alt={String(prompt ?? "")}
