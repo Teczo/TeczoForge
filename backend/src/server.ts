@@ -4,6 +4,7 @@ import { generateHandler, OUTPUTS_DIR } from "./generate.js";
 import { checkDatabase, listJobs } from "./db.js";
 import { HttpError } from "./httpError.js";
 import { getProgress, startProgressListener } from "./progress.js";
+import { listPresets } from "./presets.js";
 
 // Settings come from backend/.env. The defaults match .env.example.
 const PORT = Number(process.env.PORT ?? 4000);
@@ -36,6 +37,16 @@ app.get("/api/health", async (_req, res) => {
     backend: "ok",
     comfyui: { reachable },
   });
+});
+
+// Every preset folder, read fresh each time, so a new folder shows up after a page refresh.
+app.get("/api/presets", async (_req, res) => {
+  try {
+    res.json({ presets: await listPresets() });
+  } catch (error) {
+    console.error("Could not read presets:", error);
+    res.status(500).json({ error: "Could not read the presets folder. See the backend log." });
+  }
 });
 
 // Make an image from a preset and the user's values.

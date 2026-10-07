@@ -1,8 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
-
-// The only preset for now. Picking a preset is ticket FRG-10.
-const PRESET_ID = "text-to-image-basic";
 
 // How often to ask the backend where the job is.
 const PROGRESS_INTERVAL_MS = 500;
@@ -15,16 +12,79 @@ type Progress =
   | { state: "running"; step: number; steps: number }
   | { state: "finishing" };
 
+// One preset from GET /api/presets (see backend/src/presets.ts).
+type PresetInput = { key: string; label: string; kind: string; default?: number | string };
+type Preset = { id: string; name: string; description: string; type: string; inputs: PresetInput[] };
+
+// The form keeps every value as text, the way the input boxes give it.
+type FormValues = Record<string, string>;
+
+// Start values for a preset's form: its defaults, or empty.
+function defaultValues(preset: Preset): FormValues {
+  const values: FormValues = {};
+  for (const input of preset.inputs) values[input.key] = input.default === undefined ? "" : String(input.default);
+  return values;
+}
+
+// Turn the form values into the "inputs" the backend expects.
+// Empty number and seed boxes are left out, so the backend uses the default or a random seed.
+function toInputs(preset: Preset, values: FormValues): Record<string, string | number> {
+  const inputs: Record<string, string | number> = {};
+  for (const input of preset.inputs) {
+    const value = values[input.key] ?? "";
+    if (input.kind === "text") inputs[input.key] = value;
+    else if ((input.kind === "number" || input.kind === "seed") && value.trim() !== "") inputs[input.key] = Number(value);
+  }
+  return inputs;
+}
+
 export default function Generate() {
-  const [prompt, setPrompt] = useState("");
+  const [presets, setPresets] = useState<Preset[] | null>(null);
+  const [presetsError, setPresetsError] = useState<string | null>(null);
+  const [presetId, setPresetId] = useState("");
+  const [values, setValues] = useState<FormValues>({});
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState<Progress | null>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
 
+  // Load the presets once, when the page opens. A new preset folder shows up after a refresh.
+  useEffect(() => {
+    async function loadPresets() {
+      try {
+        const response = await fetch("/api/presets");
+        const body = await response.json().catch(() => null);
+        if (!body) {
+          setPresetsError("Could not reach the backend. Make sure it is running, then refresh the page.");
+        } else if (!response.ok) {
+          setPresetsError(body.error ?? "Could not load the presets.");
+        } else if (body.presets.length === 0) {
+          setPresetsError("No presets found. Add a preset folder in presets/, then refresh the page.");
+        } else {
+          setPresets(body.presets);
+          setPresetId(body.presets[0].id);
+          setValues(defaultValues(body.presets[0]));
+        }
+      } catch {
+        setPresetsError("Could not reach the backend. Make sure it is running, then refresh the page.");
+      }
+    }
+    loadPresets();
+  }, []);
+
+  const preset = presets?.find((p) => p.id === presetId) ?? null;
+
+  function choosePreset(id: string) {
+    const chosen = presets?.find((p) => p.id === id);
+    if (!chosen) return;
+    setPresetId(id);
+    setValues(defaultValues(chosen));
+  }
+
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
+    if (!preset) return;
     setRunning(true);
     setProgress(null);
     setError(null);
@@ -48,7 +108,7 @@ export default function Generate() {
       const response = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ presetId: PRESET_ID, inputs: { prompt }, jobId }),
+        body: JSON.stringify({ presetId: preset.id, inputs: toInputs(preset, values), jobId }),
       });
       // The backend always answers with JSON. If not, the backend is not running.
       const body = await response.json().catch(() => null);
@@ -72,19 +132,45 @@ export default function Generate() {
     }
   }
 
+  if (presetsError) return <p style={{ color: "red" }}>{presetsError}</p>;
+  if (!presets || !preset) return <p>Loading presets...</p>;
+
+  // Every text input (like the prompt) must be filled in.
+  const missingText = preset.inputs.some((input) => input.kind === "text" && (values[input.key] ?? "").trim() === "");
+  const firstText = preset.inputs.find((input) => input.kind === "text");
+
   return (
     <section>
-      <h2>Generate an image</h2>
-      <form onSubmit={handleSubmit}>
-        <textarea
-          value={prompt}
-          onChange={(event) => setPrompt(event.target.value)}
-          placeholder="Describe the image, for example: a red car by the sea at sunset"
-          rows={4}
-          disabled={running}
-          style={{ width: "100%", maxWidth: 600, display: "block", marginBottom: 8 }}
-        />
-        <button type="submit" disabled={running || prompt.trim() === ""}>
+      <h2>Generate</h2>
+      <form onSubmit={handleSubmit} style={{ maxWidth: 600 }}>
+        <label style={{ display: "block", marginBottom: 12 }}>
+          <strong>Preset</strong>
+          <select
+            value={presetId}
+            onChange={(event) => choosePreset(event.target.value)}
+            disabled={running}
+            style={{ display: "block", marginTop: 4 }}
+          >
+            {presets.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+          {preset.description && <small>{preset.description}</small>}
+        </label>
+
+        {preset.inputs.map((input) => (
+          <Field
+            key={`${preset.id}/${input.key}`}
+            input={input}
+            value={values[input.key] ?? ""}
+            disabled={running}
+            onChange={(value) => setValues({ ...values, [input.key]: value })}
+          />
+        ))}
+
+        <button type="submit" disabled={running || missingText}>
           {running ? "Generating..." : "Generate"}
         </button>
       </form>
@@ -93,9 +179,56 @@ export default function Generate() {
       {error && <p style={{ color: "red" }}>{error}</p>}
       {warning && <p style={{ color: "darkorange" }}>Warning: {warning}</p>}
       {imageUrl && (
-        <img src={imageUrl} alt={prompt} style={{ display: "block", maxWidth: "100%", width: 600, marginTop: 16 }} />
+        <img
+          src={imageUrl}
+          alt={firstText ? values[firstText.key] : preset.name}
+          style={{ display: "block", maxWidth: "100%", width: 600, marginTop: 16 }}
+        />
       )}
     </section>
+  );
+}
+
+// One input of the form. Which box it is depends on "kind" in preset.json.
+function Field(props: { input: PresetInput; value: string; disabled: boolean; onChange: (value: string) => void }) {
+  const { input, value, disabled, onChange } = props;
+  const boxStyle = { display: "block", width: "100%", marginTop: 4 };
+
+  let box;
+  if (input.kind === "text") {
+    box = (
+      <textarea
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder="Describe the image, for example: a red car by the sea at sunset"
+        rows={4}
+        disabled={disabled}
+        style={boxStyle}
+      />
+    );
+  } else if (input.kind === "number" || input.kind === "seed") {
+    box = (
+      <input
+        type="number"
+        step={1}
+        min={input.kind === "seed" ? 0 : 1}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={input.kind === "seed" ? "Empty = random" : ""}
+        disabled={disabled}
+        style={{ ...boxStyle, width: 200 }}
+      />
+    );
+  } else {
+    // A kind this page does not know yet (for example an image upload, ticket FRG-12).
+    box = <small style={{ display: "block", color: "gray" }}>This input type ("{input.kind}") is not supported yet.</small>;
+  }
+
+  return (
+    <label style={{ display: "block", marginBottom: 12 }}>
+      <strong>{input.label}</strong>
+      {box}
+    </label>
   );
 }
 

@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { access, readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { HttpError } from "./httpError.js";
 
@@ -23,6 +23,7 @@ type PresetInput = {
 export type Preset = {
   id: string;
   name: string;
+  description?: string;
   type: string;
   inputs: PresetInput[];
   output: { node: string };
@@ -30,6 +31,48 @@ export type Preset = {
 
 // A ComfyUI workflow in API format: node id -> node.
 export type Workflow = Record<string, { inputs: Record<string, unknown> }>;
+
+// What the page needs to show a preset and build its form.
+// Node ids and fields stay in the backend.
+export type PresetSummary = {
+  id: string;
+  name: string;
+  description: string;
+  type: string;
+  inputs: { key: string; label: string; kind: string; default?: number | string }[];
+};
+
+// Every folder in presets/ that has a preset.json and a workflow.json, sorted by name.
+// A broken folder is skipped with a warning in the log, so one bad preset does not hide the others.
+export async function listPresets(): Promise<PresetSummary[]> {
+  const folders = await readdir(PRESETS_DIR, { withFileTypes: true });
+  const presets: PresetSummary[] = [];
+
+  for (const folder of folders) {
+    if (!folder.isDirectory() || !/^[a-z0-9-]+$/.test(folder.name)) continue;
+    try {
+      const folderPath = path.join(PRESETS_DIR, folder.name);
+      await access(path.join(folderPath, "workflow.json"));
+      const preset: Preset = JSON.parse(await readFile(path.join(folderPath, "preset.json"), "utf8"));
+      presets.push({
+        id: folder.name, // The folder name is the id used by POST /api/generate.
+        name: preset.name ?? folder.name,
+        description: preset.description ?? "",
+        type: preset.type,
+        inputs: preset.inputs.map(({ key, label, kind, default: defaultValue }) => ({
+          key,
+          label,
+          kind,
+          default: defaultValue,
+        })),
+      });
+    } catch (error) {
+      console.warn(`Warning: skipped preset folder "${folder.name}": ${(error as Error).message}`);
+    }
+  }
+
+  return presets.sort((a, b) => a.name.localeCompare(b.name));
+}
 
 // Load preset.json and workflow.json for one preset folder.
 export async function loadPreset(presetId: unknown): Promise<{ preset: Preset; workflow: Workflow }> {
