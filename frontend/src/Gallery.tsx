@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { StartValues } from "./Generate";
+import Media, { isVideo } from "./Media";
 
 // One job, as GET /api/jobs returns it (see backend/src/db.ts).
 type Job = {
@@ -60,21 +61,26 @@ export default function Gallery({ onUseAgain }: GalleryProps) {
   return (
     <section>
       <h2>Gallery</h2>
-      <p>{jobs.length} images, newest first. Click an image to see it large.</p>
+      <p>{jobs.length} results, newest first. Click one to see it large.</p>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 12 }}>
         {jobs.map((job) => (
           <button
             key={job.imageUrl}
             onClick={() => setSelected(job)}
             title={String(job.inputs.prompt ?? "")}
-            style={{ padding: 0, border: "1px solid #ccc", background: "none", cursor: "pointer" }}
+            style={{ position: "relative", padding: 0, border: "1px solid #ccc", background: "none", cursor: "pointer" }}
           >
-            <img
-              src={job.imageUrl!}
+            <Media
+              url={job.imageUrl!}
+              mode="thumbnail"
               alt={String(job.inputs.prompt ?? "")}
-              loading="lazy"
               style={{ display: "block", width: "100%", aspectRatio: "1 / 1", objectFit: "cover" }}
             />
+            {isVideo(job.imageUrl!) && (
+              <span style={{ position: "absolute", left: 6, bottom: 6, background: "rgba(0,0,0,0.7)", color: "white", padding: "2px 6px", fontSize: 12 }}>
+                &#9654; Video
+              </span>
+            )}
           </button>
         ))}
       </div>
@@ -82,7 +88,7 @@ export default function Gallery({ onUseAgain }: GalleryProps) {
   );
 }
 
-// The large image with its prompt and settings.
+// The large image or video with its prompt and settings.
 function Detail({ job, onBack, onUseAgain }: { job: Job; onBack: () => void; onUseAgain: () => void }) {
   const { prompt, seed, width, height } = job.inputs;
 
@@ -90,8 +96,9 @@ function Detail({ job, onBack, onUseAgain }: { job: Job; onBack: () => void; onU
     <section>
       <button onClick={onBack}>&larr; Back to gallery</button>{" "}
       <button onClick={onUseAgain}>Use again</button>
-      <img
-        src={job.imageUrl!}
+      <Media
+        url={job.imageUrl!}
+        mode="full"
         alt={String(prompt ?? "")}
         style={{ display: "block", maxWidth: "100%", width: 768, margin: "16px 0" }}
       />

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
+import Media from "./Media";
 
 // How often to ask the backend where the job is.
 const PROGRESS_INTERVAL_MS = 500;
@@ -215,8 +216,9 @@ export default function Generate({ startValues = null, onStartValuesUsed }: Gene
       {error && <p style={{ color: "red" }}>{error}</p>}
       {warning && <p style={{ color: "darkorange" }}>Warning: {warning}</p>}
       {imageUrl && (
-        <img
-          src={imageUrl}
+        <Media
+          url={imageUrl}
+          mode="full"
           alt={firstText ? values[firstText.key] : preset.name}
           style={{ display: "block", maxWidth: "100%", width: 600, marginTop: 16 }}
         />
@@ -348,6 +350,6 @@ function ProgressView({ progress }: { progress: Progress | null }) {
   }
   // Running, but no steps yet: ComfyUI is loading the model (slow only the first time).
   if (progress?.state === "running") return <p>Starting...</p>;
-  if (progress?.state === "finishing") return <p>Saving the image...</p>;
+  if (progress?.state === "finishing") return <p>Saving the result...</p>;
   return <p>Sending your job to ComfyUI...</p>;
 }
