@@ -10,7 +10,8 @@ export const CLIENT_ID = crypto.randomUUID();
 // How long to wait for one ComfyUI request (not the whole job).
 const REQUEST_TIMEOUT_MS = 10_000;
 // How long to wait for a whole job to finish. The first run also loads the model.
-const JOB_TIMEOUT_MS = 5 * 60_000;
+// A video (image-to-video preset) takes about 4.5 minutes, longer right after ComfyUI starts.
+const JOB_TIMEOUT_MS = 20 * 60_000;
 // How often to ask ComfyUI if the job is done.
 const POLL_INTERVAL_MS = 1000;
 
@@ -82,9 +83,10 @@ export async function waitForOutput(promptId: string, outputNode: string): Promi
       if (job.status?.status_str === "error") {
         throw new HttpError(502, `ComfyUI job failed: ${findErrorMessage(job.status.messages)}`);
       }
+      // Pictures and videos both come in "images". Save Video also sets "animated": [true].
       const files: OutputFile[] = job.outputs?.[outputNode]?.images ?? [];
       if (files.length === 0) {
-        throw new HttpError(502, "ComfyUI finished the job but made no image.");
+        throw new HttpError(502, "ComfyUI finished the job but made no picture or video.");
       }
       return files;
     }
