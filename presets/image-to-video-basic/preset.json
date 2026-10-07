@@ -1,0 +1,12 @@
+{
+  "id": "image-to-video-basic",
+  "name": "Image to Video",
+  "description": "Wan 2.2 14B. Upload a picture and describe the motion. Makes a 5 second video, 640 x 640, 16 fps. Takes about 4 to 5 minutes.",
+  "type": "video",
+  "inputs": [
+    { "key": "image", "label": "Start image", "kind": "image", "node": "97", "field": "image" },
+    { "key": "prompt", "label": "Motion prompt", "kind": "text", "node": "129:93", "field": "text" },
+    { "key": "seed", "label": "Seed", "kind": "seed", "node": "129:86", "field": "noise_seed" }
+  ],
+  "output": { "node": "108" }
+}
