@@ -38,9 +38,28 @@ function toInputs(preset: Preset, values: FormValues): Record<string, string | n
   return inputs;
 }
 
-export default function Generate() {
+// Values to start the form with, from "Use again" in the gallery.
+export type StartValues = { presetId: string | null; inputs: Record<string, unknown> };
+
+// The form for a preset, filled with the given values where the preset has that input.
+function startFormValues(preset: Preset, start: StartValues): FormValues {
+  const values = defaultValues(preset);
+  for (const input of preset.inputs) {
+    const value = start.inputs[input.key];
+    if (value !== undefined && value !== null) values[input.key] = String(value);
+  }
+  return values;
+}
+
+type GenerateProps = {
+  startValues?: StartValues | null;
+  onStartValuesUsed?: () => void;
+};
+
+export default function Generate({ startValues = null, onStartValuesUsed }: GenerateProps) {
   const [presets, setPresets] = useState<Preset[] | null>(null);
   const [presetsError, setPresetsError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [presetId, setPresetId] = useState("");
   const [values, setValues] = useState<FormValues>({});
   const [running, setRunning] = useState(false);
@@ -62,9 +81,20 @@ export default function Generate() {
         } else if (body.presets.length === 0) {
           setPresetsError("No presets found. Add a preset folder in presets/, then refresh the page.");
         } else {
-          setPresets(body.presets);
-          setPresetId(body.presets[0].id);
-          setValues(defaultValues(body.presets[0]));
+          const list: Preset[] = body.presets;
+          setPresets(list);
+          // "Use again": start with that job's preset and values, if the preset still exists.
+          const startPreset = startValues && list.find((p) => p.id === startValues.presetId);
+          if (startValues && startPreset) {
+            setPresetId(startPreset.id);
+            setValues(startFormValues(startPreset, startValues));
+            setNotice(`Filled in from the gallery. Press Generate to make it again.`);
+          } else {
+            setPresetId(list[0].id);
+            setValues(defaultValues(list[0]));
+            if (startValues) setNotice(`The preset "${startValues.presetId}" no longer exists, so nothing was filled in.`);
+          }
+          if (startValues) onStartValuesUsed?.();
         }
       } catch {
         setPresetsError("Could not reach the backend. Make sure it is running, then refresh the page.");
@@ -80,6 +110,7 @@ export default function Generate() {
     if (!chosen) return;
     setPresetId(id);
     setValues(defaultValues(chosen));
+    setNotice(null);
   }
 
   async function handleSubmit(event: FormEvent) {
@@ -142,6 +173,7 @@ export default function Generate() {
   return (
     <section>
       <h2>Generate</h2>
+      {notice && <p style={{ color: "steelblue" }}>{notice}</p>}
       <form onSubmit={handleSubmit} style={{ maxWidth: 600 }}>
         <label style={{ display: "block", marginBottom: 12 }}>
           <strong>Preset</strong>

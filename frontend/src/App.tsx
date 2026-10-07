@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import Generate from "./Generate";
+import type { StartValues } from "./Generate";
 import Gallery from "./Gallery";
 
 // Which page to show comes from the address: #/gallery or the Generate page.
@@ -21,6 +22,13 @@ export default function App() {
   const [backend, setBackend] = useState<Status>("checking");
   const [comfyui, setComfyui] = useState<Status>("checking");
   const [page, setPage] = useState(currentPage);
+  // Set by "Use again" in the gallery: the preset and values to fill into the Generate page.
+  const [useAgain, setUseAgain] = useState<StartValues | null>(null);
+
+  function handleUseAgain(values: StartValues) {
+    setUseAgain(values);
+    window.location.hash = "#/"; // Go to the Generate page.
+  }
 
   // Switch page when the address changes (link click, back button).
   useEffect(() => {
@@ -57,7 +65,11 @@ export default function App() {
       <h2>System status</h2>
       <StatusLine label="Backend" status={backend} />
       <StatusLine label="ComfyUI" status={comfyui} />
-      {page === "gallery" ? <Gallery /> : <Generate />}
+      {page === "gallery" ? (
+        <Gallery onUseAgain={handleUseAgain} />
+      ) : (
+        <Generate startValues={useAgain} onStartValuesUsed={() => setUseAgain(null)} />
+      )}
     </main>
   );
 }
