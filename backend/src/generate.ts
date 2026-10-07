@@ -10,13 +10,14 @@ import { endJob, setJobPrompt, startJob } from "./progress.js";
 // A job id made by the page with crypto.randomUUID(), used to ask for progress.
 const JOB_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-// Finished images are saved here: data/outputs at the root of the repo.
+// Finished images and videos are saved here: data/outputs at the root of the repo.
 export const OUTPUTS_DIR = path.join(import.meta.dirname, "..", "..", "data", "outputs");
 
 // POST /api/generate
 // Body: { "presetId": "text-to-image-basic", "inputs": { "prompt": "a red car" }, "jobId": "<optional uuid>" }
 // With a jobId, the page can follow the job at GET /api/progress/<jobId>.
 // Answer: { "imageUrl": "/api/outputs/<file name>" }, plus "warning" if the job was not saved.
+// For a video preset the file is an .mp4. The name stays "imageUrl" so older jobs keep working.
 // Every call is saved as one job in MongoDB, also when it fails.
 export async function generateHandler(req: Request, res: Response) {
   const startedAt = new Date();
@@ -41,7 +42,7 @@ export async function generateHandler(req: Request, res: Response) {
     if (tracked) setJobPrompt(jobId, promptId);
     const [file] = await waitForOutput(promptId, preset.output.node);
 
-    // 3. Copy the image into data/outputs.
+    // 3. Copy the image or video into data/outputs (it keeps ComfyUI's extension, for example .png or .mp4).
     const image = await downloadOutput(file);
     const fileName = `${presetId}-${Date.now()}${path.extname(file.filename)}`;
     await mkdir(OUTPUTS_DIR, { recursive: true });
