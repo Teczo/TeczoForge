@@ -3,11 +3,14 @@ import type { StartValues } from "./Generate";
 import Media, { isVideo } from "./Media";
 import { ArrowLeftIcon, DownloadIcon, PlayIcon, RepeatIcon } from "./Icons";
 
+// How many results the gallery shows: the newest ones.
+const GALLERY_LIMIT = 100;
+
 // One job, as GET /api/jobs returns it (see backend/src/db.ts).
 type Job = {
   presetId: string | null;
   inputs: Record<string, unknown>;
-  status: "done" | "failed";
+  status: "queued" | "running" | "done" | "failed";
   outputFile: string | null;
   imageUrl: string | null;
   error: string | null;
@@ -35,7 +38,7 @@ export default function Gallery({ onUseAgain }: GalleryProps) {
   useEffect(() => {
     async function loadJobs() {
       try {
-        const response = await fetch("/api/jobs");
+        const response = await fetch(`/api/jobs?status=done&limit=${GALLERY_LIMIT}`);
         const body = await response.json().catch(() => null);
         if (!body) {
           setError("Could not reach the backend. Make sure it is running, then refresh the page.");
@@ -43,7 +46,7 @@ export default function Gallery({ onUseAgain }: GalleryProps) {
           setError(body.error ?? "Could not load the gallery.");
         } else {
           // Only finished jobs have an image. The backend sends them newest first.
-          setJobs(body.jobs.filter((job: Job) => job.status === "done" && job.imageUrl));
+          setJobs(body.jobs.filter((job: Job) => job.imageUrl));
         }
       } catch {
         setError("Could not reach the backend. Make sure it is running, then refresh the page.");
@@ -74,7 +77,10 @@ export default function Gallery({ onUseAgain }: GalleryProps) {
       <>
         <div className="gallery-head">
           <h1>Gallery</h1>
-          <p>{jobs.length} results, newest first. Click one to see it large.</p>
+          <p>
+            {jobs.length < GALLERY_LIMIT ? `${jobs.length} results` : `The latest ${GALLERY_LIMIT} results`}, newest
+            first. Click one to see it large.
+          </p>
         </div>
         <div className="gallery-grid">
           {jobs.map((job) => (
