@@ -1,6 +1,6 @@
 # ComfyUI setup on System 1
 
-Last checked: 2026-10-06
+Last checked: 2026-10-07
 
 ## Install
 
@@ -48,6 +48,12 @@ All inside `C:\AI\ComfyUI_windows_portable\ComfyUI\models\`.
 | `z_image_turbo_bf16.safetensors` | `diffusion_models\` | 11.46 GB |
 | `qwen_3_4b.safetensors` | `text_encoders\` | 7.49 GB |
 | `ae.safetensors` | `vae\` | 319.8 MB |
+| `wan2.2_i2v_high_noise_14B_fp8_scaled.safetensors` | `diffusion_models\` | 13.31 GB |
+| `wan2.2_i2v_low_noise_14B_fp8_scaled.safetensors` | `diffusion_models\` | 13.31 GB |
+| `umt5_xxl_fp8_e4m3fn_scaled.safetensors` | `text_encoders\` | 6.27 GB |
+| `wan_2.1_vae.safetensors` | `vae\` | 0.24 GB |
+| `wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors` | `loras\` | 1.14 GB |
+| `wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors` | `loras\` | 1.14 GB |
 
 Note: the Download button in ComfyUI saves files through the browser.
 Check that each file ends up in the folder listed above.
@@ -61,6 +67,28 @@ Check that each file ends up in the folder listed above.
 - Speed: about 3.5 steps per second
 - Model memory loaded: about 19.6 GB in total
 
+## Image-to-video test (FRG-13)
+
+Date: 2026-10-07. Model chosen by Jaya: Wan 2.2 14B image to video (option A).
+
+- Template: "Wan 2.2 14B Image to Video" (`video_wan2_2_14B_i2v`). No custom nodes needed.
+- Jaya ran it once by hand in ComfyUI and exported it with Workflow > Export (API).
+  It is the preset `presets/image-to-video-basic/` (workflow.json is the unchanged export).
+- Settings in the export: 640 x 640, 81 frames at 16 fps (5 seconds), 20 steps
+  (10 high-noise + 10 low-noise), cfg 3.5. The template's 4-step speed-up switch is **off**.
+- Measured by Claude Code through the ComfyUI API, start image: the red car (1024 x 1024),
+  models already in memory from Jaya's run. VRAM is the whole GPU (`nvidia-smi`), sampled every 0.5 s.
+
+| Run | Time | GPU memory before | Peak GPU memory |
+|---|---|---|---|
+| As exported (20 steps), run 1 | 268.8 s | 15.9 GB | 29.8 GB |
+| As exported (20 steps), run 2 | 265.8 s | 15.4 GB | 28.6 GB |
+| Test copy with the 4-step speed-up switch on (not saved) | 32.8 s | 15.9 GB | 30.6 GB |
+
+- Peak use is about 29 to 31 GB of the 32.6 GB VRAM. Close other GPU-heavy programs while making videos.
+- Output: an `.mp4` file of about 1.5 MB in `ComfyUI\output\video\`.
+- The first run after starting ComfyUI is slower, because about 30 GB of models must load. Not measured.
+
 ## Problems found during setup
 
 1. Claude Code could not start the `.bat` file itself. Jaya starts ComfyUI by hand.
@@ -73,4 +101,4 @@ Check that each file ends up in the folder listed above.
 
 ## Not done yet
 
-- Image-to-video test (time and VRAM). This is ticket FRG-13.
+- Showing videos in the app. This is ticket FRG-14.
