@@ -55,6 +55,19 @@ export async function getQueue(): Promise<{ running: string[]; pending: string[]
   return { running: ids(queue.queue_running ?? []), pending: ids(queue.queue_pending ?? []) };
 }
 
+// Upload a picture into ComfyUI's input folder. Returns the file name ComfyUI saved it as.
+export async function uploadImage(image: Buffer, fileName: string, contentType: string): Promise<string> {
+  const form = new FormData();
+  form.append("image", new Blob([new Uint8Array(image)], { type: contentType }), fileName);
+  form.append("overwrite", "false"); // Never replace a file that is already there.
+  const response = await callComfyUI("/upload/image", { method: "POST", body: form });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok || !body.name) {
+    throw new HttpError(502, `ComfyUI did not accept the image (HTTP ${response.status}).`);
+  }
+  return body.name;
+}
+
 // Wait until the job is finished. Returns the files from the output node.
 export async function waitForOutput(promptId: string, outputNode: string): Promise<OutputFile[]> {
   const deadline = Date.now() + JOB_TIMEOUT_MS;

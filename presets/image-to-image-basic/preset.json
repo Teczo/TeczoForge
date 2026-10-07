@@ -1,0 +1,12 @@
+{
+  "id": "image-to-image-basic",
+  "name": "Image to Image",
+  "description": "Z-Image-Turbo. Upload a picture and describe how it should look. Keeps the layout, changes style and details (denoise 0.8, about 1 megapixel).",
+  "type": "image",
+  "inputs": [
+    { "key": "image", "label": "Start image", "kind": "image", "node": "60", "field": "image" },
+    { "key": "prompt", "label": "Prompt", "kind": "text", "node": "57:27", "field": "text" },
+    { "key": "seed", "label": "Seed", "kind": "seed", "node": "57:3", "field": "seed" }
+  ],
+  "output": { "node": "9" }
+}
