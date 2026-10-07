@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { StartValues } from "./Generate";
 import Media, { isVideo } from "./Media";
+import { ArrowLeftIcon, DownloadIcon, PlayIcon, RepeatIcon } from "./Icons";
 
 // One job, as GET /api/jobs returns it (see backend/src/db.ts).
 type Job = {
@@ -51,48 +52,53 @@ export default function Gallery({ onUseAgain }: GalleryProps) {
     loadJobs();
   }, []);
 
-  if (error) return <p style={{ color: "red" }}>{error}</p>;
-  if (!jobs) return <p>Loading the gallery...</p>;
-  if (selected) {
-    return (
+  let content;
+  if (error) content = <p className="message error">{error}</p>;
+  else if (!jobs) content = <p className="empty">Loading the gallery...</p>;
+  else if (selected) {
+    content = (
       <Detail
         job={selected}
         onBack={() => setSelected(null)}
         onUseAgain={() => onUseAgain({ presetId: selected.presetId, inputs: selected.inputs })}
       />
     );
-  }
-  if (jobs.length === 0) return <p>No images yet. Make one on the Generate page.</p>;
-
-  return (
-    <section>
-      <h2>Gallery</h2>
-      <p>{jobs.length} results, newest first. Click one to see it large.</p>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 12 }}>
-        {jobs.map((job) => (
-          <button
-            key={job.imageUrl}
-            onClick={() => setSelected(job)}
-            title={String(job.inputs.prompt ?? "")}
-            style={{ position: "relative", padding: 0, border: "1px solid #ccc", background: "none", cursor: "pointer" }}
-          >
-            <Media
-              url={job.imageUrl!}
-              mode="thumbnail"
-              alt={String(job.inputs.prompt ?? "")}
-              style={{ display: "block", width: "100%", aspectRatio: "1 / 1", objectFit: "cover" }}
-            />
-            {isVideo(job.imageUrl!) && (
-              <span style={{ position: "absolute", left: 6, bottom: 6, background: "rgba(0,0,0,0.7)", color: "white", padding: "2px 6px", fontSize: 12 }}>
-                &#9654; Video
+  } else if (jobs.length === 0) {
+    content = (
+      <p className="empty">
+        No results yet. Make one on the <a href="#/">Generate</a> page.
+      </p>
+    );
+  } else {
+    content = (
+      <>
+        <div className="gallery-head">
+          <h1>Gallery</h1>
+          <p>{jobs.length} results, newest first. Click one to see it large.</p>
+        </div>
+        <div className="gallery-grid">
+          {jobs.map((job) => (
+            <button key={job.imageUrl} className="tile" onClick={() => setSelected(job)} title={String(job.inputs.prompt ?? "")}>
+              <Media url={job.imageUrl!} mode="thumbnail" alt={String(job.inputs.prompt ?? "")} />
+              {isVideo(job.imageUrl!) && (
+                <span className="video-tag">
+                  <PlayIcon size={10} /> Video
+                </span>
+              )}
+              <span className="tile-info">
+                <span className="tile-prompt">{String(job.inputs.prompt ?? "")}</span>
+                <span className="tile-by" style={{ display: "block" }}>
+                  by {madeBy(job)}
+                </span>
               </span>
-            )}
-            <small style={{ display: "block", padding: "4px 6px", textAlign: "left", color: "#555" }}>by {madeBy(job)}</small>
-          </button>
-        ))}
-      </div>
-    </section>
-  );
+            </button>
+          ))}
+        </div>
+      </>
+    );
+  }
+
+  return <main className="page">{content}</main>;
 }
 
 // The large image or video with its prompt and settings.
@@ -100,31 +106,49 @@ function Detail({ job, onBack, onUseAgain }: { job: Job; onBack: () => void; onU
   const { prompt, seed, width, height } = job.inputs;
 
   return (
-    <section>
-      <button onClick={onBack}>&larr; Back to gallery</button>{" "}
-      <button onClick={onUseAgain}>Use again</button>
-      <Media
-        url={job.imageUrl!}
-        mode="full"
-        alt={String(prompt ?? "")}
-        style={{ display: "block", maxWidth: "100%", width: 768, margin: "16px 0" }}
-      />
-      <dl style={{ display: "grid", gridTemplateColumns: "max-content 1fr", gap: "4px 16px" }}>
-        <dt><strong>Prompt</strong></dt>
-        <dd style={{ margin: 0 }}>{String(prompt ?? "")}</dd>
-        <dt><strong>Made by</strong></dt>
-        <dd style={{ margin: 0 }}>{madeBy(job)}</dd>
-        <dt><strong>Preset</strong></dt>
-        <dd style={{ margin: 0 }}>{job.presetId}</dd>
-        <dt><strong>Seed</strong></dt>
-        <dd style={{ margin: 0 }}>{String(seed ?? "")}</dd>
-        <dt><strong>Size</strong></dt>
-        <dd style={{ margin: 0 }}>{String(width ?? "")} x {String(height ?? "")}</dd>
-        <dt><strong>Time taken</strong></dt>
-        <dd style={{ margin: 0 }}>{(job.durationMs / 1000).toFixed(1)} seconds</dd>
-        <dt><strong>Made on</strong></dt>
-        <dd style={{ margin: 0 }}>{new Date(job.createdAt).toLocaleString()}</dd>
-      </dl>
-    </section>
+    <>
+      <div className="gallery-head">
+        <button className="button" onClick={onBack}>
+          <ArrowLeftIcon size={18} /> Back to gallery
+        </button>
+      </div>
+      <div className="detail">
+        <div className="detail-media panel">
+          <Media url={job.imageUrl!} mode="full" alt={String(prompt ?? "")} />
+        </div>
+        <div className="detail-info panel">
+          <h2>Prompt</h2>
+          <p className="detail-prompt">{String(prompt ?? "")}</p>
+          <dl className="facts">
+            <dt>Made by</dt>
+            <dd>{madeBy(job)}</dd>
+            <dt>Preset</dt>
+            <dd>{job.presetId}</dd>
+            <dt>Seed</dt>
+            <dd>{String(seed ?? "")}</dd>
+            {width !== undefined && (
+              <>
+                <dt>Size</dt>
+                <dd>
+                  {String(width)} x {String(height ?? "")}
+                </dd>
+              </>
+            )}
+            <dt>Time taken</dt>
+            <dd>{(job.durationMs / 1000).toFixed(1)} seconds</dd>
+            <dt>Made on</dt>
+            <dd>{new Date(job.createdAt).toLocaleString()}</dd>
+          </dl>
+          <div className="button-row">
+            <button className="button primary" onClick={onUseAgain}>
+              <RepeatIcon size={18} /> Use again
+            </button>
+            <a className="button" href={job.imageUrl!} download>
+              <DownloadIcon size={18} /> Download
+            </a>
+          </div>
+        </div>
+      </div>
+    </>
   );
 }
