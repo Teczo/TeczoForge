@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import Generate from "./Generate";
 
 // What the page knows about each part.
 type Status = "checking" | "online" | "offline" | "unknown";
@@ -37,6 +38,7 @@ export default function App() {
       <h2>System status</h2>
       <StatusLine label="Backend" status={backend} />
       <StatusLine label="ComfyUI" status={comfyui} />
+      <Generate />
     </main>
   );
 }
