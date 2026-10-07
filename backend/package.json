@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "user": "tsx src/setUser.ts",
+    "secret": "tsx src/makeSecret.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
