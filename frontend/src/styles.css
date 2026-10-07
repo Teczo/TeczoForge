@@ -98,6 +98,14 @@ a {
   width: auto;
 }
 
+/* "Forge" next to the logo picture: sized and lined up to match its "teczo". */
+.logo-forge {
+  margin-left: -8px;
+  font-size: 32px;
+  line-height: 1;
+  font-weight: 400;
+}
+
 .logo-mark {
   color: var(--accent);
 }

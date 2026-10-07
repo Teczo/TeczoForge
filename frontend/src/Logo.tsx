@@ -1,15 +1,16 @@
 import { useState } from "react";
 import { CubeIcon } from "./Icons";
 
-// The TeczoForge logo. Put the logo picture at frontend/public/logo.png.
-// Until that file exists, a drawn cube and the name are shown instead.
+// The TeczoForge logo: the Teczo logo picture (frontend/public/logo.png) with "Forge" after it.
+// If the picture is missing, a drawn cube and the name are shown instead.
 export default function Logo() {
   const [hasFile, setHasFile] = useState(true);
 
   if (hasFile) {
     return (
       <div className="logo">
-        <img src="/logo.png" alt="TeczoForge" onError={() => setHasFile(false)} />
+        <img src="/logo.png" alt="teczo" onError={() => setHasFile(false)} />
+        <span className="logo-word-2 logo-forge">Forge</span>
       </div>
     );
   }
