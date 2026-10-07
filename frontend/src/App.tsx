@@ -3,6 +3,8 @@ import Generate from "./Generate";
 import type { StartValues } from "./Generate";
 import Gallery from "./Gallery";
 import Login from "./Login";
+import Logo from "./Logo";
+import { ChevronDownIcon, ImageIcon, LogoutIcon, SparklesIcon } from "./Icons";
 
 // Which page to show comes from the address: #/gallery or the Generate page.
 // Using the # part means a refresh or bookmark keeps the same page.
@@ -84,44 +86,37 @@ export default function App() {
     checkHealth();
   }, [user]);
 
-  const mainStyle = { fontFamily: "system-ui, sans-serif", padding: 24 };
-
   if (user === undefined) {
-    return (
-      <main style={mainStyle}>
-        <h1>TeczoForge</h1>
-        <p>Loading...</p>
-      </main>
-    );
+    return <div className="loading-page">Loading...</div>;
   }
   if (user === null) {
-    return (
-      <main style={mainStyle}>
-        <h1>TeczoForge</h1>
-        <Login onLoggedIn={setUser} notice={loginNotice} />
-      </main>
-    );
+    return <Login onLoggedIn={setUser} notice={loginNotice} />;
   }
 
   return (
-    <main style={mainStyle}>
-      <h1>TeczoForge</h1>
-      <p>
-        Logged in as <strong>{user}</strong> &middot; <button onClick={logOut}>Log out</button>
-      </p>
-      <nav style={{ display: "flex", gap: 16 }}>
-        <a href="#/" style={{ fontWeight: page === "generate" ? "bold" : "normal" }}>Generate</a>
-        <a href="#/gallery" style={{ fontWeight: page === "gallery" ? "bold" : "normal" }}>Gallery</a>
-      </nav>
-      <h2>System status</h2>
-      <StatusLine label="Backend" status={backend} />
-      <StatusLine label="ComfyUI" status={comfyui} />
+    <>
+      <header className="header">
+        <Logo />
+        <nav className="nav">
+          <a href="#/" className={page === "generate" ? "active" : ""}>
+            <SparklesIcon size={22} /> <span>Generate</span>
+          </a>
+          <a href="#/gallery" className={page === "gallery" ? "active" : ""}>
+            <ImageIcon size={22} /> <span>Gallery</span>
+          </a>
+        </nav>
+        <div className="status-list">
+          <StatusLine label="Backend" status={backend} />
+          <StatusLine label="ComfyUI" status={comfyui} />
+        </div>
+        <UserMenu user={user} onLogOut={logOut} />
+      </header>
       {page === "gallery" ? (
         <Gallery onUseAgain={handleUseAgain} />
       ) : (
         <Generate startValues={useAgain} onStartValuesUsed={() => setUseAgain(null)} />
       )}
-    </main>
+    </>
   );
 }
 
@@ -129,21 +124,56 @@ const statusText: Record<Status, string> = {
   checking: "Checking...",
   online: "Online",
   offline: "Offline",
-  unknown: "Unknown (backend is offline)",
+  unknown: "Unknown",
 };
 
-const statusColor: Record<Status, string> = {
-  checking: "gray",
-  online: "green",
-  offline: "red",
-  unknown: "gray",
-};
-
+// A colored dot and a word, for example "Backend  Online". The color comes from styles.css.
 function StatusLine({ label, status }: { label: string; status: Status }) {
+  const title = status === "unknown" ? "Unknown, because the backend is offline" : undefined;
   return (
-    <p>
-      <strong>{label}:</strong>{" "}
-      <span style={{ color: statusColor[status] }}>{statusText[status]}</span>
-    </p>
+    <span className={`status status-${status}`} title={title}>
+      <span className="status-dot" />
+      {label} <span className="status-word">{statusText[status]}</span>
+    </span>
+  );
+}
+
+// The round letter, the name, and a small menu with "Log out".
+function UserMenu({ user, onLogOut }: { user: string; onLogOut: () => void }) {
+  const [open, setOpen] = useState(false);
+
+  // Close the menu when the user clicks anywhere else.
+  useEffect(() => {
+    if (!open) return;
+    const close = () => setOpen(false);
+    window.addEventListener("click", close);
+    return () => window.removeEventListener("click", close);
+  }, [open]);
+
+  return (
+    <div className="user-menu">
+      <button
+        className="user-button"
+        onClick={(event) => {
+          event.stopPropagation();
+          setOpen(!open);
+        }}
+        aria-expanded={open}
+      >
+        <span className="avatar">{user.charAt(0).toUpperCase()}</span>
+        <span className="user-name">{user}</span>
+        <ChevronDownIcon size={18} />
+      </button>
+      {open && (
+        <div className="user-dropdown">
+          <p>
+            Logged in as <strong>{user}</strong>
+          </p>
+          <button onClick={onLogOut}>
+            <LogoutIcon size={18} /> Log out
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
