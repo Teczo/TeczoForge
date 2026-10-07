@@ -5,6 +5,7 @@ import { checkDatabase, listJobs } from "./db.js";
 import { HttpError } from "./httpError.js";
 import { getProgress, startProgressListener } from "./progress.js";
 import { listPresets } from "./presets.js";
+import { IMAGE_TYPES, MAX_UPLOAD_BYTES, uploadHandler } from "./upload.js";
 
 // Settings come from backend/.env. The defaults match .env.example.
 const PORT = Number(process.env.PORT ?? 4000);
@@ -49,6 +50,9 @@ app.get("/api/presets", async (_req, res) => {
   }
 });
 
+// Upload a picture for an "image" input. The body is the picture itself (no extra package needed).
+app.post("/api/upload", express.raw({ type: IMAGE_TYPES, limit: MAX_UPLOAD_BYTES }), uploadHandler);
+
 // Make an image from a preset and the user's values.
 app.post("/api/generate", express.json(), generateHandler);
 
@@ -81,6 +85,10 @@ app.use("/api/outputs", express.static(OUTPUTS_DIR));
 app.use((error: { type?: string }, _req: express.Request, res: express.Response, next: express.NextFunction) => {
   if (error.type === "entity.parse.failed") {
     res.status(400).json({ error: "The request body is not valid JSON." });
+    return;
+  }
+  if (error.type === "entity.too.large") {
+    res.status(413).json({ error: `This file is too big. The limit is ${MAX_UPLOAD_BYTES / 1024 / 1024} MB.` });
     return;
   }
   next(error);
