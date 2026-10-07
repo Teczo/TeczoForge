@@ -162,6 +162,9 @@ Follow these steps for EVERY ticket. This avoids merge conflicts.
 
 Fill this in when the ticket that creates each part is done.
 
+- Start everything (Jaya does this): double-click `start-teczoforge.bat` in the repo root.
+  It starts ComfyUI (skipped if already running), waits for it, starts the backend and
+  frontend in their own windows, and opens `http://localhost:5173`. Close the windows to stop.
 - Start ComfyUI (Jaya does this): see `docs/comfyui-setup.md`
 - Backend dev: `cd backend`, then `npm run dev`
 - Frontend dev: `cd frontend`, then `npm run dev`
