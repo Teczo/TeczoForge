@@ -4,9 +4,21 @@ import type { FormEvent } from "react";
 // The only preset for now. Picking a preset is ticket FRG-10.
 const PRESET_ID = "text-to-image-basic";
 
+// How often to ask the backend where the job is.
+const PROGRESS_INTERVAL_MS = 500;
+
+// The answer from GET /api/progress/<jobId> (see backend/src/progress.ts).
+type Progress =
+  | { state: "unknown" }
+  | { state: "starting" }
+  | { state: "waiting"; jobsAhead: number }
+  | { state: "running"; step: number; steps: number }
+  | { state: "finishing" };
+
 export default function Generate() {
   const [prompt, setPrompt] = useState("");
   const [running, setRunning] = useState(false);
+  const [progress, setProgress] = useState<Progress | null>(null);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
@@ -14,15 +26,29 @@ export default function Generate() {
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     setRunning(true);
+    setProgress(null);
     setError(null);
     setWarning(null);
     setImageUrl(null);
+
+    // Give the job an id, so we can ask the backend about it while we wait.
+    const jobId = crypto.randomUUID();
+    let finished = false;
+    const timer = setInterval(async () => {
+      try {
+        const response = await fetch(`/api/progress/${jobId}`);
+        const answer: Progress = await response.json();
+        if (response.ok && !finished) setProgress(answer);
+      } catch {
+        // Missing one update is fine. The next one comes soon.
+      }
+    }, PROGRESS_INTERVAL_MS);
 
     try {
       const response = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ presetId: PRESET_ID, inputs: { prompt } }),
+        body: JSON.stringify({ presetId: PRESET_ID, inputs: { prompt }, jobId }),
       });
       // The backend always answers with JSON. If not, the backend is not running.
       const body = await response.json().catch(() => null);
@@ -39,6 +65,9 @@ export default function Generate() {
     } catch {
       setError("Could not reach the backend. Make sure it is running, then try again.");
     } finally {
+      finished = true;
+      clearInterval(timer);
+      setProgress(null);
       setRunning(false);
     }
   }
@@ -60,7 +89,7 @@ export default function Generate() {
         </button>
       </form>
 
-      {running && <p>Making your image. This usually takes a few seconds.</p>}
+      {running && <ProgressView progress={progress} />}
       {error && <p style={{ color: "red" }}>{error}</p>}
       {warning && <p style={{ color: "darkorange" }}>Warning: {warning}</p>}
       {imageUrl && (
@@ -68,4 +97,24 @@ export default function Generate() {
       )}
     </section>
   );
+}
+
+// Shows where the job is: waiting in the queue, a progress bar, or saving.
+function ProgressView({ progress }: { progress: Progress | null }) {
+  if (progress?.state === "waiting") {
+    const ahead = progress.jobsAhead === 1 ? "1 job" : `${progress.jobsAhead} jobs`;
+    return <p>Waiting in the queue: {ahead} ahead of yours.</p>;
+  }
+  if (progress?.state === "running" && progress.steps > 0) {
+    return (
+      <p>
+        <progress value={progress.step} max={progress.steps} style={{ width: 300, verticalAlign: "middle" }} /> Step{" "}
+        {progress.step} of {progress.steps}
+      </p>
+    );
+  }
+  // Running, but no steps yet: ComfyUI is loading the model (slow only the first time).
+  if (progress?.state === "running") return <p>Starting...</p>;
+  if (progress?.state === "finishing") return <p>Saving the image...</p>;
+  return <p>Sending your job to ComfyUI...</p>;
 }
