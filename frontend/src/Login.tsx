@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
+import Logo from "./Logo";
 
 // The login form. Accounts are made on System 1 with "npm run user" (see backend/src/setUser.ts).
 export default function Login({ onLoggedIn, notice }: { onLoggedIn: (username: string) => void; notice?: string }) {
@@ -30,35 +31,38 @@ export default function Login({ onLoggedIn, notice }: { onLoggedIn: (username: s
   }
 
   return (
-    <section style={{ maxWidth: 320 }}>
-      <h2>Log in</h2>
-      {notice && <p style={{ color: "red" }}>{notice}</p>}
-      <form onSubmit={handleSubmit}>
-        <label style={{ display: "block", marginBottom: 12 }}>
-          <strong>Username</strong>
-          <input
-            value={username}
-            onChange={(event) => setUsername(event.target.value)}
-            autoComplete="username"
-            autoFocus
-            style={{ display: "block", width: "100%", marginTop: 4 }}
-          />
-        </label>
-        <label style={{ display: "block", marginBottom: 12 }}>
-          <strong>Password</strong>
-          <input
-            type="password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            autoComplete="current-password"
-            style={{ display: "block", width: "100%", marginTop: 4 }}
-          />
-        </label>
-        <button type="submit" disabled={busy || username === "" || password === ""}>
-          {busy ? "Logging in..." : "Log in"}
-        </button>
-      </form>
-      {error && <p style={{ color: "red" }}>{error}</p>}
-    </section>
+    <main className="login-page">
+      <section className="login-card panel">
+        <Logo />
+        <p>Log in to start creating.</p>
+        {notice && <p className="message error">{notice}</p>}
+        <form onSubmit={handleSubmit}>
+          <label>
+            <span className="field-label">Username</span>
+            <input
+              className="input"
+              value={username}
+              onChange={(event) => setUsername(event.target.value)}
+              autoComplete="username"
+              autoFocus
+            />
+          </label>
+          <label>
+            <span className="field-label">Password</span>
+            <input
+              className="input"
+              type="password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              autoComplete="current-password"
+            />
+          </label>
+          {error && <p className="message error">{error}</p>}
+          <button className="button primary" type="submit" disabled={busy || username === "" || password === ""}>
+            {busy ? "Logging in..." : "Log in"}
+          </button>
+        </form>
+      </section>
+    </main>
   );
 }
