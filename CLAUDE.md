@@ -55,7 +55,10 @@ Anything not on this list: say what and why, then stop and ask.
 
 ### Ports and addresses
 
-- Backend: port `4000` (env var `PORT`). Listens on `127.0.0.1` until ticket FRG-15.
+- Backend: port `4000` (env var `PORT`). Env var `HOST`: `127.0.0.1` = this PC only (default),
+  `0.0.0.0` = also other PCs on the local network (FRG-15). Either way the backend only answers
+  this PC and private local-network addresses; Tailscale and other addresses get 403 (`backend/src/network.ts`).
+- The backend also serves the built frontend (`frontend/dist`), so other PCs open `http://<System 1 address>:4000`.
 - Frontend dev server: port `5173` (Vite default). It proxies `/api` to the backend.
 - ComfyUI: `http://127.0.0.1:8188` (env var `COMFYUI_URL`).
 - Every backend route starts with `/api`.
@@ -165,6 +168,9 @@ Fill this in when the ticket that creates each part is done.
 - Start ComfyUI (Jaya does this): see `docs/comfyui-setup.md`
 - Backend dev: `cd backend`, then `npm run dev`
 - Frontend dev: `cd frontend`, then `npm run dev`
+- Use from other PCs on the network: set `HOST=0.0.0.0` in `backend/.env`, build the frontend
+  (`cd frontend`, then `npm run build`), start the backend. Other PCs open the address the backend
+  prints ("Other PCs on the network: ..."). Build again after frontend changes.
 - Tests: (not set yet)
 - Lint: (not set yet)
 
