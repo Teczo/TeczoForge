@@ -241,6 +241,9 @@ cd frontend && npm run dev
 
 :: Add a team account or reset a password
 cd backend && npm run user -- <username>
+
+:: Make a SESSION_SECRET for backend/.env
+cd backend && npm run secret
 ```
 
 Set up `backend/.env` from `backend/.env.example` (`PORT`, `COMFYUI_URL`, `MONGODB_URI`, `SESSION_SECRET`).

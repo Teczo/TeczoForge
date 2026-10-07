@@ -21,16 +21,25 @@ const SESSION_MS = SESSION_DAYS * 24 * 60 * 60 * 1000;
 export const USERNAME_PATTERN = /^[a-z0-9._-]{3,32}$/;
 export const MIN_PASSWORD_LENGTH = 8;
 
-// The key that signs session cookies. Without SESSION_SECRET, a new random key is made at every
-// start, which logs everybody out when the backend restarts.
+// The key that signs session cookies. Make one with `npm run secret`.
+// Without SESSION_SECRET, a new random key is made at every start, which logs everybody out when
+// the backend restarts. A SESSION_SECRET that is set but too short is refused: the backend stops.
+const MIN_SESSION_SECRET_LENGTH = 32;
 let sessionSecret = "";
 export function checkSessionSecret() {
   sessionSecret = process.env.SESSION_SECRET ?? "";
-  if (sessionSecret.length < 32) {
+  if (!sessionSecret) {
     sessionSecret = randomBytes(32).toString("hex");
     console.warn(
-      "Warning: SESSION_SECRET is missing or too short in backend/.env, so everyone is logged out when the backend restarts.",
+      "Warning: SESSION_SECRET is not set in backend/.env, so everyone is logged out when the backend restarts. Run `npm run secret` to make one.",
     );
+    return;
+  }
+  if (sessionSecret.length < MIN_SESSION_SECRET_LENGTH) {
+    console.error(
+      `Error: SESSION_SECRET in backend/.env is too short (${sessionSecret.length} characters, needs at least ${MIN_SESSION_SECRET_LENGTH}). Run \`npm run secret\` and paste the new value.`,
+    );
+    process.exit(1);
   }
 }
 

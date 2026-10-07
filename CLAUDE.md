@@ -170,6 +170,8 @@ Fill this in when the ticket that creates each part is done.
 - Frontend dev: `cd frontend`, then `npm run dev`
 - Add a team account, or set a new password: `cd backend`, then `npm run user -- <username>`
   (asks for the password twice). Needs MongoDB. `SESSION_SECRET` in `backend/.env` keeps logins after a restart.
+- Make a new `SESSION_SECRET`: `cd backend`, then `npm run secret` (prints 64 hex characters;
+  paste it into `backend/.env`). If it is set but shorter than 32 characters, the backend will not start.
 - Tests: (not set yet)
 - Lint: (not set yet)
 

@@ -105,10 +105,12 @@ app.use((error: { type?: string }, _req: express.Request, res: express.Response,
   next(error);
 });
 
+// Check the login key before the server starts, so a bad SESSION_SECRET stops it right away.
+checkSessionSecret();
+
 app.listen(PORT, HOST, () => {
   console.log(`Backend running at http://${HOST}:${PORT}`);
   console.log(`ComfyUI address: ${COMFYUI_URL}`);
-  checkSessionSecret();
   checkDatabase();
   startProgressListener();
 });
