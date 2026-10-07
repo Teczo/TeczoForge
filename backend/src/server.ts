@@ -40,11 +40,10 @@ app.get("/api/health", async (_req, res) => {
 // Make an image from a preset and the user's values.
 app.post("/api/generate", express.json(), generateHandler);
 
-// The job history, newest first.
-const MAX_JOBS = 100;
+// The whole job history, newest first.
 app.get("/api/jobs", async (_req, res) => {
   try {
-    res.json({ jobs: await listJobs(MAX_JOBS) });
+    res.json({ jobs: await listJobs() });
   } catch (error) {
     const status = error instanceof HttpError ? error.status : 500;
     const message = error instanceof HttpError ? error.message : "Could not read the job history.";

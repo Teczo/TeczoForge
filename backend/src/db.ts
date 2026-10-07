@@ -58,10 +58,10 @@ export async function saveJob(job: Job): Promise<string | undefined> {
 }
 
 // All jobs, newest first.
-export async function listJobs(limit: number): Promise<Job[]> {
+export async function listJobs(): Promise<Job[]> {
   try {
     const jobs = await getJobsCollection();
-    return await jobs.find({}, { projection: { _id: 0 } }).sort({ createdAt: -1 }).limit(limit).toArray();
+    return await jobs.find({}, { projection: { _id: 0 } }).sort({ createdAt: -1 }).toArray();
   } catch (error) {
     console.warn(`Warning: could not read jobs. ${safeMessage(error)}`);
     throw new HttpError(503, "The job history is not available because MongoDB cannot be reached.");
