@@ -6,6 +6,7 @@ import { HttpError } from "./httpError.js";
 import { getProgress, startProgressListener } from "./progress.js";
 import { listPresets } from "./presets.js";
 import { IMAGE_TYPES, MAX_UPLOAD_BYTES, uploadHandler } from "./upload.js";
+import { checkSessionSecret, loginHandler, logoutHandler, meHandler, requireLogin } from "./auth.js";
 
 // Settings come from backend/.env. The defaults match .env.example.
 const PORT = Number(process.env.PORT ?? 4000);
@@ -31,6 +32,16 @@ async function isComfyUIReachable(): Promise<boolean> {
 }
 
 const app = express();
+
+// Logging in and out works without a login.
+app.post("/api/login", express.json(), loginHandler);
+app.post("/api/logout", logoutHandler);
+
+// Every other /api address needs a login (see auth.ts). This must stay above the routes below.
+app.use("/api", requireLogin);
+
+// Who is logged in. The page asks this first: 401 means "show the login form".
+app.get("/api/me", meHandler);
 
 app.get("/api/health", async (_req, res) => {
   const reachable = await isComfyUIReachable();
@@ -97,6 +108,7 @@ app.use((error: { type?: string }, _req: express.Request, res: express.Response,
 app.listen(PORT, HOST, () => {
   console.log(`Backend running at http://${HOST}:${PORT}`);
   console.log(`ComfyUI address: ${COMFYUI_URL}`);
+  checkSessionSecret();
   checkDatabase();
   startProgressListener();
 });

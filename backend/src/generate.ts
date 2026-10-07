@@ -22,6 +22,8 @@ export const OUTPUTS_DIR = path.join(import.meta.dirname, "..", "..", "data", "o
 export async function generateHandler(req: Request, res: Response) {
   const startedAt = new Date();
   const { presetId, inputs, jobId } = req.body ?? {};
+  // Who started the job (set by requireLogin in auth.ts).
+  const createdBy: string | null = res.locals.username ?? null;
   // Until the inputs are checked, save them as they were sent.
   let jobInputs: unknown = inputs ?? {};
   const tracked = typeof jobId === "string" && JOB_ID_PATTERN.test(jobId);
@@ -59,6 +61,7 @@ export async function generateHandler(req: Request, res: Response) {
       error: null,
       durationMs: Date.now() - startedAt.getTime(),
       createdAt: startedAt,
+      createdBy,
     });
 
     res.json(warning ? { imageUrl, warning } : { imageUrl });
@@ -81,6 +84,7 @@ export async function generateHandler(req: Request, res: Response) {
       error: message,
       durationMs: Date.now() - startedAt.getTime(),
       createdAt: startedAt,
+      createdBy,
     });
 
     res.status(status).json(warning ? { error: message, warning } : { error: message });

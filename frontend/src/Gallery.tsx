@@ -12,7 +12,13 @@ type Job = {
   error: string | null;
   durationMs: number;
   createdAt: string;
+  createdBy?: string | null; // Missing on jobs from before team logins (FRG-16).
 };
+
+// Who made a job, for showing on the page.
+function madeBy(job: Job): string {
+  return job.createdBy ?? "Unknown";
+}
 
 type GalleryProps = {
   // "Use again": open the Generate page with this job's preset and values.
@@ -81,6 +87,7 @@ export default function Gallery({ onUseAgain }: GalleryProps) {
                 &#9654; Video
               </span>
             )}
+            <small style={{ display: "block", padding: "4px 6px", textAlign: "left", color: "#555" }}>by {madeBy(job)}</small>
           </button>
         ))}
       </div>
@@ -105,6 +112,8 @@ function Detail({ job, onBack, onUseAgain }: { job: Job; onBack: () => void; onU
       <dl style={{ display: "grid", gridTemplateColumns: "max-content 1fr", gap: "4px 16px" }}>
         <dt><strong>Prompt</strong></dt>
         <dd style={{ margin: 0 }}>{String(prompt ?? "")}</dd>
+        <dt><strong>Made by</strong></dt>
+        <dd style={{ margin: 0 }}>{madeBy(job)}</dd>
         <dt><strong>Preset</strong></dt>
         <dd style={{ margin: 0 }}>{job.presetId}</dd>
         <dt><strong>Seed</strong></dt>

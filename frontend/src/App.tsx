@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import Generate from "./Generate";
 import type { StartValues } from "./Generate";
 import Gallery from "./Gallery";
+import Login from "./Login";
 
 // Which page to show comes from the address: #/gallery or the Generate page.
 // Using the # part means a refresh or bookmark keeps the same page.
@@ -19,6 +20,9 @@ type HealthResponse = {
 };
 
 export default function App() {
+  // Who is logged in: undefined while checking, null when nobody is.
+  const [user, setUser] = useState<string | null | undefined>(undefined);
+  const [loginNotice, setLoginNotice] = useState<string | undefined>(undefined);
   const [backend, setBackend] = useState<Status>("checking");
   const [comfyui, setComfyui] = useState<Status>("checking");
   const [page, setPage] = useState(currentPage);
@@ -37,8 +41,33 @@ export default function App() {
     return () => window.removeEventListener("hashchange", onHashChange);
   }, []);
 
-  // Ask the backend once, when the page loads.
+  // First ask who is logged in. 401 means nobody: show the login form.
   useEffect(() => {
+    async function checkLogin() {
+      try {
+        const response = await fetch("/api/me");
+        if (response.ok) {
+          setUser((await response.json()).username);
+        } else {
+          setUser(null);
+          if (response.status !== 401) setLoginNotice("Could not reach the backend. Make sure it is running, then refresh.");
+        }
+      } catch {
+        setUser(null);
+        setLoginNotice("Could not reach the backend. Make sure it is running, then refresh.");
+      }
+    }
+    checkLogin();
+  }, []);
+
+  async function logOut() {
+    await fetch("/api/logout", { method: "POST" }).catch(() => {});
+    window.location.reload(); // Start again from the login form.
+  }
+
+  // Ask the backend about the system once, after logging in.
+  useEffect(() => {
+    if (!user) return;
     async function checkHealth() {
       try {
         const response = await fetch("/api/health");
@@ -53,11 +82,33 @@ export default function App() {
       }
     }
     checkHealth();
-  }, []);
+  }, [user]);
+
+  const mainStyle = { fontFamily: "system-ui, sans-serif", padding: 24 };
+
+  if (user === undefined) {
+    return (
+      <main style={mainStyle}>
+        <h1>TeczoForge</h1>
+        <p>Loading...</p>
+      </main>
+    );
+  }
+  if (user === null) {
+    return (
+      <main style={mainStyle}>
+        <h1>TeczoForge</h1>
+        <Login onLoggedIn={setUser} notice={loginNotice} />
+      </main>
+    );
+  }
 
   return (
-    <main style={{ fontFamily: "system-ui, sans-serif", padding: 24 }}>
+    <main style={mainStyle}>
       <h1>TeczoForge</h1>
+      <p>
+        Logged in as <strong>{user}</strong> &middot; <button onClick={logOut}>Log out</button>
+      </p>
       <nav style={{ display: "flex", gap: 16 }}>
         <a href="#/" style={{ fontWeight: page === "generate" ? "bold" : "normal" }}>Generate</a>
         <a href="#/gallery" style={{ fontWeight: page === "gallery" ? "bold" : "normal" }}>Gallery</a>
