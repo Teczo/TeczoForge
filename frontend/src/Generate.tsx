@@ -9,11 +9,13 @@ export default function Generate() {
   const [running, setRunning] = useState(false);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     setRunning(true);
     setError(null);
+    setWarning(null);
     setImageUrl(null);
 
     try {
@@ -32,6 +34,8 @@ export default function Generate() {
       } else {
         setImageUrl(body.imageUrl);
       }
+      // For example: the image was made, but the job history (MongoDB) is offline.
+      if (body?.warning) setWarning(body.warning);
     } catch {
       setError("Could not reach the backend. Make sure it is running, then try again.");
     } finally {
@@ -58,6 +62,7 @@ export default function Generate() {
 
       {running && <p>Making your image. This usually takes a few seconds.</p>}
       {error && <p style={{ color: "red" }}>{error}</p>}
+      {warning && <p style={{ color: "darkorange" }}>Warning: {warning}</p>}
       {imageUrl && (
         <img src={imageUrl} alt={prompt} style={{ display: "block", maxWidth: "100%", width: 600, marginTop: 16 }} />
       )}

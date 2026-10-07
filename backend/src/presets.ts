@@ -52,7 +52,12 @@ export async function loadPreset(presetId: unknown): Promise<{ preset: Preset; w
 }
 
 // Check the user's values and put them into a copy of the workflow.
-export function buildWorkflow(preset: Preset, workflow: Workflow, values: unknown): Workflow {
+// Also returns the values used, including defaults and the random seed.
+export function buildWorkflow(
+  preset: Preset,
+  workflow: Workflow,
+  values: unknown,
+): { workflow: Workflow; usedValues: Record<string, string | number> } {
   if (typeof values !== "object" || values === null || Array.isArray(values)) {
     throw new HttpError(400, "inputs must be an object, for example { \"prompt\": \"a red car\" }.");
   }
@@ -67,9 +72,11 @@ export function buildWorkflow(preset: Preset, workflow: Workflow, values: unknow
   }
 
   const result: Workflow = structuredClone(workflow);
+  const usedValues: Record<string, string | number> = {};
 
   for (const input of preset.inputs) {
     const value = checkValue(input, userValues[input.key]);
+    usedValues[input.key] = value;
 
     // Node ids like "57:27" are plain text keys.
     const node = result[input.node];
@@ -79,7 +86,7 @@ export function buildWorkflow(preset: Preset, workflow: Workflow, values: unknow
     node.inputs[input.field] = value;
   }
 
-  return result;
+  return { workflow: result, usedValues };
 }
 
 // Check one value. Returns the value to use (the default if the user gave none).

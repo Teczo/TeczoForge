@@ -1,6 +1,8 @@
 import "dotenv/config";
 import express from "express";
 import { generateHandler, OUTPUTS_DIR } from "./generate.js";
+import { checkDatabase, listJobs } from "./db.js";
+import { HttpError } from "./httpError.js";
 
 // Settings come from backend/.env. The defaults match .env.example.
 const PORT = Number(process.env.PORT ?? 4000);
@@ -38,6 +40,18 @@ app.get("/api/health", async (_req, res) => {
 // Make an image from a preset and the user's values.
 app.post("/api/generate", express.json(), generateHandler);
 
+// The job history, newest first.
+const MAX_JOBS = 100;
+app.get("/api/jobs", async (_req, res) => {
+  try {
+    res.json({ jobs: await listJobs(MAX_JOBS) });
+  } catch (error) {
+    const status = error instanceof HttpError ? error.status : 500;
+    const message = error instanceof HttpError ? error.message : "Could not read the job history.";
+    res.status(status).json({ error: message });
+  }
+});
+
 // Serve finished images from data/outputs.
 app.use("/api/outputs", express.static(OUTPUTS_DIR));
 
@@ -53,4 +67,5 @@ app.use((error: { type?: string }, _req: express.Request, res: express.Response,
 app.listen(PORT, HOST, () => {
   console.log(`Backend running at http://${HOST}:${PORT}`);
   console.log(`ComfyUI address: ${COMFYUI_URL}`);
+  checkDatabase();
 });
