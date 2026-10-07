@@ -33,6 +33,7 @@ function toInputs(preset: Preset, values: FormValues): Record<string, string | n
   for (const input of preset.inputs) {
     const value = values[input.key] ?? "";
     if (input.kind === "text") inputs[input.key] = value;
+    else if (input.kind === "image" && value !== "") inputs[input.key] = value; // The uploaded file name.
     else if ((input.kind === "number" || input.kind === "seed") && value.trim() !== "") inputs[input.key] = Number(value);
   }
   return inputs;
@@ -166,8 +167,10 @@ export default function Generate({ startValues = null, onStartValuesUsed }: Gene
   if (presetsError) return <p style={{ color: "red" }}>{presetsError}</p>;
   if (!presets || !preset) return <p>Loading presets...</p>;
 
-  // Every text input (like the prompt) must be filled in.
-  const missingText = preset.inputs.some((input) => input.kind === "text" && (values[input.key] ?? "").trim() === "");
+  // Every text input (like the prompt) and every image must be filled in.
+  const missingRequired = preset.inputs.some(
+    (input) => (input.kind === "text" || input.kind === "image") && (values[input.key] ?? "").trim() === "",
+  );
   const firstText = preset.inputs.find((input) => input.kind === "text");
 
   return (
@@ -198,11 +201,12 @@ export default function Generate({ startValues = null, onStartValuesUsed }: Gene
             input={input}
             value={values[input.key] ?? ""}
             disabled={running}
-            onChange={(value) => setValues({ ...values, [input.key]: value })}
+            // Use the latest values: an image upload can finish after the user typed something else.
+            onChange={(value) => setValues((current) => ({ ...current, [input.key]: value }))}
           />
         ))}
 
-        <button type="submit" disabled={running || missingText}>
+        <button type="submit" disabled={running || missingRequired}>
           {running ? "Generating..." : "Generate"}
         </button>
       </form>
@@ -251,8 +255,10 @@ function Field(props: { input: PresetInput; value: string; disabled: boolean; on
         style={{ ...boxStyle, width: 200 }}
       />
     );
+  } else if (input.kind === "image") {
+    box = <ImageBox value={value} disabled={disabled} onChange={onChange} />;
   } else {
-    // A kind this page does not know yet (for example an image upload, ticket FRG-12).
+    // A kind this page does not know yet.
     box = <small style={{ display: "block", color: "gray" }}>This input type ("{input.kind}") is not supported yet.</small>;
   }
 
@@ -261,6 +267,68 @@ function Field(props: { input: PresetInput; value: string; disabled: boolean; on
       <strong>{input.label}</strong>
       {box}
     </label>
+  );
+}
+
+// Same limits as the backend (backend/src/upload.ts).
+const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp"];
+const MAX_UPLOAD_MB = 20;
+
+// An image input: pick a picture, upload it straight away, show a small preview.
+// The value is the file name the backend gives back. It stays empty until the upload is done.
+function ImageBox(props: { value: string; disabled: boolean; onChange: (value: string) => void }) {
+  const { value, disabled, onChange } = props;
+  const [preview, setPreview] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
+  async function handlePick(file: File | undefined) {
+    if (!file) return;
+    onChange("");
+    setUploadError(null);
+    setPreview(URL.createObjectURL(file)); // Shown from this PC; nothing is uploaded for the preview.
+
+    if (!IMAGE_TYPES.includes(file.type)) {
+      setUploadError("Pick a PNG, JPEG or WebP image.");
+      return;
+    }
+    if (file.size > MAX_UPLOAD_MB * 1024 * 1024) {
+      setUploadError(`This file is too big. The limit is ${MAX_UPLOAD_MB} MB.`);
+      return;
+    }
+
+    setUploading(true);
+    try {
+      const response = await fetch("/api/upload", {
+        method: "POST",
+        headers: { "Content-Type": file.type },
+        body: file,
+      });
+      const body = await response.json().catch(() => null);
+      if (!body) setUploadError("Could not reach the backend. Make sure it is running, then try again.");
+      else if (!response.ok) setUploadError(body.error ?? "The upload did not work. Please try again.");
+      else onChange(body.name);
+    } catch {
+      setUploadError("Could not reach the backend. Make sure it is running, then try again.");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  return (
+    <span style={{ display: "block", marginTop: 4 }}>
+      <input
+        type="file"
+        accept={IMAGE_TYPES.join(",")}
+        disabled={disabled || uploading}
+        onChange={(event) => handlePick(event.target.files?.[0])}
+      />
+      {uploading && <small style={{ display: "block" }}>Uploading...</small>}
+      {uploadError && <small style={{ display: "block", color: "red" }}>{uploadError}</small>}
+      {preview && <img src={preview} alt="Chosen picture" style={{ display: "block", maxWidth: 200, marginTop: 4 }} />}
+      {/* From "Use again": the picture is already uploaded, so there is no preview here. */}
+      {!preview && value && <small style={{ display: "block" }}>Using the picture from the gallery job ({value}).</small>}
+    </span>
   );
 }
 
