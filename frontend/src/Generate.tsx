@@ -13,6 +13,17 @@ type Progress =
   | { state: "running"; step: number; steps: number }
   | { state: "finishing" };
 
+// A random job id in UUID format, for example "3f2c9a1e-....".
+// crypto.randomUUID() only works on https or 127.0.0.1, not on http://<PC address> from another PC,
+// so we build it from crypto.getRandomValues(), which works everywhere.
+function makeJobId(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  bytes[6] = (bytes[6] & 0x0f) | 0x40; // version 4
+  bytes[8] = (bytes[8] & 0x3f) | 0x80; // variant
+  const hex = [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
 // One preset from GET /api/presets (see backend/src/presets.ts).
 type PresetInput = { key: string; label: string; kind: string; default?: number | string };
 type Preset = { id: string; name: string; description: string; type: string; inputs: PresetInput[] };
@@ -125,7 +136,7 @@ export default function Generate({ startValues = null, onStartValuesUsed }: Gene
     setImageUrl(null);
 
     // Give the job an id, so we can ask the backend about it while we wait.
-    const jobId = crypto.randomUUID();
+    const jobId = makeJobId();
     let finished = false;
     const timer = setInterval(async () => {
       try {
