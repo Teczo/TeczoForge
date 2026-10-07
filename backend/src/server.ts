@@ -3,6 +3,7 @@ import express from "express";
 import { generateHandler, OUTPUTS_DIR } from "./generate.js";
 import { checkDatabase, listJobs } from "./db.js";
 import { HttpError } from "./httpError.js";
+import { getProgress, startProgressListener } from "./progress.js";
 
 // Settings come from backend/.env. The defaults match .env.example.
 const PORT = Number(process.env.PORT ?? 4000);
@@ -40,6 +41,17 @@ app.get("/api/health", async (_req, res) => {
 // Make an image from a preset and the user's values.
 app.post("/api/generate", express.json(), generateHandler);
 
+// Where a running job is now: waiting in the queue, or which step it is on.
+app.get("/api/progress/:jobId", async (req, res) => {
+  try {
+    res.json(await getProgress(req.params.jobId));
+  } catch (error) {
+    const status = error instanceof HttpError ? error.status : 500;
+    const message = error instanceof HttpError ? error.message : "Could not read the job progress.";
+    res.status(status).json({ error: message });
+  }
+});
+
 // The whole job history, newest first.
 app.get("/api/jobs", async (_req, res) => {
   try {
@@ -67,4 +79,5 @@ app.listen(PORT, HOST, () => {
   console.log(`Backend running at http://${HOST}:${PORT}`);
   console.log(`ComfyUI address: ${COMFYUI_URL}`);
   checkDatabase();
+  startProgressListener();
 });

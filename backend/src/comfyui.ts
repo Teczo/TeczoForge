@@ -1,7 +1,11 @@
 import { HttpError } from "./httpError.js";
 import type { Workflow } from "./presets.js";
 
-const COMFYUI_URL = process.env.COMFYUI_URL ?? "http://127.0.0.1:8188";
+export const COMFYUI_URL = process.env.COMFYUI_URL ?? "http://127.0.0.1:8188";
+
+// Our name in ComfyUI. ComfyUI sends live progress only to the client that queued the job,
+// so we send this id with every job and use it for the WebSocket (see progress.ts).
+export const CLIENT_ID = crypto.randomUUID();
 
 // How long to wait for one ComfyUI request (not the whole job).
 const REQUEST_TIMEOUT_MS = 10_000;
@@ -30,7 +34,7 @@ export async function queueWorkflow(workflow: Workflow): Promise<string> {
   const response = await callComfyUI("/prompt", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ prompt: workflow }),
+    body: JSON.stringify({ prompt: workflow, client_id: CLIENT_ID }),
   });
   const body = await response.json().catch(() => ({}));
 
@@ -40,6 +44,15 @@ export async function queueWorkflow(workflow: Workflow): Promise<string> {
     throw new HttpError(502, `ComfyUI did not accept the job: ${reason}${findNodeErrors(body?.node_errors)}`);
   }
   return body.prompt_id;
+}
+
+// ComfyUI's queue: the job ids running now, and the ones waiting, first in line first.
+export async function getQueue(): Promise<{ running: string[]; pending: string[] }> {
+  const response = await callComfyUI("/queue");
+  const queue = await response.json();
+  // Each item is [number, prompt_id, ...]. A lower number was queued earlier.
+  const ids = (items: [number, string][]) => [...items].sort((a, b) => a[0] - b[0]).map((item) => item[1]);
+  return { running: ids(queue.queue_running ?? []), pending: ids(queue.queue_pending ?? []) };
 }
 
 // Wait until the job is finished. Returns the files from the output node.
