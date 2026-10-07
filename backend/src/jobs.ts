@@ -154,7 +154,7 @@ async function checkJob(live: LiveJob, queue: { running: string[]; pending: stri
     live.runningSince ??= Date.now();
     if (live.job.status === "queued") {
       live.job.status = "running";
-      await save(live);
+      save(live); // Not waited for, so a slow MongoDB does not hold up the other jobs.
     }
     if (Date.now() - live.runningSince > RUNNING_TIMEOUT_MS) {
       await finish(live, "failed", { error: "ComfyUI took too long to finish the job." });
@@ -270,7 +270,8 @@ export async function createJobHandler(req: Request, res: Response) {
   });
   await save(live);
 
-  // 3. Send it to ComfyUI, and save ComfyUI's job id at once.
+  // 3. Send it to ComfyUI, and save ComfyUI's job id at once. We do not wait for that save,
+  //    so the answer stays fast when MongoDB is slow or offline.
   try {
     live.job.promptId = await queueWorkflow(built.workflow);
   } catch (error) {
@@ -279,7 +280,7 @@ export async function createJobHandler(req: Request, res: Response) {
     res.status(status).json({ jobId: live.job.id, error: live.job.error, warning: live.warning });
     return;
   }
-  await save(live);
+  save(live);
 
   // 4. Answer now. The checker follows the job from here.
   res.json({ jobId: live.job.id, warning: live.warning });

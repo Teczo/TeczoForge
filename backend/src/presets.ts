@@ -58,7 +58,7 @@ export async function listPresets(): Promise<PresetSummary[]> {
       await access(path.join(folderPath, "workflow.json"));
       const preset: Preset = JSON.parse(await readFile(path.join(folderPath, "preset.json"), "utf8"));
       presets.push({
-        id: folder.name, // The folder name is the id used by POST /api/generate.
+        id: folder.name, // The folder name is the id used by POST /api/jobs.
         name: preset.name ?? folder.name,
         description: preset.description ?? "",
         type: preset.type,
