@@ -1,5 +1,5 @@
 import { MongoClient } from "mongodb";
-import type { Collection } from "mongodb";
+import type { Collection, Db } from "mongodb";
 import { HttpError } from "./httpError.js";
 
 // The connection string is a secret. Never print it.
@@ -19,12 +19,21 @@ export type Job = {
   error: string | null;
   durationMs: number;
   createdAt: Date;
+  createdBy: string | null; // The username of who started the job. Jobs from before FRG-16 do not have it.
+};
+
+// One team member who can log in. Accounts are made with "npm run user" (see setUser.ts).
+export type User = {
+  username: string; // Lowercase, unique.
+  passwordHash: string; // Never the password itself (see auth.ts).
+  createdAt: Date;
+  updatedAt: Date;
 };
 
 let connecting: Promise<MongoClient> | null = null;
 
 // Connect once and reuse the connection. If it fails, the next call tries again.
-async function getJobsCollection(): Promise<Collection<Job>> {
+async function getDatabase(): Promise<Db> {
   if (!MONGODB_URI) {
     throw new Error("MONGODB_URI is not set in backend/.env");
   }
@@ -41,7 +50,24 @@ async function getJobsCollection(): Promise<Collection<Job>> {
     })();
   }
   const client = await connecting;
-  return client.db(DB_NAME).collection<Job>("jobs");
+  return client.db(DB_NAME);
+}
+
+async function getJobsCollection(): Promise<Collection<Job>> {
+  return (await getDatabase()).collection<Job>("jobs");
+}
+
+// The users collection. Usernames are unique.
+export async function getUsersCollection(): Promise<Collection<User>> {
+  const users = (await getDatabase()).collection<User>("users");
+  await users.createIndex({ username: 1 }, { unique: true });
+  return users;
+}
+
+// Close the connection (used by the "npm run user" command when it is done).
+export async function closeDatabase(): Promise<void> {
+  if (connecting) await (await connecting).close();
+  connecting = null;
 }
 
 // Save a job. Returns a warning if it could not be saved. Never throws,
@@ -79,7 +105,7 @@ export async function checkDatabase(): Promise<void> {
 }
 
 // An error message that is safe to log: any connection string is hidden.
-function safeMessage(error: unknown): string {
+export function safeMessage(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
   return message.replace(/mongodb(\+srv)?:\/\/\S+/gi, "[connection string hidden]");
 }
