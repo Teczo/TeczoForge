@@ -165,6 +165,8 @@ Fill this in when the ticket that creates each part is done.
 - Start ComfyUI (Jaya does this): see `docs/comfyui-setup.md`
 - Backend dev: `cd backend`, then `npm run dev`
 - Frontend dev: `cd frontend`, then `npm run dev`
+- Add a team account, or set a new password: `cd backend`, then `npm run user -- <username>`
+  (asks for the password twice). Needs MongoDB. `SESSION_SECRET` in `backend/.env` keeps logins after a restart.
 - Tests: (not set yet)
 - Lint: (not set yet)
 
@@ -197,7 +199,8 @@ Decided:
 3. Users: Jaya and the Teczo team. So the app needs user accounts (FRG-16).
 4. Remote access: Tailscale (FRG-17).
 5. First image model: Z-Image-Turbo.
+6. Login method: username and password, stored in MongoDB (`users` collection, scrypt hash).
+   Accounts are made by Jaya on System 1 with `npm run user`. No sign-up page. (FRG-16)
 
 Still open (ask before assuming):
-1. Login method for the team. Decide before FRG-16.
-2. Which video model to use. Jaya decides after the image-to-video test (FRG-13).
+1. Which video model to use. Jaya decides after the image-to-video test (FRG-13).
