@@ -1,9 +1,8 @@
 import "dotenv/config";
 import express from "express";
-import { generateHandler, OUTPUTS_DIR } from "./generate.js";
-import { checkDatabase, listJobs } from "./db.js";
-import { HttpError } from "./httpError.js";
-import { getProgress, startProgressListener } from "./progress.js";
+import { createJobHandler, getJobHandler, listJobsHandler, OUTPUTS_DIR, recoverJobs, startJobChecker } from "./jobs.js";
+import { checkDatabase } from "./db.js";
+import { startProgressListener } from "./progress.js";
 import { listPresets } from "./presets.js";
 import { IMAGE_TYPES, MAX_UPLOAD_BYTES, uploadHandler } from "./upload.js";
 import { checkSessionSecret, loginHandler, logoutHandler, meHandler, requireLogin } from "./auth.js";
@@ -64,30 +63,11 @@ app.get("/api/presets", async (_req, res) => {
 // Upload a picture for an "image" input. The body is the picture itself (no extra package needed).
 app.post("/api/upload", express.raw({ type: IMAGE_TYPES, limit: MAX_UPLOAD_BYTES }), uploadHandler);
 
-// Make an image from a preset and the user's values.
-app.post("/api/generate", express.json(), generateHandler);
-
-// Where a running job is now: waiting in the queue, or which step it is on.
-app.get("/api/progress/:jobId", async (req, res) => {
-  try {
-    res.json(await getProgress(req.params.jobId));
-  } catch (error) {
-    const status = error instanceof HttpError ? error.status : 500;
-    const message = error instanceof HttpError ? error.message : "Could not read the job progress.";
-    res.status(status).json({ error: message });
-  }
-});
-
-// The whole job history, newest first.
-app.get("/api/jobs", async (_req, res) => {
-  try {
-    res.json({ jobs: await listJobs() });
-  } catch (error) {
-    const status = error instanceof HttpError ? error.status : 500;
-    const message = error instanceof HttpError ? error.message : "Could not read the job history.";
-    res.status(status).json({ error: message });
-  }
-});
+// Jobs (see jobs.ts): start one from a preset and the user's values (answers at once),
+// a page of the job history, and one job with its progress.
+app.post("/api/jobs", express.json(), createJobHandler);
+app.get("/api/jobs", listJobsHandler);
+app.get("/api/jobs/:id", getJobHandler);
 
 // Serve finished images from data/outputs.
 app.use("/api/outputs", express.static(OUTPUTS_DIR));
@@ -111,6 +91,10 @@ checkSessionSecret();
 app.listen(PORT, HOST, () => {
   console.log(`Backend running at http://${HOST}:${PORT}`);
   console.log(`ComfyUI address: ${COMFYUI_URL}`);
-  checkDatabase();
+  // After MongoDB is checked, pick up the jobs that were not finished when the backend stopped.
+  checkDatabase().then((connected) => {
+    if (connected) return recoverJobs();
+  });
   startProgressListener();
+  startJobChecker();
 });

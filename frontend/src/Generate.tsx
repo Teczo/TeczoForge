@@ -26,18 +26,26 @@ import {
 } from "./Icons";
 
 // How often to ask the backend where the job is.
-const PROGRESS_INTERVAL_MS = 500;
+const PROGRESS_INTERVAL_MS = 1500;
 
 // The prompt can be this long. Same limit as the backend (backend/src/presets.ts).
 const MAX_TEXT_LENGTH = 2000;
 
-// The answer from GET /api/progress/<jobId> (see backend/src/progress.ts).
+// Where a job is now, from GET /api/jobs/<id> (see backend/src/jobs.ts).
 type Progress =
-  | { state: "unknown" }
-  | { state: "starting" }
   | { state: "waiting"; jobsAhead: number }
   | { state: "running"; step: number; steps: number }
   | { state: "finishing" };
+
+// The answer from GET /api/jobs/<id>. Only the parts this page uses.
+type JobAnswer = {
+  status: "queued" | "running" | "done" | "failed";
+  inputs: Record<string, unknown>;
+  imageUrl: string | null;
+  error: string | null;
+  progress: Progress | null;
+  warning?: string;
+};
 
 // One preset from GET /api/presets (see backend/src/presets.ts).
 type PresetInput = { key: string; label: string; kind: string; default?: number | string };
@@ -147,7 +155,9 @@ export default function Generate({ startValues = null, onStartValuesUsed }: Gene
   const [notice, setNotice] = useState<string | null>(null);
   const [presetId, setPresetId] = useState("");
   const [values, setValues] = useState<FormValues>({});
-  const [running, setRunning] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  // My unfinished jobs, oldest first. The page follows the first one, then the next.
+  const [jobIds, setJobIds] = useState<string[]>([]);
   const [progress, setProgress] = useState<Progress | null>(null);
   const [shown, setShown] = useState<Result | null>(null);
   const [recent, setRecent] = useState<Result[]>([]);
@@ -198,13 +208,11 @@ export default function Generate({ startValues = null, onStartValuesUsed }: Gene
   useEffect(() => {
     async function loadRecent() {
       try {
-        const response = await fetch("/api/jobs");
+        const response = await fetch(`/api/jobs?status=done&limit=${RECENT_COUNT}`);
         if (!response.ok) return;
-        const body: { jobs: { status: string; imageUrl: string | null; inputs: Record<string, unknown> }[] } =
-          await response.json();
+        const body: { jobs: { imageUrl: string | null; inputs: Record<string, unknown> }[] } = await response.json();
         const results: Result[] = body.jobs
-          .filter((job) => job.status === "done" && job.imageUrl)
-          .slice(0, RECENT_COUNT)
+          .filter((job) => job.imageUrl)
           .map((job) => ({ url: job.imageUrl!, alt: String(job.inputs.prompt ?? "") }));
         setRecent(results);
         setShown((current) => current ?? results[0] ?? null);
@@ -214,6 +222,74 @@ export default function Generate({ startValues = null, onStartValuesUsed }: Gene
     }
     loadRecent();
   }, []);
+
+  // After a page refresh: find my jobs that are still waiting or running, and follow them.
+  useEffect(() => {
+    async function loadActiveJobs() {
+      try {
+        const response = await fetch("/api/jobs?status=active&mine=1");
+        if (!response.ok) return;
+        const body: { jobs: { id: string }[] } = await response.json();
+        // The backend sends newest first. Follow the oldest first.
+        const ids = body.jobs.map((job) => job.id).reverse();
+        setJobIds((current) => [...ids.filter((id) => !current.includes(id)), ...current]);
+      } catch {
+        // Nothing to follow. That is fine.
+      }
+    }
+    loadActiveJobs();
+  }, []);
+
+  // Follow the first unfinished job: ask the backend about it until it is done or failed.
+  const currentJobId = jobIds[0] ?? null;
+  useEffect(() => {
+    if (!currentJobId) return;
+    let stopped = false;
+
+    function stopFollowing() {
+      setJobIds((current) => current.filter((id) => id !== currentJobId));
+      setProgress(null);
+    }
+
+    async function check() {
+      try {
+        const response = await fetch(`/api/jobs/${currentJobId}`);
+        // No JSON: the backend is not answering right now. Try again next time.
+        const body: JobAnswer | null = await response.json().catch(() => null);
+        if (stopped || !body) return;
+
+        if (!response.ok) {
+          setError(body.error ?? "Could not follow the job.");
+          stopFollowing();
+          return;
+        }
+        // For example: the job was made, but the job history (MongoDB) is offline.
+        if (body.warning) setWarning(body.warning);
+        if (body.status === "done" && body.imageUrl) {
+          const result = { url: body.imageUrl, alt: String(body.inputs.prompt ?? "") };
+          setShown(result);
+          setRecent((current) => [result, ...current.filter((r) => r.url !== result.url)].slice(0, RECENT_COUNT));
+          stopFollowing();
+        } else if (body.status === "done" || body.status === "failed") {
+          setError(body.error ?? "The job failed.");
+          stopFollowing();
+        } else {
+          setProgress(body.progress);
+        }
+      } catch {
+        // Missing one update is fine. The next one comes soon.
+      }
+    }
+
+    check();
+    const timer = setInterval(check, PROGRESS_INTERVAL_MS);
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+    };
+  }, [currentJobId]);
+
+  const running = submitting || jobIds.length > 0;
 
   const preset = presets?.find((p) => p.id === presetId) ?? null;
 
@@ -225,32 +301,20 @@ export default function Generate({ startValues = null, onStartValuesUsed }: Gene
     setNotice(null);
   }
 
+  // Start the job. The backend answers at once with its id; the effect above follows it.
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     if (!preset) return;
-    setRunning(true);
+    setSubmitting(true);
     setProgress(null);
     setError(null);
     setWarning(null);
 
-    // Give the job an id, so we can ask the backend about it while we wait.
-    const jobId = crypto.randomUUID();
-    let finished = false;
-    const timer = setInterval(async () => {
-      try {
-        const response = await fetch(`/api/progress/${jobId}`);
-        const answer: Progress = await response.json();
-        if (response.ok && !finished) setProgress(answer);
-      } catch {
-        // Missing one update is fine. The next one comes soon.
-      }
-    }, PROGRESS_INTERVAL_MS);
-
     try {
-      const response = await fetch("/api/generate", {
+      const response = await fetch("/api/jobs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ presetId: preset.id, inputs: toInputs(preset, values), jobId }),
+        body: JSON.stringify({ presetId: preset.id, inputs: toInputs(preset, values) }),
       });
       // The backend always answers with JSON. If not, the backend is not running.
       const body = await response.json().catch(() => null);
@@ -260,20 +324,14 @@ export default function Generate({ startValues = null, onStartValuesUsed }: Gene
       } else if (!response.ok) {
         setError(body.error ?? "Something went wrong. Please try again.");
       } else {
-        const firstText = preset.inputs.find((input) => input.kind === "text");
-        const result = { url: body.imageUrl, alt: firstText ? values[firstText.key] : preset.name };
-        setShown(result);
-        setRecent((current) => [result, ...current.filter((r) => r.url !== result.url)].slice(0, RECENT_COUNT));
+        setJobIds((current) => [...current, body.jobId]);
       }
-      // For example: the image was made, but the job history (MongoDB) is offline.
+      // For example: the job was started, but the job history (MongoDB) is offline.
       if (body?.warning) setWarning(body.warning);
     } catch {
       setError("Could not reach the backend. Make sure it is running, then try again.");
     } finally {
-      finished = true;
-      clearInterval(timer);
-      setProgress(null);
-      setRunning(false);
+      setSubmitting(false);
     }
   }
 

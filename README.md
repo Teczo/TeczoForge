@@ -49,10 +49,10 @@ Backend (Express, 127.0.0.1:4000) ──► ComfyUI (127.0.0.1:8188)   HTTP + on
 | File | What it does |
 |---|---|
 | `server.ts` | Routes, login check, static file serving for outputs, JSON error handling |
-| `generate.ts` | `POST /api/generate`: load preset → build workflow → queue → wait → copy output → save job |
+| `jobs.ts` | Job routes. `POST /api/jobs`: check inputs → save as `queued` → queue in ComfyUI → answer at once. A 1 s checker follows unfinished jobs (`running` → copy output → `done` / `failed`), saving each change. At start it picks up jobs left `queued` / `running`. |
 | `presets.ts` | List and load presets, check user inputs (text / seed / number / image), put values into the workflow |
 | `comfyui.ts` | ComfyUI client: queue, history polling, upload, view, error parsing |
-| `progress.ts` | One WebSocket to ComfyUI. Maps the page's job id to ComfyUI's prompt id, plus queue position |
+| `progress.ts` | One WebSocket to ComfyUI (fixed client id, so it also works after a restart). Step x of y per ComfyUI prompt id |
 | `upload.ts` | Raw image upload. Checks the file's first bytes (magic bytes). 20 MB limit. Our own file name. |
 | `auth.ts` | scrypt password hashes, HMAC session cookie (7 days), `requireLogin` middleware |
 | `db.ts` | Mongo connection with a 3 s timeout, `jobs` and `users` collections, hides the connection string in logs |
@@ -68,9 +68,9 @@ Backend (Express, 127.0.0.1:4000) ──► ComfyUI (127.0.0.1:8188)   HTTP + on
 | GET | `/api/health` | yes | Backend + ComfyUI reachable? |
 | GET | `/api/presets` | yes | Preset list (node ids stay hidden from the page) |
 | POST | `/api/upload` | yes | Upload a start image → ComfyUI input folder |
-| POST | `/api/generate` | yes | Run a preset. **Blocks until done** (up to 20 min) |
-| GET | `/api/progress/:jobId` | yes | starting / waiting (jobs ahead) / running (step x of y) / finishing |
-| GET | `/api/jobs` | yes | **Whole** job history, newest first |
+| POST | `/api/jobs` | yes | Start a job from a preset. Answers at once with `{ jobId }` (+ `warning` if MongoDB is offline) |
+| GET | `/api/jobs/:id` | yes | One job: `status` (queued / running / done / failed), `progress` (waiting: jobs ahead / running: step x of y / finishing), `imageUrl`, `outputFile`, `error` |
+| GET | `/api/jobs` | yes | Job history, newest first. `?limit=` (default 50, max 200), `?before=<createdAt>` (next page), `?status=done` or `?status=active` (queued + running), `?mine=1` (only my jobs) |
 | GET | `/api/outputs/*` | yes | Finished files |
 
 ### Frontend (`frontend/src/`)

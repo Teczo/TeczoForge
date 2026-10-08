@@ -5,15 +5,11 @@ export const COMFYUI_URL = process.env.COMFYUI_URL ?? "http://127.0.0.1:8188";
 
 // Our name in ComfyUI. ComfyUI sends live progress only to the client that queued the job,
 // so we send this id with every job and use it for the WebSocket (see progress.ts).
-export const CLIENT_ID = crypto.randomUUID();
+// It stays the same after a backend restart, so jobs started before the restart still get progress.
+export const CLIENT_ID = "teczoforge-backend";
 
 // How long to wait for one ComfyUI request (not the whole job).
 const REQUEST_TIMEOUT_MS = 10_000;
-// How long to wait for a whole job to finish. The first run also loads the model.
-// A video (image-to-video preset) takes about 4.5 minutes, longer right after ComfyUI starts.
-const JOB_TIMEOUT_MS = 20 * 60_000;
-// How often to ask ComfyUI if the job is done.
-const POLL_INTERVAL_MS = 1000;
 
 // One output file, as ComfyUI describes it.
 export type OutputFile = { filename: string; subfolder: string; type: string };
@@ -69,32 +65,24 @@ export async function uploadImage(image: Buffer, fileName: string, contentType: 
   return body.name;
 }
 
-// Wait until the job is finished. Returns the files from the output node.
-export async function waitForOutput(promptId: string, outputNode: string): Promise<OutputFile[]> {
-  const deadline = Date.now() + JOB_TIMEOUT_MS;
+// Is the job finished? Returns the files from the output node, or null if it is not in
+// ComfyUI's history (not finished yet, or ComfyUI does not know it). Throws if the job failed.
+export async function getFinishedOutput(promptId: string, outputNode: string): Promise<OutputFile[] | null> {
+  const response = await callComfyUI(`/history/${encodeURIComponent(promptId)}`);
+  const history = await response.json();
+  const job = history[promptId];
 
-  while (Date.now() < deadline) {
-    const response = await callComfyUI(`/history/${encodeURIComponent(promptId)}`);
-    const history = await response.json();
-    const job = history[promptId];
-
-    // The job shows up in history only when it is finished.
-    if (job) {
-      if (job.status?.status_str === "error") {
-        throw new HttpError(502, `ComfyUI job failed: ${findErrorMessage(job.status.messages)}`);
-      }
-      // Pictures and videos both come in "images". Save Video also sets "animated": [true].
-      const files: OutputFile[] = job.outputs?.[outputNode]?.images ?? [];
-      if (files.length === 0) {
-        throw new HttpError(502, "ComfyUI finished the job but made no picture or video.");
-      }
-      return files;
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+  // The job shows up in history only when it is finished.
+  if (!job) return null;
+  if (job.status?.status_str === "error") {
+    throw new HttpError(502, `ComfyUI job failed: ${findErrorMessage(job.status.messages)}`);
   }
-
-  throw new HttpError(504, "ComfyUI took too long to finish the job.");
+  // Pictures and videos both come in "images". Save Video also sets "animated": [true].
+  const files: OutputFile[] = job.outputs?.[outputNode]?.images ?? [];
+  if (files.length === 0) {
+    throw new HttpError(502, "ComfyUI finished the job but made no picture or video.");
+  }
+  return files;
 }
 
 // Download one output file from ComfyUI.
