@@ -2,6 +2,7 @@ import "dotenv/config";
 import express from "express";
 import { cancelJobHandler, createJobHandler, getJobHandler, listJobsHandler, OUTPUTS_DIR, recoverJobs, startJobChecker } from "./jobs.js";
 import { checkDatabase } from "./db.js";
+import { boardHandler, createDraftHandler, deleteDraftHandler, runDraftHandler, updateDraftHandler } from "./drafts.js";
 import { startProgressListener } from "./progress.js";
 import { listPresets } from "./presets.js";
 import { IMAGE_TYPES, MAX_UPLOAD_BYTES, uploadHandler } from "./upload.js";
@@ -69,6 +70,13 @@ app.post("/api/jobs", express.json(), createJobHandler);
 app.get("/api/jobs", listJobsHandler);
 app.get("/api/jobs/:id", getJobHandler);
 app.post("/api/jobs/:id/cancel", cancelJobHandler);
+
+// The board (see drafts.ts): cards are saved jobs that have not run yet ("drafts").
+app.get("/api/board", boardHandler);
+app.post("/api/drafts", express.json(), createDraftHandler);
+app.patch("/api/drafts/:id", express.json(), updateDraftHandler);
+app.delete("/api/drafts/:id", deleteDraftHandler);
+app.post("/api/drafts/:id/run", runDraftHandler);
 
 // Serve finished images from data/outputs.
 app.use("/api/outputs", express.static(OUTPUTS_DIR));

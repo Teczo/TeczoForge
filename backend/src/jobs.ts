@@ -3,6 +3,7 @@ import path from "node:path";
 import type { Request, Response } from "express";
 import { HttpError } from "./httpError.js";
 import { buildWorkflow, loadPreset } from "./presets.js";
+import type { Workflow } from "./presets.js";
 import { downloadOutput, getFinishedOutput, getQueue, interruptJob, queueWorkflow, removeFromQueue } from "./comfyui.js";
 import { findActiveJobs, findJob, listJobs, safeMessage, saveJob } from "./db.js";
 import type { Job, JobStatus } from "./db.js";
@@ -16,13 +17,15 @@ import { forgetSteps, getSteps } from "./progress.js";
 // 3. The page asks GET /api/jobs/<id> every 1 to 2 seconds until the job is done.
 // 4. When the backend starts, it picks up the jobs that were not finished (recoverJobs).
 // 5. POST /api/jobs/<id>/cancel stops a waiting or running job (FRG-21).
+// 6. Board cards (drafts.ts) are jobs too. A card's job that fails or is cancelled goes back
+//    to the Ready column as a draft, with the reason on the card (FRG-22).
 // Unfinished jobs are also kept in memory, so jobs still work when MongoDB is offline.
 // ComfyUI's queue is the only queue. The backend only follows it.
 
 // Finished images and videos are saved here: data/outputs at the root of the repo.
 export const OUTPUTS_DIR = path.join(import.meta.dirname, "..", "..", "data", "outputs");
 
-const JOB_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export const JOB_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // How often to ask ComfyUI about unfinished jobs.
 const CHECK_INTERVAL_MS = 1000;
@@ -58,11 +61,11 @@ type LiveJob = {
 // Unfinished jobs, and jobs that finished in the last hour. Key: job id.
 const liveJobs = new Map<string, LiveJob>();
 
-function isActive(status: JobStatus): boolean {
+export function isActive(status: JobStatus): boolean {
   return status === "queued" || status === "running";
 }
 
-function follow(job: Job): LiveJob {
+export function follow(job: Job): LiveJob {
   const live: LiveJob = {
     job,
     jobsAhead: 0,
@@ -86,11 +89,26 @@ function save(live: LiveJob): Promise<void> {
 
 // The job is done, failed or cancelled: save it, and forget it after a while.
 async function finish(live: LiveJob, status: "done" | "failed" | "cancelled", fields: Partial<Job>) {
-  Object.assign(live.job, fields, { status, durationMs: Date.now() - live.job.createdAt.getTime() });
+  const { job } = live;
+  Object.assign(job, fields, { status, durationMs: Date.now() - job.createdAt.getTime() });
   live.finishing = false;
-  if (live.job.promptId) forgetSteps(live.job.promptId);
+  if (job.promptId) forgetSteps(job.promptId);
+
+  // A board card (it has a title) that did not finish goes back to Ready as a draft,
+  // with the reason on the card. It is not followed any more: drafts live in MongoDB.
+  if (job.title !== undefined && status !== "done") {
+    const reason = status === "cancelled" ? "The job was cancelled. Press Generate to run it again." : job.error;
+    Object.assign(job, { status: "draft", column: "ready", promptId: null, durationMs: 0, error: reason });
+    await save(live);
+    if (liveJobs.get(job.id) === live) liveJobs.delete(job.id);
+    return;
+  }
+
   await save(live);
-  setTimeout(() => liveJobs.delete(live.job.id), KEEP_FINISHED_MS).unref();
+  // Only forget this run: the same card may have been run again since.
+  setTimeout(() => {
+    if (liveJobs.get(job.id) === live) liveJobs.delete(job.id);
+  }, KEEP_FINISHED_MS).unref();
 }
 
 // A message that is safe to show the user. Unexpected errors go to the backend log.
@@ -100,7 +118,7 @@ function errorMessage(error: unknown): string {
   return "Something went wrong on the server. See the backend log.";
 }
 
-function sendError(res: Response, error: unknown) {
+export function sendError(res: Response, error: unknown) {
   const status = error instanceof HttpError ? error.status : 500;
   res.status(status).json({ error: errorMessage(error) });
 }
@@ -111,6 +129,14 @@ function progressOf(live: LiveJob): Progress | null {
   if (live.finishing) return { state: "finishing" };
   if (status === "running" && promptId) return { state: "running", ...getSteps(promptId) };
   return { state: "waiting", jobsAhead: live.jobsAhead };
+}
+
+// Every waiting or running job, newest first, with its progress. Used by the board.
+export function activeJobs(): (Job & { progress: Progress | null })[] {
+  return [...liveJobs.values()]
+    .filter((live) => isActive(live.job.status))
+    .sort((a, b) => b.job.createdAt.getTime() - a.job.createdAt.getTime())
+    .map((live) => ({ ...live.job, progress: progressOf(live) }));
 }
 
 // ---- Following jobs in ComfyUI ----
@@ -283,10 +309,16 @@ export async function createJobHandler(req: Request, res: Response) {
   });
   await save(live);
 
-  // 3. Send it to ComfyUI, and save ComfyUI's job id at once. We do not wait for that save,
-  //    so the answer stays fast when MongoDB is slow or offline.
+  // 3. and 4.
+  await sendToComfyUI(live, built.workflow, res);
+}
+
+// Send a saved, queued job to ComfyUI and answer the request. Also used to run a board card.
+// ComfyUI's job id is saved at once. We do not wait for that save, so the answer stays fast
+// when MongoDB is slow or offline. The checker follows the job from here.
+export async function sendToComfyUI(live: LiveJob, workflow: Workflow, res: Response) {
   try {
-    live.job.promptId = await queueWorkflow(built.workflow);
+    live.job.promptId = await queueWorkflow(workflow);
   } catch (error) {
     const status = error instanceof HttpError ? error.status : 500;
     await finish(live, "failed", { error: errorMessage(error) });
@@ -294,8 +326,6 @@ export async function createJobHandler(req: Request, res: Response) {
     return;
   }
   save(live);
-
-  // 4. Answer now. The checker follows the job from here.
   res.json({ jobId: live.job.id, warning: live.warning });
 }
 

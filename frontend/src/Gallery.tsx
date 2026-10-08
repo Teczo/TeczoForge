@@ -27,9 +27,11 @@ function madeBy(job: Job): string {
 type GalleryProps = {
   // "Use again": open the Generate page with this job's preset and values.
   onUseAgain: (values: StartValues) => void;
+  // From #/gallery/<job id>: show this job large (the board's Open button).
+  openJobId?: string | null;
 };
 
-export default function Gallery({ onUseAgain }: GalleryProps) {
+export default function Gallery({ onUseAgain, openJobId = null }: GalleryProps) {
   const [jobs, setJobs] = useState<Job[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Job | null>(null);
@@ -55,6 +57,30 @@ export default function Gallery({ onUseAgain }: GalleryProps) {
     loadJobs();
   }, []);
 
+  // Open one job from a link. It may be older than the jobs in the grid, so ask for it by id.
+  useEffect(() => {
+    if (!openJobId) return;
+    async function loadOneJob() {
+      try {
+        const response = await fetch(`/api/jobs/${encodeURIComponent(openJobId!)}`);
+        const body = await response.json().catch(() => null);
+        if (!body) setError("Could not reach the backend. Make sure it is running, then refresh the page.");
+        else if (!response.ok) setError(body.error ?? "Could not load this result.");
+        else if (body.status !== "done" || !body.imageUrl) setError("This job has no finished result to show.");
+        else setSelected(body);
+      } catch {
+        setError("Could not reach the backend. Make sure it is running, then refresh the page.");
+      }
+    }
+    loadOneJob();
+  }, [openJobId]);
+
+  // Back to the grid. A job opened from a link also goes back to the plain #/gallery address.
+  function closeDetail() {
+    setSelected(null);
+    if (openJobId) window.location.hash = "#/gallery";
+  }
+
   let content;
   if (error) content = <p className="message error">{error}</p>;
   else if (!jobs) content = <p className="empty">Loading the gallery...</p>;
@@ -62,7 +88,7 @@ export default function Gallery({ onUseAgain }: GalleryProps) {
     content = (
       <Detail
         job={selected}
-        onBack={() => setSelected(null)}
+        onBack={closeDetail}
         onUseAgain={() => onUseAgain({ presetId: selected.presetId, inputs: selected.inputs })}
       />
     );

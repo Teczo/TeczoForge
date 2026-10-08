@@ -9,15 +9,18 @@ const DB_NAME = "teczoforge";
 // How long to wait for MongoDB before giving up. Generation must not wait long for it.
 const TIMEOUT_MS = 3000;
 
-// queued: waiting in ComfyUI's queue. running: ComfyUI is working on it.
-// done, failed or cancelled: finished.
-export type JobStatus = "queued" | "running" | "done" | "failed" | "cancelled";
+// draft: a board card, saved but not run yet (FRG-22). queued: waiting in ComfyUI's queue.
+// running: ComfyUI is working on it. done, failed or cancelled: finished.
+export type JobStatus = "draft" | "queued" | "running" | "done" | "failed" | "cancelled";
+
+// The two board columns a draft can be in. The user moves drafts between them.
+export type DraftColumn = "idea" | "ready";
 
 // One record per job. It is saved when the job starts, and again each time its status changes.
 export type Job = {
   id: string; // A UUID. Jobs from before FRG-20 do not have it.
   presetId: string | null;
-  inputs: unknown; // The values used, including the random seed.
+  inputs: unknown; // The values used, including the random seed. A draft keeps the values as typed.
   status: JobStatus;
   promptId: string | null; // ComfyUI's job id. null until ComfyUI has accepted the job.
   outputFile: string | null; // For example "data/outputs/text-to-image-basic-1791353459669.png"
@@ -28,6 +31,8 @@ export type Job = {
   createdBy: string | null; // The username of who started the job. Jobs from before FRG-16 do not have it.
   cancelledBy?: string | null; // Only on cancelled jobs: who cancelled it, and when.
   cancelledAt?: Date;
+  title?: string; // Only on jobs that started as a board card (FRG-22).
+  column?: DraftColumn; // Only used while the job is a draft.
 };
 
 // Which jobs GET /api/jobs returns. See listJobs.
@@ -123,6 +128,67 @@ export async function findJob(id: string): Promise<Job | null> {
     console.warn(`Warning: could not read the job. ${safeMessage(error)}`);
     throw new HttpError(503, "This job is not available because MongoDB cannot be reached.");
   }
+}
+
+// ---- Board drafts (FRG-22) ----
+// Drafts need MongoDB. These functions throw a clear 503 error when it cannot be reached.
+
+const BOARD_OFFLINE_MESSAGE =
+  "The board needs MongoDB, which cannot be reached right now. The Generate page still works.";
+
+async function withJobs<T>(work: (jobs: Collection<Job>) => Promise<T>): Promise<T> {
+  try {
+    return await work(await getJobsCollection());
+  } catch (error) {
+    console.warn(`Warning: board not available. ${safeMessage(error)}`);
+    throw new HttpError(503, BOARD_OFFLINE_MESSAGE);
+  }
+}
+
+export function insertDraft(draft: Job): Promise<void> {
+  return withJobs(async (jobs) => {
+    await jobs.insertOne({ ...draft }); // A copy: insertOne adds MongoDB's own _id to what it gets.
+  });
+}
+
+// Change a draft. Only while it is still a draft. Returns false if there is no such draft.
+export function updateDraft(id: string, fields: Partial<Job>): Promise<boolean> {
+  return withJobs(async (jobs) => (await jobs.updateOne({ id, status: "draft" }, { $set: fields })).matchedCount > 0);
+}
+
+// Delete a draft. A job that has run is never deleted. Returns false if there is no such draft.
+export function deleteDraft(id: string): Promise<boolean> {
+  return withJobs(async (jobs) => (await jobs.deleteOne({ id, status: "draft" })).deletedCount > 0);
+}
+
+// Turn a draft into a job, in one step, so it can never run twice.
+// Returns the changed job, or null if it is no longer a draft.
+export function claimDraft(id: string, fields: Partial<Job>): Promise<Job | null> {
+  return withJobs((jobs) =>
+    jobs.findOneAndUpdate(
+      { id, status: "draft" },
+      { $set: fields },
+      { returnDocument: "after", projection: { _id: 0 } },
+    ),
+  );
+}
+
+// One job by id, for the board routes (throws the board message when MongoDB is offline).
+export function findBoardJob(id: string): Promise<Job | null> {
+  return withJobs((jobs) => jobs.findOne({ id }, { projection: { _id: 0 } }));
+}
+
+// The saved cards for the board: all drafts (oldest first), and the newest finished jobs
+// that started as a draft (they have a title).
+export function listBoardJobs(doneLimit: number): Promise<{ drafts: Job[]; done: Job[] }> {
+  return withJobs(async (jobs) => ({
+    drafts: await jobs.find({ status: "draft" }, { projection: { _id: 0 } }).sort({ createdAt: 1 }).toArray(),
+    done: await jobs
+      .find({ status: "done", title: { $exists: true } }, { projection: { _id: 0 } })
+      .sort({ createdAt: -1 })
+      .limit(doneLimit)
+      .toArray(),
+  }));
 }
 
 // Jobs that were waiting or running. Used once when the backend starts (see recoverJobs in jobs.ts).
