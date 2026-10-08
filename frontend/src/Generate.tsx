@@ -39,7 +39,7 @@ type Progress =
 
 // The answer from GET /api/jobs/<id>. Only the parts this page uses.
 type JobAnswer = {
-  status: "queued" | "running" | "done" | "failed";
+  status: "queued" | "running" | "done" | "failed" | "cancelled";
   inputs: Record<string, unknown>;
   imageUrl: string | null;
   error: string | null;
@@ -159,6 +159,7 @@ export default function Generate({ startValues = null, onStartValuesUsed }: Gene
   // My unfinished jobs, oldest first. The page follows the first one, then the next.
   const [jobIds, setJobIds] = useState<string[]>([]);
   const [progress, setProgress] = useState<Progress | null>(null);
+  const [cancelling, setCancelling] = useState(false);
   const [shown, setShown] = useState<Result | null>(null);
   const [recent, setRecent] = useState<Result[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -265,7 +266,10 @@ export default function Generate({ startValues = null, onStartValuesUsed }: Gene
         }
         // For example: the job was made, but the job history (MongoDB) is offline.
         if (body.warning) setWarning(body.warning);
-        if (body.status === "done" && body.imageUrl) {
+        if (body.status === "cancelled") {
+          setNotice("The job was cancelled.");
+          stopFollowing();
+        } else if (body.status === "done" && body.imageUrl) {
           const result = { url: body.imageUrl, alt: String(body.inputs.prompt ?? "") };
           setShown(result);
           setRecent((current) => [result, ...current.filter((r) => r.url !== result.url)].slice(0, RECENT_COUNT));
@@ -290,6 +294,24 @@ export default function Generate({ startValues = null, onStartValuesUsed }: Gene
   }, [currentJobId]);
 
   const running = submitting || jobIds.length > 0;
+
+  // Cancel the job the page is following. A running job asks first, because its work is lost.
+  async function handleCancel() {
+    if (!currentJobId) return;
+    if (progress?.state === "running" && !window.confirm("Stop this job? The work done so far is lost.")) return;
+    setCancelling(true);
+    try {
+      const response = await fetch(`/api/jobs/${currentJobId}/cancel`, { method: "POST" });
+      const body = await response.json().catch(() => null);
+      if (!body) setError("Could not reach the backend. Make sure it is running, then try again.");
+      else if (!response.ok) setError(body.error ?? "Could not cancel the job.");
+      // If it worked, the next check sees "cancelled" and stops following the job.
+    } catch {
+      setError("Could not reach the backend. Make sure it is running, then try again.");
+    } finally {
+      setCancelling(false);
+    }
+  }
 
   const preset = presets?.find((p) => p.id === presetId) ?? null;
 
@@ -623,7 +645,11 @@ export default function Generate({ startValues = null, onStartValuesUsed }: Gene
           )}
           {running && (
             <div className="stage-overlay">
-              <ProgressView progress={progress} />
+              <ProgressView
+                progress={progress}
+                onCancel={currentJobId ? handleCancel : null}
+                cancelling={cancelling}
+              />
             </div>
           )}
         </div>
@@ -786,7 +812,9 @@ function ImageBox(props: { input: PresetInput; value: string; disabled: boolean;
 }
 
 // Shows where the job is: waiting in the queue, a progress bar, or saving.
-function ProgressView({ progress }: { progress: Progress | null }) {
+// Cancel is shown once the job has an id, and not while the result is being saved.
+type ProgressViewProps = { progress: Progress | null; onCancel: (() => void) | null; cancelling: boolean };
+function ProgressView({ progress, onCancel, cancelling }: ProgressViewProps) {
   let text = "Sending your job to ComfyUI...";
   let percent: number | null = null;
   if (progress?.state === "waiting") {
@@ -813,6 +841,11 @@ function ProgressView({ progress }: { progress: Progress | null }) {
         </div>
       )}
       <p>{text}</p>
+      {onCancel && progress?.state !== "finishing" && (
+        <button type="button" className="button" onClick={onCancel} disabled={cancelling}>
+          {cancelling ? "Cancelling..." : "Cancel"}
+        </button>
+      )}
     </div>
   );
 }
