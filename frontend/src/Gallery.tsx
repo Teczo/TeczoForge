@@ -10,7 +10,7 @@ const GALLERY_LIMIT = 100;
 type Job = {
   presetId: string | null;
   inputs: Record<string, unknown>;
-  status: "queued" | "running" | "done" | "failed";
+  status: "queued" | "running" | "done" | "failed" | "cancelled";
   outputFile: string | null;
   imageUrl: string | null;
   error: string | null;

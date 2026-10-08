@@ -3,7 +3,7 @@ import path from "node:path";
 import type { Request, Response } from "express";
 import { HttpError } from "./httpError.js";
 import { buildWorkflow, loadPreset } from "./presets.js";
-import { downloadOutput, getFinishedOutput, getQueue, queueWorkflow } from "./comfyui.js";
+import { downloadOutput, getFinishedOutput, getQueue, interruptJob, queueWorkflow, removeFromQueue } from "./comfyui.js";
 import { findActiveJobs, findJob, listJobs, safeMessage, saveJob } from "./db.js";
 import type { Job, JobStatus } from "./db.js";
 import { forgetSteps, getSteps } from "./progress.js";
@@ -15,6 +15,7 @@ import { forgetSteps, getSteps } from "./progress.js";
 //    (queued -> running -> done or failed) is saved in MongoDB.
 // 3. The page asks GET /api/jobs/<id> every 1 to 2 seconds until the job is done.
 // 4. When the backend starts, it picks up the jobs that were not finished (recoverJobs).
+// 5. POST /api/jobs/<id>/cancel stops a waiting or running job (FRG-21).
 // Unfinished jobs are also kept in memory, so jobs still work when MongoDB is offline.
 // ComfyUI's queue is the only queue. The backend only follows it.
 
@@ -83,8 +84,8 @@ function save(live: LiveJob): Promise<void> {
   return live.saving;
 }
 
-// The job is done or failed: save it, and forget it after a while.
-async function finish(live: LiveJob, status: "done" | "failed", fields: Partial<Job>) {
+// The job is done, failed or cancelled: save it, and forget it after a while.
+async function finish(live: LiveJob, status: "done" | "failed" | "cancelled", fields: Partial<Job>) {
   Object.assign(live.job, fields, { status, durationMs: Date.now() - live.job.createdAt.getTime() });
   live.finishing = false;
   if (live.job.promptId) forgetSteps(live.job.promptId);
@@ -173,33 +174,45 @@ async function checkJob(live: LiveJob, queue: { running: string[]; pending: stri
   await collectResult(live);
 }
 
-let checking = false;
+// The checker and Cancel take turns, so they never change the same job at the same time.
+let lock: Promise<unknown> = Promise.resolve();
+function withLock<T>(work: () => Promise<T>): Promise<T> {
+  const result = lock.then(work);
+  lock = result.catch(() => {});
+  return result;
+}
 
 // Ask ComfyUI about every unfinished job. One question about the queue covers all of them.
-async function checkJobs() {
-  if (checking) return;
+async function checkActiveJobs() {
   const active = [...liveJobs.values()].filter(
     (live) => isActive(live.job.status) && live.job.promptId && !live.finishing,
   );
   if (active.length === 0) return;
 
+  let queue;
+  try {
+    queue = await getQueue();
+  } catch {
+    // ComfyUI is not answering. Keep waiting, but not forever.
+    for (const live of active) {
+      if (Date.now() - live.lastAnswerAt > UNREACHABLE_TIMEOUT_MS) {
+        await finish(live, "failed", {
+          error: "ComfyUI stopped answering, so this job could not be finished. Start ComfyUI, then start the job again.",
+        });
+      }
+    }
+    return;
+  }
+  for (const live of active) await checkJob(live, queue);
+}
+
+let checking = false;
+
+async function checkJobs() {
+  if (checking) return;
   checking = true;
   try {
-    let queue;
-    try {
-      queue = await getQueue();
-    } catch {
-      // ComfyUI is not answering. Keep waiting, but not forever.
-      for (const live of active) {
-        if (Date.now() - live.lastAnswerAt > UNREACHABLE_TIMEOUT_MS) {
-          await finish(live, "failed", {
-            error: "ComfyUI stopped answering, so this job could not be finished. Start ComfyUI, then start the job again.",
-          });
-        }
-      }
-      return;
-    }
-    for (const live of active) await checkJob(live, queue);
+    await withLock(checkActiveJobs);
   } finally {
     checking = false;
   }
@@ -284,6 +297,88 @@ export async function createJobHandler(req: Request, res: Response) {
 
   // 4. Answer now. The checker follows the job from here.
   res.json({ jobId: live.job.id, warning: live.warning });
+}
+
+// Why a finished job cannot be cancelled.
+function finishedMessage(status: JobStatus): string {
+  if (status === "done") return "This job is already done, so there is nothing to cancel.";
+  if (status === "failed") return "This job already failed, so there is nothing to cancel.";
+  return "This job was already cancelled.";
+}
+
+// Stop the job in ComfyUI and mark it cancelled. Returns why it could not be cancelled, or null.
+// Runs inside the lock, so the checker does not change the job meanwhile.
+async function cancelJob(live: LiveJob, username: string | null): Promise<string | null> {
+  const { job } = live;
+  if (!isActive(job.status)) return finishedMessage(job.status);
+  if (!job.promptId) return "The job is still being sent to ComfyUI. Try again in a moment.";
+  const promptId = job.promptId;
+
+  const queue = await getQueue();
+  const waiting = queue.pending.includes(promptId);
+  let running = queue.running.includes(promptId);
+  // In neither list: ComfyUI has just finished it. The checker saves the result.
+  if (!waiting && !running) return "This job has just finished, so it could not be cancelled.";
+
+  if (waiting) {
+    await removeFromQueue(promptId);
+    // It may have started just before we removed it.
+    running = (await getQueue()).running.includes(promptId);
+  }
+  // Only stop ComfyUI when it is running this exact job. Never stop another user's job.
+  if (running) await interruptJob(promptId);
+
+  await finish(live, "cancelled", { cancelledBy: username, cancelledAt: new Date() });
+  return null;
+}
+
+// POST /api/jobs/<id>/cancel
+// A waiting job is removed from ComfyUI's queue. A running job is stopped.
+// Only the user who started the job can cancel it.
+// Answer: the job, now with status "cancelled". A finished job is not changed: the answer is 409.
+export async function cancelJobHandler(req: Request, res: Response) {
+  const id = String(req.params.id);
+  if (!JOB_ID_PATTERN.test(id)) {
+    res.status(400).json({ error: "This is not a job id." });
+    return;
+  }
+  const username: string | null = res.locals.username ?? null;
+
+  const live = liveJobs.get(id);
+  let job = live?.job ?? null;
+  if (!job) {
+    try {
+      job = await findJob(id);
+    } catch (error) {
+      sendError(res, error);
+      return;
+    }
+  }
+  if (!job) {
+    res.status(404).json({ error: "There is no job with this id." });
+    return;
+  }
+  if (!username || job.createdBy !== username) {
+    res.status(403).json({ error: "You can only cancel your own jobs. This job was started by someone else." });
+    return;
+  }
+  if (!live || !isActive(live.job.status)) {
+    // Not followed by the backend: it is finished (or MongoDB still says waiting after a failed recovery).
+    const message = isActive(job.status) ? "This job cannot be cancelled right now." : finishedMessage(job.status);
+    res.status(409).json({ error: message });
+    return;
+  }
+
+  try {
+    const reason = await withLock(() => cancelJob(live, username));
+    if (reason) {
+      res.status(409).json({ error: reason });
+      return;
+    }
+    res.json({ ...live.job, progress: null, warning: live.warning });
+  } catch (error) {
+    sendError(res, error);
+  }
 }
 
 // GET /api/jobs/<id>

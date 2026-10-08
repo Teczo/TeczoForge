@@ -9,8 +9,9 @@ const DB_NAME = "teczoforge";
 // How long to wait for MongoDB before giving up. Generation must not wait long for it.
 const TIMEOUT_MS = 3000;
 
-// queued: waiting in ComfyUI's queue. running: ComfyUI is working on it. done or failed: finished.
-export type JobStatus = "queued" | "running" | "done" | "failed";
+// queued: waiting in ComfyUI's queue. running: ComfyUI is working on it.
+// done, failed or cancelled: finished.
+export type JobStatus = "queued" | "running" | "done" | "failed" | "cancelled";
 
 // One record per job. It is saved when the job starts, and again each time its status changes.
 export type Job = {
@@ -25,6 +26,8 @@ export type Job = {
   durationMs: number; // 0 until the job is finished.
   createdAt: Date;
   createdBy: string | null; // The username of who started the job. Jobs from before FRG-16 do not have it.
+  cancelledBy?: string | null; // Only on cancelled jobs: who cancelled it, and when.
+  cancelledAt?: Date;
 };
 
 // Which jobs GET /api/jobs returns. See listJobs.
