@@ -32,14 +32,14 @@ const PROGRESS_INTERVAL_MS = 1500;
 const MAX_TEXT_LENGTH = 2000;
 
 // Where a job is now, from GET /api/jobs/<id> (see backend/src/jobs.ts).
-type Progress =
+export type Progress =
   | { state: "waiting"; jobsAhead: number }
   | { state: "running"; step: number; steps: number }
   | { state: "finishing" };
 
 // The answer from GET /api/jobs/<id>. Only the parts this page uses.
 type JobAnswer = {
-  status: "queued" | "running" | "done" | "failed" | "cancelled";
+  status: "draft" | "queued" | "running" | "done" | "failed" | "cancelled";
   inputs: Record<string, unknown>;
   imageUrl: string | null;
   error: string | null;
@@ -48,14 +48,15 @@ type JobAnswer = {
 };
 
 // One preset from GET /api/presets (see backend/src/presets.ts).
-type PresetInput = { key: string; label: string; kind: string; default?: number | string };
-type Preset = { id: string; name: string; description: string; type: string; inputs: PresetInput[] };
+// The board (Board.tsx) uses these too.
+export type PresetInput = { key: string; label: string; kind: string; default?: number | string };
+export type Preset = { id: string; name: string; description: string; type: string; inputs: PresetInput[] };
 
 // The form keeps every value as text, the way the input boxes give it.
-type FormValues = Record<string, string>;
+export type FormValues = Record<string, string>;
 
 // Start values for a preset's form: its defaults, or empty.
-function defaultValues(preset: Preset): FormValues {
+export function defaultValues(preset: Preset): FormValues {
   const values: FormValues = {};
   for (const input of preset.inputs) values[input.key] = input.default === undefined ? "" : String(input.default);
   return values;
@@ -63,7 +64,7 @@ function defaultValues(preset: Preset): FormValues {
 
 // Turn the form values into the "inputs" the backend expects.
 // Empty number and seed boxes are left out, so the backend uses the default or a random seed.
-function toInputs(preset: Preset, values: FormValues): Record<string, string | number> {
+export function toInputs(preset: Preset, values: FormValues): Record<string, string | number> {
   const inputs: Record<string, string | number> = {};
   for (const input of preset.inputs) {
     const value = values[input.key] ?? "";
@@ -78,7 +79,7 @@ function toInputs(preset: Preset, values: FormValues): Record<string, string | n
 export type StartValues = { presetId: string | null; inputs: Record<string, unknown> };
 
 // The form for a preset, filled with the given values where the preset has that input.
-function startFormValues(preset: Preset, start: StartValues): FormValues {
+export function startFormValues(preset: Preset, start: StartValues): FormValues {
   const values = defaultValues(preset);
   for (const input of preset.inputs) {
     const value = start.inputs[input.key];
@@ -274,7 +275,8 @@ export default function Generate({ startValues = null, onStartValuesUsed }: Gene
           setShown(result);
           setRecent((current) => [result, ...current.filter((r) => r.url !== result.url)].slice(0, RECENT_COUNT));
           stopFollowing();
-        } else if (body.status === "done" || body.status === "failed") {
+        } else if (body.status === "done" || body.status === "failed" || body.status === "draft") {
+          // "draft": a board card whose job did not finish. It went back to the Ready column.
           setError(body.error ?? "The job failed.");
           stopFollowing();
         } else {
@@ -679,7 +681,7 @@ export default function Generate({ startValues = null, onStartValuesUsed }: Gene
 }
 
 // One number or seed input in Advanced Settings. Which box it is depends on "kind" in preset.json.
-function Field(props: { input: PresetInput; value: string; disabled: boolean; onChange: (value: string) => void }) {
+export function Field(props: { input: PresetInput; value: string; disabled: boolean; onChange: (value: string) => void }) {
   const { input, value, disabled, onChange } = props;
 
   let box;
@@ -739,7 +741,7 @@ const MAX_UPLOAD_MB = 20;
 
 // An image input: pick a picture, upload it straight away, show a small preview.
 // The value is the file name the backend gives back. It stays empty until the upload is done.
-function ImageBox(props: { input: PresetInput; value: string; disabled: boolean; onChange: (value: string) => void }) {
+export function ImageBox(props: { input: PresetInput; value: string; disabled: boolean; onChange: (value: string) => void }) {
   const { input, value, disabled, onChange } = props;
   const [preview, setPreview] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -814,7 +816,7 @@ function ImageBox(props: { input: PresetInput; value: string; disabled: boolean;
 // Shows where the job is: waiting in the queue, a progress bar, or saving.
 // Cancel is shown once the job has an id, and not while the result is being saved.
 type ProgressViewProps = { progress: Progress | null; onCancel: (() => void) | null; cancelling: boolean };
-function ProgressView({ progress, onCancel, cancelling }: ProgressViewProps) {
+export function ProgressView({ progress, onCancel, cancelling }: ProgressViewProps) {
   let text = "Sending your job to ComfyUI...";
   let percent: number | null = null;
   if (progress?.state === "waiting") {

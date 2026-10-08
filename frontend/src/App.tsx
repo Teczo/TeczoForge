@@ -2,14 +2,23 @@ import { useEffect, useState } from "react";
 import Generate from "./Generate";
 import type { StartValues } from "./Generate";
 import Gallery from "./Gallery";
+import Board from "./Board";
 import Login from "./Login";
 import Logo from "./Logo";
-import { ChevronDownIcon, ImageIcon, LogoutIcon, SparklesIcon } from "./Icons";
+import { ChevronDownIcon, ImageIcon, LayersIcon, LogoutIcon, SparklesIcon } from "./Icons";
 
-// Which page to show comes from the address: #/gallery or the Generate page.
-// Using the # part means a refresh or bookmark keeps the same page.
+// Which page to show comes from the address: #/board, #/gallery (or #/gallery/<job id> to open
+// one job), or the Generate page. Using the # part means a refresh or bookmark keeps the same page.
 function currentPage() {
-  return window.location.hash === "#/gallery" ? "gallery" : "generate";
+  const hash = window.location.hash;
+  if (hash === "#/board") return "board";
+  if (hash === "#/gallery" || hash.startsWith("#/gallery/")) return "gallery";
+  return "generate";
+}
+
+// The job id in #/gallery/<job id>, or null.
+function galleryJobId(): string | null {
+  return window.location.hash.match(/^#\/gallery\/(.+)$/)?.[1] ?? null;
 }
 
 // What the page knows about each part.
@@ -28,6 +37,7 @@ export default function App() {
   const [backend, setBackend] = useState<Status>("checking");
   const [comfyui, setComfyui] = useState<Status>("checking");
   const [page, setPage] = useState(currentPage);
+  const [openJobId, setOpenJobId] = useState(galleryJobId);
   // Set by "Use again" in the gallery: the preset and values to fill into the Generate page.
   const [useAgain, setUseAgain] = useState<StartValues | null>(null);
 
@@ -38,7 +48,10 @@ export default function App() {
 
   // Switch page when the address changes (link click, back button).
   useEffect(() => {
-    const onHashChange = () => setPage(currentPage());
+    const onHashChange = () => {
+      setPage(currentPage());
+      setOpenJobId(galleryJobId());
+    };
     window.addEventListener("hashchange", onHashChange);
     return () => window.removeEventListener("hashchange", onHashChange);
   }, []);
@@ -104,6 +117,9 @@ export default function App() {
           <a href="#/gallery" className={page === "gallery" ? "active" : ""}>
             <ImageIcon size={22} /> <span>Gallery</span>
           </a>
+          <a href="#/board" className={page === "board" ? "active" : ""}>
+            <LayersIcon size={22} /> <span>Board</span>
+          </a>
         </nav>
         <div className="status-list">
           <StatusLine label="Backend" status={backend} />
@@ -111,8 +127,10 @@ export default function App() {
         </div>
         <UserMenu user={user} onLogOut={logOut} />
       </header>
-      {page === "gallery" ? (
-        <Gallery onUseAgain={handleUseAgain} />
+      {page === "board" ? (
+        <Board />
+      ) : page === "gallery" ? (
+        <Gallery onUseAgain={handleUseAgain} openJobId={openJobId} />
       ) : (
         <Generate startValues={useAgain} onStartValuesUsed={() => setUseAgain(null)} />
       )}
