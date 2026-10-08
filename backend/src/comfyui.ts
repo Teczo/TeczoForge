@@ -52,6 +52,31 @@ export async function getQueue(): Promise<{ running: string[]; pending: string[]
   return { running: ids(queue.queue_running ?? []), pending: ids(queue.queue_pending ?? []) };
 }
 
+// Remove a waiting job from ComfyUI's queue. A job that is already running is not touched.
+export async function removeFromQueue(promptId: string): Promise<void> {
+  const response = await callComfyUI("/queue", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ delete: [promptId] }),
+  });
+  if (!response.ok) {
+    throw new HttpError(502, `ComfyUI did not remove the job from its queue (HTTP ${response.status}).`);
+  }
+}
+
+// Stop the running job, but only if it is this one. ComfyUI checks the prompt_id itself too,
+// so another job is never stopped.
+export async function interruptJob(promptId: string): Promise<void> {
+  const response = await callComfyUI("/interrupt", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ prompt_id: promptId }),
+  });
+  if (!response.ok) {
+    throw new HttpError(502, `ComfyUI did not stop the job (HTTP ${response.status}).`);
+  }
+}
+
 // Upload a picture into ComfyUI's input folder. Returns the file name ComfyUI saved it as.
 export async function uploadImage(image: Buffer, fileName: string, contentType: string): Promise<string> {
   const form = new FormData();

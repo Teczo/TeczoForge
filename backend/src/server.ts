@@ -1,6 +1,6 @@
 import "dotenv/config";
 import express from "express";
-import { createJobHandler, getJobHandler, listJobsHandler, OUTPUTS_DIR, recoverJobs, startJobChecker } from "./jobs.js";
+import { cancelJobHandler, createJobHandler, getJobHandler, listJobsHandler, OUTPUTS_DIR, recoverJobs, startJobChecker } from "./jobs.js";
 import { checkDatabase } from "./db.js";
 import { startProgressListener } from "./progress.js";
 import { listPresets } from "./presets.js";
@@ -64,10 +64,11 @@ app.get("/api/presets", async (_req, res) => {
 app.post("/api/upload", express.raw({ type: IMAGE_TYPES, limit: MAX_UPLOAD_BYTES }), uploadHandler);
 
 // Jobs (see jobs.ts): start one from a preset and the user's values (answers at once),
-// a page of the job history, and one job with its progress.
+// a page of the job history, one job with its progress, and cancel my own job.
 app.post("/api/jobs", express.json(), createJobHandler);
 app.get("/api/jobs", listJobsHandler);
 app.get("/api/jobs/:id", getJobHandler);
+app.post("/api/jobs/:id/cancel", cancelJobHandler);
 
 // Serve finished images from data/outputs.
 app.use("/api/outputs", express.static(OUTPUTS_DIR));
