@@ -50,6 +50,7 @@ Backend (Express, 127.0.0.1:4000) ──► ComfyUI (127.0.0.1:8188)   HTTP + on
 |---|---|
 | `server.ts` | Routes, login check, static file serving for outputs, JSON error handling |
 | `jobs.ts` | Job routes. `POST /api/jobs`: check inputs → save as `queued` → queue in ComfyUI → answer at once. A 1 s checker follows unfinished jobs (`running` → copy output → `done` / `failed`), saving each change. At start it picks up jobs left `queued` / `running`. |
+| `drafts.ts` | Board routes (FRG-22). A card is a job with status `draft`, a `title` and a `column` (`idea` / `ready`). Run turns the same record into a queued job. A card whose job fails or is cancelled goes back to Ready with the reason. Needs MongoDB. |
 | `presets.ts` | List and load presets, check user inputs (text / seed / number / image), put values into the workflow |
 | `comfyui.ts` | ComfyUI client: queue, history polling, upload, view, error parsing |
 | `progress.ts` | One WebSocket to ComfyUI (fixed client id, so it also works after a restart). Step x of y per ComfyUI prompt id |
@@ -70,16 +71,22 @@ Backend (Express, 127.0.0.1:4000) ──► ComfyUI (127.0.0.1:8188)   HTTP + on
 | POST | `/api/upload` | yes | Upload a start image → ComfyUI input folder |
 | POST | `/api/jobs` | yes | Start a job from a preset. Answers at once with `{ jobId }` (+ `warning` if MongoDB is offline) |
 | GET | `/api/jobs/:id` | yes | One job: `status` (queued / running / done / failed), `progress` (waiting: jobs ahead / running: step x of y / finishing), `imageUrl`, `outputFile`, `error` |
+| GET | `/api/board` | yes | Board cards: all drafts, all waiting / running jobs (with `progress`), and the newest 30 finished jobs that started as a card |
+| POST | `/api/drafts` | yes | Add a card: `presetId`, `inputs`, `title`, `column` (default `idea`). Inputs are checked like `/api/jobs` |
+| PATCH | `/api/drafts/:id` | yes | Change `title`, `inputs` or `column`. Only while it is a draft |
+| DELETE | `/api/drafts/:id` | yes | Delete a card. Only while it is a draft |
+| POST | `/api/drafts/:id/run` | yes | Check the inputs again, then queue the card like `/api/jobs`. Answers `{ jobId }` |
 | GET | `/api/jobs` | yes | Job history, newest first. `?limit=` (default 50, max 200), `?before=<createdAt>` (next page), `?status=done` or `?status=active` (queued + running), `?mine=1` (only my jobs) |
 | GET | `/api/outputs/*` | yes | Finished files |
 
 ### Frontend (`frontend/src/`)
 
-- `App.tsx`: login gate, header with Backend/ComfyUI status, user menu, page switch by URL hash (`#/`, `#/gallery`).
+- `App.tsx`: login gate, header with Backend/ComfyUI status, user menu, page switch by URL hash (`#/`, `#/gallery`, `#/gallery/<job id>`, `#/board`).
 - `Generate.tsx`: three columns. **Sidebar** (categories + models), **Create panel** (image upload,
   prompt, preset picker, Quick Prompts, Advanced Settings, Generate), **Result panel** (large view,
   download, full screen, strip of the 10 latest results).
 - `Gallery.tsx`: grid of finished jobs → detail view (prompt, maker, preset, seed, size, time) with **Use again** and **Download**.
+- `Board.tsx`: four columns (Idea, Ready, Generating, Done). Add / Edit / Delete / Generate on each card, drag and drop between Idea and Ready, **Generate all Ready**, progress on generating cards, Open and Copy as new card on done cards.
 - `Media.tsx`: shows `<img>` or `<video>` based on the file ending.
 - `Icons.tsx`, `Logo.tsx`, `Login.tsx`, `styles.css`: dark theme, inline SVG icons, no UI library.
 
