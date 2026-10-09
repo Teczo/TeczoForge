@@ -35,10 +35,22 @@ function checkColumn(column: unknown): DraftColumn {
 
 // The same checks as POST /api/jobs. The draft keeps the inputs as typed, so a card
 // without a seed gets a new random seed each time it runs.
-async function checkInputs(presetId: unknown, inputs: unknown): Promise<Record<string, unknown>> {
+// With allowEmptyText, a text input may still be empty (a "Send to" card, FRG-26): the user writes
+// it later with Edit. Running the card checks everything again, so it cannot run without it.
+async function checkInputs(presetId: unknown, inputs: unknown, allowEmptyText = false): Promise<Record<string, unknown>> {
   const { preset, workflow } = await loadPreset(presetId);
-  buildWorkflow(preset, workflow, inputs ?? {});
-  return (inputs ?? {}) as Record<string, unknown>;
+  const values = (inputs ?? {}) as Record<string, unknown>;
+  let toCheck: unknown = values;
+  if (allowEmptyText && typeof values === "object" && !Array.isArray(values)) {
+    // Check the other values with a stand-in for each empty text.
+    const filled = { ...values };
+    for (const input of preset.inputs) {
+      if (input.kind === "text" && (filled[input.key] ?? "") === "") filled[input.key] = "(to be written)";
+    }
+    toCheck = filled;
+  }
+  buildWorkflow(preset, workflow, toCheck);
+  return values;
 }
 
 // The kept start images of a card's inputs (FRG-25).
@@ -69,8 +81,11 @@ export async function createDraft(fields: {
   column?: unknown;
   createdBy: string | null;
   conversationId?: string;
+  sourceJobId?: string;
+  allowEmptyText?: boolean;
+  error?: string; // A note shown on the new card.
 }): Promise<Job> {
-  const inputs = await checkInputs(fields.presetId, fields.inputs);
+  const inputs = await checkInputs(fields.presetId, fields.inputs, fields.allowEmptyText);
   const inputFiles = await cardInputFiles(fields.presetId, inputs);
   const draft: Job = {
     id: crypto.randomUUID(),
@@ -80,7 +95,7 @@ export async function createDraft(fields: {
     promptId: null,
     outputFile: null,
     imageUrl: null,
-    error: null,
+    error: fields.error ?? null,
     durationMs: 0,
     createdAt: new Date(),
     createdBy: fields.createdBy,
@@ -88,6 +103,7 @@ export async function createDraft(fields: {
     column: fields.column === undefined ? "idea" : checkColumn(fields.column),
     ...(fields.conversationId ? { conversationId: fields.conversationId } : {}),
     ...(inputFiles.length > 0 ? { inputFiles } : {}),
+    ...(fields.sourceJobId ? { sourceJobId: fields.sourceJobId } : {}),
   };
   await insertDraft(draft);
   return draft;

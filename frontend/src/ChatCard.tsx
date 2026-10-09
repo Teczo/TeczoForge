@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import Media from "./Media";
+import Media, { isVideo } from "./Media";
+import SendToMenu from "./SendToMenu";
 import { CardForm } from "./Board";
 import type { FormState } from "./Board";
 import { ProgressView, startFormValues } from "./Generate";
-import type { Preset, Progress } from "./Generate";
+import type { Preset, Progress, StartValues } from "./Generate";
 import { SparklesIcon } from "./Icons";
 
 // A board card that Claude made in the chat (FRG-24). It is the same card as on the board.
@@ -32,7 +33,13 @@ type Card = {
 
 const NO_BACKEND = "Could not reach the backend. Make sure it is running, then try again.";
 
-export default function ChatCard({ card: ref, presets }: { card: ChatCardRef; presets: Preset[] }) {
+type ChatCardProps = {
+  card: ChatCardRef;
+  presets: Preset[];
+  onOpenInGenerate: (values: StartValues) => void; // "Send to -> Open in Generate" (FRG-26).
+};
+
+export default function ChatCard({ card: ref, presets, onOpenInGenerate }: ChatCardProps) {
   const [card, setCard] = useState<Card | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -141,6 +148,9 @@ export default function ChatCard({ card: ref, presets }: { card: ChatCardRef; pr
           <a className="button" href={`#/gallery/${ref.id}`}>
             Open in gallery
           </a>
+        )}
+        {card?.status === "done" && card.imageUrl && !isVideo(card.imageUrl) && (
+          <SendToMenu jobId={ref.id} onOpenInGenerate={onOpenInGenerate} />
         )}
         <a className="button" href="#/board">
           Open board

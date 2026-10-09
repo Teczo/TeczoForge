@@ -3,7 +3,7 @@ import type { ClipboardEvent, DragEvent, FormEvent, KeyboardEvent, ReactNode } f
 import { CloseIcon, PaperclipIcon, PencilIcon, SparklesIcon } from "./Icons";
 import ChatCard from "./ChatCard";
 import type { ChatCardRef } from "./ChatCard";
-import type { Preset } from "./Generate";
+import type { Preset, StartValues } from "./Generate";
 
 // The chat page (FRG-23): talk with Claude about scenes and prompts. Text only.
 // Left: my conversations. Right: the messages and a box to type in.
@@ -51,9 +51,16 @@ type ChatProps = {
   // "Use in chat" in the gallery: a picture to attach to the next message.
   pendingAttachment?: Attachment | null;
   onPendingAttachmentUsed?: () => void;
+  // "Send to -> Open in Generate" on a finished card (FRG-26).
+  onOpenInGenerate: (values: StartValues) => void;
 };
 
-export default function Chat({ conversationId, pendingAttachment = null, onPendingAttachmentUsed }: ChatProps) {
+export default function Chat({
+  conversationId,
+  pendingAttachment = null,
+  onPendingAttachmentUsed,
+  onOpenInGenerate,
+}: ChatProps) {
   const [setupError, setSetupError] = useState<string | null>(null);
   const [list, setList] = useState<ConversationSummary[]>([]);
   const [listError, setListError] = useState<string | null>(null);
@@ -411,14 +418,16 @@ export default function Chat({ conversationId, pendingAttachment = null, onPendi
               )}
               {message.role === "assistant" ? <Markdown text={message.text} /> : message.text && <p>{message.text}</p>}
               {message.stopped && <p className="chat-note">Stopped.</p>}
-              {message.cards?.map((card) => <ChatCard key={card.id} card={card} presets={presets} />)}
+              {message.cards?.map((card) => (
+                <ChatCard key={card.id} card={card} presets={presets} onOpenInGenerate={onOpenInGenerate} />
+              ))}
             </div>
           ))}
           {streaming && (
             <div className="chat-bubble assistant">
               {replyText ? <Markdown text={replyText} /> : <p className="chat-note">Claude is thinking...</p>}
               {replyCards.map((card) => (
-                <ChatCard key={card.id} card={card} presets={presets} />
+                <ChatCard key={card.id} card={card} presets={presets} onOpenInGenerate={onOpenInGenerate} />
               ))}
             </div>
           )}

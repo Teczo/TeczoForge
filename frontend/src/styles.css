@@ -1587,6 +1587,70 @@ a {
   border-style: dashed;
 }
 
+/* ---------- Send to (FRG-26) ---------- */
+
+.send-to {
+  position: relative;
+  display: inline-block;
+}
+
+.send-to-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 40;
+  min-width: 300px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: var(--panel-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+}
+
+.send-to-menu.right {
+  left: auto;
+  right: 0;
+}
+
+.send-to-item {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+.send-to-item:hover {
+  background: var(--panel);
+}
+
+.send-to-item button {
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border-strong);
+  background: var(--panel);
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+
+.send-to-item button:hover {
+  border-color: var(--accent);
+}
+
+.send-to .message {
+  margin: 8px 0 0;
+}
+
+.used-in {
+  margin: 0;
+  padding-left: 18px;
+}
+
 .chat-card {
   margin: 10px 0 4px;
   padding: 12px;

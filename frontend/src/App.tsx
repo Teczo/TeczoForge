@@ -166,12 +166,13 @@ export default function App() {
         <UserMenu user={user} onLogOut={logOut} />
       </header>
       {page === "board" ? (
-        <Board />
+        <Board onOpenInGenerate={handleUseAgain} />
       ) : page === "chat" ? (
         <Chat
           conversationId={conversationId}
           pendingAttachment={chatAttachment}
           onPendingAttachmentUsed={() => setChatAttachment(null)}
+          onOpenInGenerate={handleUseAgain}
         />
       ) : page === "gallery" ? (
         <Gallery onUseAgain={handleUseAgain} onUseInChat={handleUseInChat} openJobId={openJobId} />

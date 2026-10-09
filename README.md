@@ -41,6 +41,7 @@ Backend (Express, 127.0.0.1:4000) ──► ComfyUI (127.0.0.1:8188)   HTTP + on
 - **Presets are folders.** `presets/<id>/workflow.json` (a ComfyUI API export) and `preset.json`
   (which user inputs map to which node and field). A new preset needs no code change.
   Optional `promptGuide` in `preset.json`: how to write a good prompt for that model. The chat gives it to Claude.
+  Optional `sendToLabel` in `preset.json`: the name in the **Send to** menu (for example `Animate`). Without it, the preset name.
 - **The browser never talks to ComfyUI.** ComfyUI has no login and its custom nodes can run code on the PC.
 - **No second queue.** ComfyUI's own queue is used. The backend only tracks status.
 - **MongoDB can fail without breaking generation.** You see a warning, not a crash.
@@ -58,6 +59,7 @@ Backend (Express, 127.0.0.1:4000) ──► ComfyUI (127.0.0.1:8188)   HTTP + on
 | `chatTools.ts` | Chat tools (FRG-24): one `create_card_<preset id>` tool per preset folder, built for every message from `preset.json` (no node ids). A tool call is checked like `/api/drafts` and makes a draft in **Ready** with the conversation id. It never starts a job. Check errors go back to Claude. At most 8 tool calls per message. A start image must be the id of a picture attached in that chat (FRG-25). |
 | `chatImages.ts` | Pictures in chat (FRG-25). Checks each picture against the Claude API limits (PNG/JPEG/WebP, at most 10 MB base64, at most 8000 x 8000 px, at most 20 per message) before any API call. Sends at most the newest 20 pictures and 24 MB of pictures per request; older ones are named in the text. |
 | `inputs.ts` | Start images (FRG-25). Keeps every upload in `data/inputs`, reads image type and size from the first bytes, and before a job is queued uploads a start image again if ComfyUI's input folder lost it. |
+| `sendTo.ts` | "Send to" (FRG-26). Copies a finished picture into `data/inputs` and ComfyUI's input folder, then fills the Generate form or makes a Ready card for any preset with an image input. Saves `sourceJobId`. Also lists the jobs made from a job ("Used in"). |
 | `presets.ts` | List and load presets, check user inputs (text / seed / number / image), put values into the workflow |
 | `comfyui.ts` | ComfyUI client: queue, history polling, upload, view, error parsing |
 | `progress.ts` | One WebSocket to ComfyUI (fixed client id, so it also works after a restart). Step x of y per ComfyUI prompt id |
@@ -79,6 +81,8 @@ Backend (Express, 127.0.0.1:4000) ──► ComfyUI (127.0.0.1:8188)   HTTP + on
 | POST | `/api/inputs/from-output` | yes | "Use in chat": `{ imageUrl: "/api/outputs/<name>" }` → copied into `data/inputs` as a new picture. Answers `{ name, width, height }`. Pictures only |
 | GET | `/api/inputs/*` | yes | Kept start images and chat pictures (same safe static serving as outputs) |
 | POST | `/api/jobs` | yes | Start a job from a preset. Answers at once with `{ jobId }` (+ `warning` if MongoDB is offline) |
+| POST | `/api/send-to` | yes | `{ jobId, presetId, target: "generate" \| "board" }`. `generate` answers `{ presetId, inputs, sourceJobId }` for the form; `board` makes a Ready card (prompt still to write) and answers `{ card }`. Pictures only |
+| GET | `/api/jobs/:id/used-in` | yes | Jobs and cards made from this job with "Send to" |
 | GET | `/api/jobs/:id` | yes | One job: `status` (queued / running / done / failed), `progress` (waiting: jobs ahead / running: step x of y / finishing), `imageUrl`, `outputFile`, `error` |
 | GET | `/api/board` | yes | Board cards: all drafts, all waiting / running jobs (with `progress`), and the newest 30 finished jobs that started as a card |
 | POST | `/api/drafts` | yes | Add a card: `presetId`, `inputs`, `title`, `column` (default `idea`). Inputs are checked like `/api/jobs` |
@@ -101,7 +105,8 @@ Backend (Express, 127.0.0.1:4000) ──► ComfyUI (127.0.0.1:8188)   HTTP + on
 - `Generate.tsx`: three columns. **Sidebar** (categories + models), **Create panel** (image upload,
   prompt, preset picker, Quick Prompts, Advanced Settings, Generate), **Result panel** (large view,
   download, full screen, strip of the 10 latest results).
-- `Gallery.tsx`: grid of finished jobs → detail view (prompt, maker, preset, seed, size, time) with **Use again** and **Download**. Jobs with a start image show **Start image → Result**. Pictures have **Use in chat** (attach to the last open chat).
+- `Gallery.tsx`: grid of finished jobs → detail view (prompt, maker, preset, seed, size, time) with **Use again** and **Download**. Jobs with a start image show **Start image → Result**. Pictures have **Use in chat** (attach to the last open chat) and **Send to**. Shows **Made from** (link to the start picture's job) and **Used in** (links).
+- `SendToMenu.tsx`: the **Send to** menu (FRG-26) on picture results: result panel, gallery detail, Done board cards and chat cards. One item per preset with an image input (`sendToLabel` or the name), each with **Open in Generate** and **Add to board**.
 - `Board.tsx`: four columns (Idea, Ready, Generating, Done). Add / Edit / Delete / Generate on each card, drag and drop between Idea and Ready, **Generate all Ready**, progress on generating cards, Open and Copy as new card on done cards.
 - `Chat.tsx`: conversation list (New chat, rename, delete) and the messages with an input box. The reply shows while it streams; **Stop** ends it and keeps the text so far. Simple markdown (paragraphs, lists, bold, code) without a package. Pictures: **Attach** button, paste, or drag and drop; shown as thumbnails.
 - `ChatCard.tsx`: a card Claude made, inside the chat: title, preset, prompt, **Generate** (runs the draft, like the board), **Edit**, **Open board**. Shows progress while it runs and the image or video when done.

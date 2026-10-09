@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { StartValues } from "./Generate";
 import type { Attachment } from "./Chat";
 import Media, { isVideo } from "./Media";
+import SendToMenu from "./SendToMenu";
 import { ArrowLeftIcon, ArrowRightIcon, ChatIcon, DownloadIcon, PlayIcon, RepeatIcon } from "./Icons";
 
 // How many results the gallery shows: the newest ones.
@@ -9,6 +10,7 @@ const GALLERY_LIMIT = 100;
 
 // One job, as GET /api/jobs returns it (see backend/src/db.ts).
 type Job = {
+  id?: string; // Missing on jobs from before FRG-20.
   presetId: string | null;
   inputs: Record<string, unknown>;
   status: "queued" | "running" | "done" | "failed" | "cancelled";
@@ -19,7 +21,11 @@ type Job = {
   createdAt: string;
   createdBy?: string | null; // Missing on jobs from before team logins (FRG-16).
   inputFiles?: string[]; // Kept start images, for example "data/inputs/<name>" (FRG-25).
+  sourceJobId?: string; // "Send to": the job whose result is the start image (FRG-26).
 };
+
+// A job made from this one with "Send to" (GET /api/jobs/<id>/used-in).
+type UsedIn = { id: string; presetId: string | null; status: string; title: string | null };
 
 // The address of a kept start image: "data/inputs/<name>" is served at /api/inputs/<name>.
 function inputUrl(file: string): string {
@@ -100,6 +106,7 @@ export default function Gallery({ onUseAgain, onUseInChat, openJobId = null }: G
         onBack={closeDetail}
         onUseAgain={() => onUseAgain({ presetId: selected.presetId, inputs: selected.inputs })}
         onUseInChat={onUseInChat}
+        onSendToGenerate={onUseAgain}
       />
     );
   } else if (jobs.length === 0) {
@@ -144,10 +151,27 @@ export default function Gallery({ onUseAgain, onUseInChat, openJobId = null }: G
 }
 
 // The large image or video with its prompt and settings.
-type DetailProps = { job: Job; onBack: () => void; onUseAgain: () => void; onUseInChat: (a: Attachment) => void };
-function Detail({ job, onBack, onUseAgain, onUseInChat }: DetailProps) {
+type DetailProps = {
+  job: Job;
+  onBack: () => void;
+  onUseAgain: () => void;
+  onUseInChat: (a: Attachment) => void;
+  onSendToGenerate: (values: StartValues) => void; // "Send to -> Open in Generate" (FRG-26).
+};
+function Detail({ job, onBack, onUseAgain, onUseInChat, onSendToGenerate }: DetailProps) {
   const { prompt, seed, width, height } = job.inputs;
   const [chatError, setChatError] = useState<string | null>(null);
+  const [usedIn, setUsedIn] = useState<UsedIn[]>([]);
+
+  // "Used in": the jobs and cards made from this result with "Send to".
+  useEffect(() => {
+    setUsedIn([]);
+    if (!job.id) return;
+    fetch(`/api/jobs/${job.id}/used-in`)
+      .then((response) => (response.ok ? response.json() : { jobs: [] }))
+      .then((body) => setUsedIn(body.jobs ?? []))
+      .catch(() => {});
+  }, [job.id]);
 
   // "Use in chat": the backend copies the picture into data/inputs as a new start image.
   async function useInChat() {
@@ -217,11 +241,42 @@ function Detail({ job, onBack, onUseAgain, onUseInChat }: DetailProps) {
             <dd>{(job.durationMs / 1000).toFixed(1)} seconds</dd>
             <dt>Made on</dt>
             <dd>{new Date(job.createdAt).toLocaleString()}</dd>
+            {job.sourceJobId && (
+              <>
+                <dt>Made from</dt>
+                <dd>
+                  <a href={`#/gallery/${job.sourceJobId}`}>Open the start picture's job</a>
+                </dd>
+              </>
+            )}
+            {usedIn.length > 0 && (
+              <>
+                <dt>Used in</dt>
+                <dd>
+                  <ul className="used-in">
+                    {usedIn.map((item) => (
+                      <li key={item.id}>
+                        {item.status === "done" ? (
+                          <a href={`#/gallery/${item.id}`}>{item.title ?? item.presetId}</a>
+                        ) : (
+                          <a href="#/board">{item.title ?? item.presetId}</a>
+                        )}{" "}
+                        <span className="board-meta">
+                          ({item.presetId}
+                          {item.status === "done" ? "" : item.status === "draft" ? ", card on the board" : `, ${item.status}`})
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </dd>
+              </>
+            )}
           </dl>
           <div className="button-row">
             <button className="button primary" onClick={onUseAgain}>
               <RepeatIcon size={18} /> Use again
             </button>
+            {!isVideo(job.imageUrl!) && job.id && <SendToMenu jobId={job.id} onOpenInGenerate={onSendToGenerate} />}
             {!isVideo(job.imageUrl!) && (
               <button className="button" onClick={useInChat}>
                 <ChatIcon size={18} /> Use in chat

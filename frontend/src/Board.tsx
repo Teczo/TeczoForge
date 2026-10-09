@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import type { DragEvent, FormEvent } from "react";
 import Media, { isVideo } from "./Media";
+import SendToMenu from "./SendToMenu";
 import { defaultValues, Field, ImageBox, ProgressView, startFormValues, toInputs } from "./Generate";
-import type { FormValues, Preset, Progress } from "./Generate";
+import type { FormValues, Preset, Progress, StartValues } from "./Generate";
 import { CloseIcon, PlayIcon, SparklesIcon } from "./Icons";
 
 // The board (FRG-22): cards are prompts that are saved but not run yet.
@@ -45,7 +46,8 @@ function columnOf(card: Card): ColumnId {
 // The add, edit and copy form. The chat uses it too, to edit a card Claude made (FRG-24).
 export type FormState = { cardId: string | null; presetId: string; title: string; values: FormValues };
 
-export default function Board() {
+// onOpenInGenerate: "Send to -> Open in Generate" on a Done card (FRG-26).
+export default function Board({ onOpenInGenerate }: { onOpenInGenerate: (values: StartValues) => void }) {
   const [presets, setPresets] = useState<Preset[]>([]);
   const [cards, setCards] = useState<Card[] | null>(null);
   const [boardError, setBoardError] = useState<string | null>(null);
@@ -237,6 +239,7 @@ export default function Board() {
                     setDragging(card.id);
                   }}
                   onDragEnd={() => setDragging(null)}
+                  onOpenInGenerate={onOpenInGenerate}
                 />
               ))}
             </section>
@@ -272,6 +275,7 @@ type CardViewProps = {
   onMove: (to: "idea" | "ready") => void;
   onDragStart: (event: DragEvent) => void;
   onDragEnd: () => void;
+  onOpenInGenerate: (values: StartValues) => void;
 };
 
 function CardView(props: CardViewProps) {
@@ -329,6 +333,9 @@ function CardView(props: CardViewProps) {
           <button className="button" onClick={props.onCopy}>
             Copy as new card
           </button>
+          {card.imageUrl && !isVideo(card.imageUrl) && (
+            <SendToMenu jobId={card.id} onOpenInGenerate={props.onOpenInGenerate} />
+          )}
         </div>
       )}
     </article>
