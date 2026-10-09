@@ -1084,6 +1084,28 @@ a {
   padding: 12px;
 }
 
+.start-result {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+}
+
+.start-result > svg {
+  color: var(--text-dim);
+}
+
+.start-result figure {
+  margin: 0;
+}
+
+.start-result figcaption {
+  margin-top: 6px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
 .detail-media img,
 .detail-media video {
   display: block;

@@ -34,6 +34,7 @@ export type Job = {
   title?: string; // Only on jobs that started as a board card (FRG-22).
   column?: DraftColumn; // Only used while the job is a draft.
   conversationId?: string; // Only on cards Claude made in a chat (FRG-24).
+  inputFiles?: string[]; // Kept start images, for example "data/inputs/teczoforge-1-a1b2c3.png" (FRG-25).
 };
 
 // Which jobs GET /api/jobs returns. See listJobs.

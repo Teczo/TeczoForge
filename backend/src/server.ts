@@ -14,6 +14,7 @@ import {
 } from "./chat.js";
 import { boardHandler, createDraftHandler, deleteDraftHandler, runDraftHandler, updateDraftHandler } from "./drafts.js";
 import { startProgressListener } from "./progress.js";
+import { INPUTS_DIR } from "./inputs.js";
 import { listPresets } from "./presets.js";
 import { IMAGE_TYPES, MAX_UPLOAD_BYTES, uploadHandler } from "./upload.js";
 import { checkSessionSecret, loginHandler, logoutHandler, meHandler, requireLogin } from "./auth.js";
@@ -100,6 +101,8 @@ app.post("/api/chat/:conversationId/messages", express.json(), sendMessageHandle
 
 // Serve finished images from data/outputs.
 app.use("/api/outputs", express.static(OUTPUTS_DIR));
+// Serve kept start images from data/inputs (FRG-25). Behind the login, like outputs.
+app.use("/api/inputs", express.static(INPUTS_DIR));
 
 // If the request body is not valid JSON, say so clearly instead of showing an HTML error page.
 app.use((error: { type?: string }, _req: express.Request, res: express.Response, next: express.NextFunction) => {

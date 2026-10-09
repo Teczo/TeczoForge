@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { StartValues } from "./Generate";
 import Media, { isVideo } from "./Media";
-import { ArrowLeftIcon, DownloadIcon, PlayIcon, RepeatIcon } from "./Icons";
+import { ArrowLeftIcon, ArrowRightIcon, DownloadIcon, PlayIcon, RepeatIcon } from "./Icons";
 
 // How many results the gallery shows: the newest ones.
 const GALLERY_LIMIT = 100;
@@ -17,7 +17,13 @@ type Job = {
   durationMs: number;
   createdAt: string;
   createdBy?: string | null; // Missing on jobs from before team logins (FRG-16).
+  inputFiles?: string[]; // Kept start images, for example "data/inputs/<name>" (FRG-25).
 };
+
+// The address of a kept start image: "data/inputs/<name>" is served at /api/inputs/<name>.
+function inputUrl(file: string): string {
+  return `/api/inputs/${encodeURIComponent(file.replace(/^data\/inputs\//, ""))}`;
+}
 
 // Who made a job, for showing on the page.
 function madeBy(job: Job): string {
@@ -146,7 +152,24 @@ function Detail({ job, onBack, onUseAgain }: { job: Job; onBack: () => void; onU
       </div>
       <div className="detail">
         <div className="detail-media panel">
-          <Media url={job.imageUrl!} mode="full" alt={String(prompt ?? "")} />
+          {job.inputFiles?.length ? (
+            // A job with a start image: show Start image -> Result.
+            <div className="start-result">
+              <figure>
+                {job.inputFiles.map((file) => (
+                  <img key={file} src={inputUrl(file)} alt="Start image" />
+                ))}
+                <figcaption>Start image</figcaption>
+              </figure>
+              <ArrowRightIcon size={26} />
+              <figure>
+                <Media url={job.imageUrl!} mode="full" alt={String(prompt ?? "")} />
+                <figcaption>Result</figcaption>
+              </figure>
+            </div>
+          ) : (
+            <Media url={job.imageUrl!} mode="full" alt={String(prompt ?? "")} />
+          )}
         </div>
         <div className="detail-info panel">
           <h2>Prompt</h2>

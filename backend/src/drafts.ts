@@ -1,6 +1,7 @@
 import type { Request, Response } from "express";
 import { HttpError } from "./httpError.js";
 import { buildWorkflow, loadPreset } from "./presets.js";
+import { ensureStartImages, inputFilesFor } from "./inputs.js";
 import { claimDraft, deleteDraft, findBoardJob, insertDraft, listBoardJobs, updateDraft } from "./db.js";
 import type { DraftColumn, Job } from "./db.js";
 import { activeJobs, follow, JOB_ID_PATTERN, sendError, sendToComfyUI } from "./jobs.js";
@@ -40,6 +41,12 @@ async function checkInputs(presetId: unknown, inputs: unknown): Promise<Record<s
   return (inputs ?? {}) as Record<string, unknown>;
 }
 
+// The kept start images of a card's inputs (FRG-25).
+async function cardInputFiles(presetId: unknown, inputs: Record<string, unknown>): Promise<string[]> {
+  const { preset } = await loadPreset(presetId);
+  return inputFilesFor(preset, inputs);
+}
+
 function checkId(req: Request): string {
   const id = String(req.params.id);
   if (!JOB_ID_PATTERN.test(id)) throw new HttpError(400, "This is not a card id.");
@@ -63,10 +70,12 @@ export async function createDraft(fields: {
   createdBy: string | null;
   conversationId?: string;
 }): Promise<Job> {
+  const inputs = await checkInputs(fields.presetId, fields.inputs);
+  const inputFiles = await cardInputFiles(fields.presetId, inputs);
   const draft: Job = {
     id: crypto.randomUUID(),
     presetId: fields.presetId as string,
-    inputs: await checkInputs(fields.presetId, fields.inputs),
+    inputs,
     status: "draft",
     promptId: null,
     outputFile: null,
@@ -78,6 +87,7 @@ export async function createDraft(fields: {
     title: checkTitle(fields.title),
     column: fields.column === undefined ? "idea" : checkColumn(fields.column),
     ...(fields.conversationId ? { conversationId: fields.conversationId } : {}),
+    ...(inputFiles.length > 0 ? { inputFiles } : {}),
   };
   await insertDraft(draft);
   return draft;
@@ -111,6 +121,7 @@ export async function updateDraftHandler(req: Request, res: Response) {
       const draft = await findBoardJob(id);
       if (!draft || draft.status !== "draft") throw await notADraft(id, "edited");
       fields.inputs = await checkInputs(draft.presetId, inputs);
+      fields.inputFiles = await cardInputFiles(draft.presetId, fields.inputs as Record<string, unknown>);
       fields.error = null;
     }
     if (Object.keys(fields).length === 0) {
@@ -152,10 +163,13 @@ export async function runDraftHandler(req: Request, res: Response) {
     if (!draft || draft.status !== "draft") throw await notADraft(id, "run again");
 
     // 1. Check the inputs again (the preset may have changed since the card was made).
+    //    Start images must be in ComfyUI's input folder; a missing one is uploaded again (FRG-25).
     let built;
+    let inputFiles: string[];
     try {
       const { preset, workflow } = await loadPreset(draft.presetId);
-      built = buildWorkflow(preset, workflow, draft.inputs);
+      built = await ensureStartImages(preset, workflow, buildWorkflow(preset, workflow, draft.inputs));
+      inputFiles = await inputFilesFor(preset, built.usedValues);
     } catch (error) {
       if (error instanceof HttpError) await updateDraft(id, { error: error.message });
       throw error;
@@ -166,6 +180,7 @@ export async function runDraftHandler(req: Request, res: Response) {
     const job = await claimDraft(id, {
       status: "queued",
       inputs: built.usedValues,
+      ...(inputFiles.length > 0 ? { inputFiles } : {}),
       promptId: null,
       error: null,
       createdAt: new Date(), // The job starts now. This also keeps the time taken right.
