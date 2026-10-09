@@ -28,6 +28,7 @@ export type Preset = {
   name: string;
   description?: string;
   promptGuide?: string; // How to write a good prompt for this model. Chat gives it to Claude (FRG-24).
+  sendToLabel?: string; // Name in the "Send to" menu, for example "Animate" (FRG-26). Default: the preset name.
   type: string;
   inputs: PresetInput[];
   output: { node: string };
@@ -43,6 +44,7 @@ export type PresetSummary = {
   name: string;
   description: string;
   promptGuide: string;
+  sendToLabel: string;
   type: string;
   inputs: { key: string; label: string; kind: string; default?: number | string }[];
 };
@@ -64,6 +66,7 @@ export async function listPresets(): Promise<PresetSummary[]> {
         name: preset.name ?? folder.name,
         description: preset.description ?? "",
         promptGuide: preset.promptGuide ?? "",
+        sendToLabel: preset.sendToLabel ?? "",
         type: preset.type,
         inputs: preset.inputs.map(({ key, label, kind, default: defaultValue }) => ({
           key,

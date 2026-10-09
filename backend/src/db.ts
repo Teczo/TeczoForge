@@ -35,6 +35,7 @@ export type Job = {
   column?: DraftColumn; // Only used while the job is a draft.
   conversationId?: string; // Only on cards Claude made in a chat (FRG-24).
   inputFiles?: string[]; // Kept start images, for example "data/inputs/teczoforge-1-a1b2c3.png" (FRG-25).
+  sourceJobId?: string; // "Send to": the job whose result is this job's start image (FRG-26).
 };
 
 // Which jobs GET /api/jobs returns. See listJobs.
@@ -237,6 +238,17 @@ export function listBoardJobs(doneLimit: number): Promise<{ drafts: Job[]; done:
   }));
 }
 
+// The jobs and cards made from this job's result with "Send to" (FRG-26), oldest first.
+export async function findUsedIn(id: string): Promise<Job[]> {
+  try {
+    const jobs = await getJobsCollection();
+    return await jobs.find({ sourceJobId: id }, { projection: { _id: 0 } }).sort({ createdAt: 1 }).toArray();
+  } catch (error) {
+    console.warn(`Warning: could not read the jobs. ${safeMessage(error)}`);
+    throw new HttpError(503, "This is not available because MongoDB cannot be reached.");
+  }
+}
+
 // Jobs that were waiting or running. Used once when the backend starts (see recoverJobs in jobs.ts).
 export async function findActiveJobs(): Promise<Job[]> {
   const jobs = await getJobsCollection();
@@ -251,6 +263,7 @@ export async function checkDatabase(): Promise<boolean> {
     const jobs = await getJobsCollection();
     await jobs.createIndex({ createdAt: -1 });
     await jobs.createIndex({ id: 1 });
+    await jobs.createIndex({ sourceJobId: 1 }); // "Used in" (FRG-26).
     // Chat: my conversations, newest first, and one conversation by id.
     const conversations = await getConversationsCollection();
     await conversations.createIndex({ owner: 1, updatedAt: -1 });

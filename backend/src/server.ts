@@ -15,6 +15,7 @@ import {
 import { boardHandler, createDraftHandler, deleteDraftHandler, runDraftHandler, updateDraftHandler } from "./drafts.js";
 import { startProgressListener } from "./progress.js";
 import { INPUTS_DIR } from "./inputs.js";
+import { sendToHandler, usedInHandler } from "./sendTo.js";
 import { listPresets } from "./presets.js";
 import { IMAGE_TYPES, MAX_UPLOAD_BYTES, uploadHandler, useOutputHandler } from "./upload.js";
 import { checkSessionSecret, loginHandler, logoutHandler, meHandler, requireLogin } from "./auth.js";
@@ -80,6 +81,10 @@ app.post("/api/upload", express.raw({ type: IMAGE_TYPES, limit: MAX_UPLOAD_BYTES
 app.post("/api/jobs", express.json(), createJobHandler);
 app.get("/api/jobs", listJobsHandler);
 app.get("/api/jobs/:id", getJobHandler);
+// "Send to" (see sendTo.ts): use a finished picture as the start image of another preset,
+// and the jobs that were made that way from one job ("Used in").
+app.post("/api/send-to", express.json(), sendToHandler);
+app.get("/api/jobs/:id/used-in", usedInHandler);
 app.post("/api/jobs/:id/cancel", cancelJobHandler);
 
 // The board (see drafts.ts): cards are saved jobs that have not run yet ("drafts").

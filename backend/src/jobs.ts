@@ -278,11 +278,16 @@ export async function recoverJobs() {
 // ---- Routes ----
 
 // POST /api/jobs
-// Body: { "presetId": "text-to-image-basic", "inputs": { "prompt": "a red car" } }
+// Body: { "presetId": "text-to-image-basic", "inputs": { "prompt": "a red car" }, "sourceJobId": "<optional>" }
 // Answer: { "jobId": "<uuid>" }, plus "warning" if the job could not be saved in MongoDB.
 // If ComfyUI does not accept the job, the answer is an error, with the jobId of the failed job.
 export async function createJobHandler(req: Request, res: Response) {
-  const { presetId, inputs } = req.body ?? {};
+  const { presetId, inputs, sourceJobId } = req.body ?? {};
+  // "Send to -> Open in Generate" (FRG-26): the job whose result is the start image.
+  if (sourceJobId !== undefined && (typeof sourceJobId !== "string" || !JOB_ID_PATTERN.test(sourceJobId))) {
+    res.status(400).json({ error: "sourceJobId must be a job id." });
+    return;
+  }
 
   // 1. Load the preset and put the user's values into its workflow. Bad values: answer 400, save nothing.
   //    Start images must be in ComfyUI's input folder; a missing one is uploaded again (FRG-25).
@@ -311,6 +316,7 @@ export async function createJobHandler(req: Request, res: Response) {
     createdAt: new Date(),
     createdBy: res.locals.username ?? null, // Set by requireLogin in auth.ts.
     ...(inputFiles.length > 0 ? { inputFiles } : {}),
+    ...(sourceJobId ? { sourceJobId } : {}),
   });
   await save(live);
 
