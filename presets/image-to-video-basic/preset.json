@@ -2,6 +2,7 @@
   "id": "image-to-video-basic",
   "name": "Image to Video",
   "description": "Wan 2.2 14B. Upload a picture and describe the motion. Makes a 5 second video, 640 x 640, 16 fps. Takes about 4 to 5 minutes.",
+  "promptGuide": "Describe only the motion for about 5 seconds, in one or two short sentences: what moves, how it moves, and what the camera does (static, slow push in, pan left, ...). Do not describe the scene again; it comes from the start image. Keep to one simple action, with no scene cuts.",
   "type": "video",
   "inputs": [
     { "key": "image", "label": "Start image", "kind": "image", "node": "97", "field": "image" },

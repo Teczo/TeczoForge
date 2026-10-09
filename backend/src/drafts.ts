@@ -53,28 +53,44 @@ async function notADraft(id: string, action: string): Promise<HttpError> {
   return new HttpError(409, `This card has already run, so it cannot be ${action}.`);
 }
 
+// Check and save a new draft. Also used by the chat when Claude makes a card (chatTools.ts).
+// Throws an HttpError with a clear message if a value is wrong.
+export async function createDraft(fields: {
+  presetId: unknown;
+  inputs: unknown;
+  title: unknown;
+  column?: unknown;
+  createdBy: string | null;
+  conversationId?: string;
+}): Promise<Job> {
+  const draft: Job = {
+    id: crypto.randomUUID(),
+    presetId: fields.presetId as string,
+    inputs: await checkInputs(fields.presetId, fields.inputs),
+    status: "draft",
+    promptId: null,
+    outputFile: null,
+    imageUrl: null,
+    error: null,
+    durationMs: 0,
+    createdAt: new Date(),
+    createdBy: fields.createdBy,
+    title: checkTitle(fields.title),
+    column: fields.column === undefined ? "idea" : checkColumn(fields.column),
+    ...(fields.conversationId ? { conversationId: fields.conversationId } : {}),
+  };
+  await insertDraft(draft);
+  return draft;
+}
+
 // POST /api/drafts
 // Body: { "presetId": "...", "inputs": { ... }, "title": "...", "column": "idea" (default) }
 // Answer: the new draft.
 export async function createDraftHandler(req: Request, res: Response) {
   try {
     const { presetId, inputs, title, column } = req.body ?? {};
-    const draft: Job = {
-      id: crypto.randomUUID(),
-      presetId,
-      inputs: await checkInputs(presetId, inputs),
-      status: "draft",
-      promptId: null,
-      outputFile: null,
-      imageUrl: null,
-      error: null,
-      durationMs: 0,
-      createdAt: new Date(),
-      createdBy: res.locals.username ?? null, // Set by requireLogin in auth.ts.
-      title: checkTitle(title),
-      column: column === undefined ? "idea" : checkColumn(column),
-    };
-    await insertDraft(draft);
+    // createdBy is set by requireLogin in auth.ts.
+    const draft = await createDraft({ presetId, inputs, title, column, createdBy: res.locals.username ?? null });
     res.status(201).json(draft);
   } catch (error) {
     sendError(res, error);

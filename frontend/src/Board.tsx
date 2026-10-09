@@ -42,8 +42,8 @@ function columnOf(card: Card): ColumnId {
   return "generating";
 }
 
-// The add, edit and copy form.
-type FormState = { cardId: string | null; presetId: string; title: string; values: FormValues };
+// The add, edit and copy form. The chat uses it too, to edit a card Claude made (FRG-24).
+export type FormState = { cardId: string | null; presetId: string; title: string; values: FormValues };
 
 export default function Board() {
   const [presets, setPresets] = useState<Preset[]>([]);
@@ -343,7 +343,7 @@ type CardFormProps = {
 };
 
 // Add a card, edit one, or copy a finished one. The backend checks the values like a real job.
-function CardForm({ presets, state, onClose, onSaved }: CardFormProps) {
+export function CardForm({ presets, state, onClose, onSaved }: CardFormProps) {
   const [presetId, setPresetId] = useState(state.presetId);
   const [title, setTitle] = useState(state.title);
   const [values, setValues] = useState<FormValues>(state.values);

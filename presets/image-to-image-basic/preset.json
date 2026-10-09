@@ -2,6 +2,7 @@
   "id": "image-to-image-basic",
   "name": "Image to Image",
   "description": "Z-Image-Turbo. Upload a picture and describe how it should look. Keeps the layout, changes style and details (denoise 0.8, about 1 megapixel).",
+  "promptGuide": "Describe the whole picture you want to end up with, not only the change: subject, setting, lighting and style, about 30 to 80 words. The start image gives the layout and colors; the prompt changes content and style.",
   "type": "image",
   "inputs": [
     { "key": "image", "label": "Start image", "kind": "image", "node": "60", "field": "image" },

@@ -39,6 +39,7 @@ Backend (Express, 127.0.0.1:4000) ──► ComfyUI (127.0.0.1:8188)   HTTP + on
 
 - **Presets are folders.** `presets/<id>/workflow.json` (a ComfyUI API export) and `preset.json`
   (which user inputs map to which node and field). A new preset needs no code change.
+  Optional `promptGuide` in `preset.json`: how to write a good prompt for that model. The chat gives it to Claude.
 - **The browser never talks to ComfyUI.** ComfyUI has no login and its custom nodes can run code on the PC.
 - **No second queue.** ComfyUI's own queue is used. The backend only tracks status.
 - **MongoDB can fail without breaking generation.** You see a warning, not a crash.
@@ -53,6 +54,7 @@ Backend (Express, 127.0.0.1:4000) ──► ComfyUI (127.0.0.1:8188)   HTTP + on
 | `drafts.ts` | Board routes (FRG-22). A card is a job with status `draft`, a `title` and a `column` (`idea` / `ready`). Run turns the same record into a queued job. A card whose job fails or is cancelled goes back to Ready with the reason. Needs MongoDB. |
 | `chat.ts` | Chat with the Claude API (FRG-23). Conversations in MongoDB (`conversations`, only the owner can read them), replies streamed with SSE, newest 40 messages sent, 8,000 characters per message, token counts per reply (also in `chat_usage`), optional daily token limit. The API key never leaves the backend. Needs MongoDB. |
 | `chatPrompt.ts` | The chat system prompt. Edit it to change how Claude answers. |
+| `chatTools.ts` | Chat tools (FRG-24): one `create_card_<preset id>` tool per preset folder, built for every message from `preset.json` (no node ids). A tool call is checked like `/api/drafts` and makes a draft in **Ready** with the conversation id. It never starts a job. Check errors go back to Claude. At most 8 tool calls per message. Presets that need a start image get no tool until FRG-25. |
 | `presets.ts` | List and load presets, check user inputs (text / seed / number / image), put values into the workflow |
 | `comfyui.ts` | ComfyUI client: queue, history polling, upload, view, error parsing |
 | `progress.ts` | One WebSocket to ComfyUI (fixed client id, so it also works after a restart). Step x of y per ComfyUI prompt id |
@@ -84,7 +86,7 @@ Backend (Express, 127.0.0.1:4000) ──► ComfyUI (127.0.0.1:8188)   HTTP + on
 | GET | `/api/chat/conversations/:id` | yes | One of my conversations with its messages. Someone else's answers 404 |
 | PATCH | `/api/chat/conversations/:id` | yes | Rename: `{ title }` |
 | DELETE | `/api/chat/conversations/:id` | yes | Delete one of my conversations |
-| POST | `/api/chat/:conversationId/messages` | yes | `{ text }` (max 8,000 characters). Streams the reply as SSE: `text` events, then `done` (the saved reply with token counts) or `error` |
+| POST | `/api/chat/:conversationId/messages` | yes | `{ text }` (max 8,000 characters). Streams the reply as SSE: `text` events, `card` events (a board card Claude made), then `done` (the saved reply with token counts and cards) or `error` |
 | GET | `/api/jobs` | yes | Job history, newest first. `?limit=` (default 50, max 200), `?before=<createdAt>` (next page), `?status=done` or `?status=active` (queued + running), `?mine=1` (only my jobs) |
 | GET | `/api/outputs/*` | yes | Finished files |
 
@@ -97,6 +99,7 @@ Backend (Express, 127.0.0.1:4000) ──► ComfyUI (127.0.0.1:8188)   HTTP + on
 - `Gallery.tsx`: grid of finished jobs → detail view (prompt, maker, preset, seed, size, time) with **Use again** and **Download**.
 - `Board.tsx`: four columns (Idea, Ready, Generating, Done). Add / Edit / Delete / Generate on each card, drag and drop between Idea and Ready, **Generate all Ready**, progress on generating cards, Open and Copy as new card on done cards.
 - `Chat.tsx`: conversation list (New chat, rename, delete) and the messages with an input box. The reply shows while it streams; **Stop** ends it and keeps the text so far. Simple markdown (paragraphs, lists, bold, code) without a package.
+- `ChatCard.tsx`: a card Claude made, inside the chat: title, preset, prompt, **Generate** (runs the draft, like the board), **Edit**, **Open board**. Shows progress while it runs and the image or video when done.
 - `Media.tsx`: shows `<img>` or `<video>` based on the file ending.
 - `Icons.tsx`, `Logo.tsx`, `Login.tsx`, `styles.css`: dark theme, inline SVG icons, no UI library.
 

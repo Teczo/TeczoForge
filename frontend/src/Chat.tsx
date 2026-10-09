@@ -1,10 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent, KeyboardEvent, ReactNode } from "react";
 import { CloseIcon, PencilIcon, SparklesIcon } from "./Icons";
+import ChatCard from "./ChatCard";
+import type { ChatCardRef } from "./ChatCard";
+import type { Preset } from "./Generate";
 
 // The chat page (FRG-23): talk with Claude about scenes and prompts. Text only.
 // Left: my conversations. Right: the messages and a box to type in.
 // The reply streams in piece by piece (SSE, see backend/src/chat.ts). Stop ends it early.
+// Claude can make board cards (FRG-24). They show under its reply, with a Generate button.
 
 // Same limit as the backend.
 const MAX_MESSAGE_LENGTH = 8000;
@@ -15,6 +19,7 @@ type Message = {
   text: string;
   createdAt: string;
   stopped?: boolean;
+  cards?: ChatCardRef[];
 };
 type ConversationSummary = { id: string; title: string; updatedAt: string };
 type Conversation = ConversationSummary & { messages: Message[] };
@@ -34,6 +39,8 @@ export default function Chat({ conversationId }: ChatProps) {
   const [text, setText] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [replyText, setReplyText] = useState(""); // The reply while it streams.
+  const [replyCards, setReplyCards] = useState<ChatCardRef[]>([]); // Cards made in that reply so far.
+  const [presets, setPresets] = useState<Preset[]>([]);
   const [error, setError] = useState<string | null>(null);
   const stopRef = useRef<AbortController | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
@@ -65,6 +72,10 @@ export default function Chat({ conversationId }: ChatProps) {
       .then((response) => response.json())
       .then((body) => setSetupError(body.ready ? null : (body.error ?? "Chat is not set up.")))
       .catch(() => setSetupError(NO_BACKEND));
+    fetch("/api/presets")
+      .then((response) => response.json())
+      .then((body) => setPresets(body.presets ?? []))
+      .catch(() => {});
     loadList();
   }, []);
 
@@ -155,9 +166,11 @@ export default function Chat({ conversationId }: ChatProps) {
     setMessages((current) => [...current, { role: "user", text: message, createdAt: new Date().toISOString() }]);
     setStreaming(true);
     setReplyText("");
+    setReplyCards([]);
     const controller = new AbortController();
     stopRef.current = controller;
     let received = "";
+    const cards: ChatCardRef[] = [];
 
     try {
       const response = await fetch(`/api/chat/${id}/messages`, {
@@ -194,6 +207,9 @@ export default function Chat({ conversationId }: ChatProps) {
           if (name === "text") {
             received += data.text;
             setReplyText(received);
+          } else if (name === "card") {
+            cards.push(data.card);
+            setReplyCards([...cards]);
           } else if (name === "error") {
             setError(data.error);
           }
@@ -204,13 +220,14 @@ export default function Chat({ conversationId }: ChatProps) {
       if (!(caught instanceof DOMException && caught.name === "AbortError")) setError(NO_BACKEND);
     } finally {
       const stopped = controller.signal.aborted;
-      if (received !== "") {
+      if (received !== "" || cards.length > 0) {
         setMessages((current) => [
           ...current,
-          { role: "assistant", text: received, createdAt: new Date().toISOString(), stopped },
+          { role: "assistant", text: received, createdAt: new Date().toISOString(), stopped, cards },
         ]);
       }
       setReplyText("");
+      setReplyCards([]);
       setStreaming(false);
       stopRef.current = null;
       loadList(); // The title and the order may have changed.
@@ -263,11 +280,15 @@ export default function Chat({ conversationId }: ChatProps) {
             <div key={index} className={`chat-bubble ${message.role}`}>
               {message.role === "assistant" ? <Markdown text={message.text} /> : <p>{message.text}</p>}
               {message.stopped && <p className="chat-note">Stopped.</p>}
+              {message.cards?.map((card) => <ChatCard key={card.id} card={card} presets={presets} />)}
             </div>
           ))}
           {streaming && (
             <div className="chat-bubble assistant">
               {replyText ? <Markdown text={replyText} /> : <p className="chat-note">Claude is thinking...</p>}
+              {replyCards.map((card) => (
+                <ChatCard key={card.id} card={card} presets={presets} />
+              ))}
             </div>
           )}
           {error && <p className="message error">{error}</p>}

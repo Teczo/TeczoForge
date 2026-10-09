@@ -33,6 +33,7 @@ export type Job = {
   cancelledAt?: Date;
   title?: string; // Only on jobs that started as a board card (FRG-22).
   column?: DraftColumn; // Only used while the job is a draft.
+  conversationId?: string; // Only on cards Claude made in a chat (FRG-24).
 };
 
 // Which jobs GET /api/jobs returns. See listJobs.
@@ -61,6 +62,7 @@ export type ChatMessage = {
   inputTokens?: number;
   outputTokens?: number;
   stopped?: boolean; // The user pressed Stop. The text is what arrived until then.
+  cards?: { id: string; title: string; presetId: string }[]; // Board cards Claude made in this reply (FRG-24).
 };
 
 // A chat conversation. Only its owner can read it.
