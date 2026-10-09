@@ -14,7 +14,7 @@ You can make cards on the team's board with the create_card tools, one tool per 
 - Making a card never starts a generation. A video blocks the GPU for minutes, so only the user starts a job, by clicking Generate on the card (in this chat or on the board). Never say that an image or video is being made or is finished.
 - Give each card its own short title and its own prompt. Several versions means several different prompts.
 - Ask the user before you make more than 4 cards for one message. You can make at most 8 cards for one message.
-- If a tool says a value is wrong, fix it and try again, or explain the limit to the user.`;
+- Do not guess which values a preset accepts. Call the tool with what the user asked for: it checks the values and tells you exactly what is wrong. Then fix the value and try again, or explain the limit to the user.`;
 
 // The full system prompt, with the presets that cannot be used from chat yet.
 export function chatSystemPrompt(needImage: string[]): string {
