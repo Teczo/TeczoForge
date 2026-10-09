@@ -51,6 +51,8 @@ Backend (Express, 127.0.0.1:4000) ──► ComfyUI (127.0.0.1:8188)   HTTP + on
 | `server.ts` | Routes, login check, static file serving for outputs, JSON error handling |
 | `jobs.ts` | Job routes. `POST /api/jobs`: check inputs → save as `queued` → queue in ComfyUI → answer at once. A 1 s checker follows unfinished jobs (`running` → copy output → `done` / `failed`), saving each change. At start it picks up jobs left `queued` / `running`. |
 | `drafts.ts` | Board routes (FRG-22). A card is a job with status `draft`, a `title` and a `column` (`idea` / `ready`). Run turns the same record into a queued job. A card whose job fails or is cancelled goes back to Ready with the reason. Needs MongoDB. |
+| `chat.ts` | Chat with the Claude API (FRG-23). Conversations in MongoDB (`conversations`, only the owner can read them), replies streamed with SSE, newest 40 messages sent, 8,000 characters per message, token counts per reply (also in `chat_usage`), optional daily token limit. The API key never leaves the backend. Needs MongoDB. |
+| `chatPrompt.ts` | The chat system prompt. Edit it to change how Claude answers. |
 | `presets.ts` | List and load presets, check user inputs (text / seed / number / image), put values into the workflow |
 | `comfyui.ts` | ComfyUI client: queue, history polling, upload, view, error parsing |
 | `progress.ts` | One WebSocket to ComfyUI (fixed client id, so it also works after a restart). Step x of y per ComfyUI prompt id |
@@ -76,17 +78,25 @@ Backend (Express, 127.0.0.1:4000) ──► ComfyUI (127.0.0.1:8188)   HTTP + on
 | PATCH | `/api/drafts/:id` | yes | Change `title`, `inputs` or `column`. Only while it is a draft |
 | DELETE | `/api/drafts/:id` | yes | Delete a card. Only while it is a draft |
 | POST | `/api/drafts/:id/run` | yes | Check the inputs again, then queue the card like `/api/jobs`. Answers `{ jobId }` |
+| GET | `/api/chat/status` | yes | `{ ready: true }`, or `{ ready: false, error: "Chat is not set up..." }` |
+| GET | `/api/chat/conversations` | yes | My conversations (id, title, dates), newest first |
+| POST | `/api/chat/conversations` | yes | New conversation. Optional `title` (default "New chat"; the first message becomes the title) |
+| GET | `/api/chat/conversations/:id` | yes | One of my conversations with its messages. Someone else's answers 404 |
+| PATCH | `/api/chat/conversations/:id` | yes | Rename: `{ title }` |
+| DELETE | `/api/chat/conversations/:id` | yes | Delete one of my conversations |
+| POST | `/api/chat/:conversationId/messages` | yes | `{ text }` (max 8,000 characters). Streams the reply as SSE: `text` events, then `done` (the saved reply with token counts) or `error` |
 | GET | `/api/jobs` | yes | Job history, newest first. `?limit=` (default 50, max 200), `?before=<createdAt>` (next page), `?status=done` or `?status=active` (queued + running), `?mine=1` (only my jobs) |
 | GET | `/api/outputs/*` | yes | Finished files |
 
 ### Frontend (`frontend/src/`)
 
-- `App.tsx`: login gate, header with Backend/ComfyUI status, user menu, page switch by URL hash (`#/`, `#/gallery`, `#/gallery/<job id>`, `#/board`).
+- `App.tsx`: login gate, header with Backend/ComfyUI status, user menu, page switch by URL hash (`#/`, `#/gallery`, `#/gallery/<job id>`, `#/board`, `#/chat`, `#/chat/<conversation id>`).
 - `Generate.tsx`: three columns. **Sidebar** (categories + models), **Create panel** (image upload,
   prompt, preset picker, Quick Prompts, Advanced Settings, Generate), **Result panel** (large view,
   download, full screen, strip of the 10 latest results).
 - `Gallery.tsx`: grid of finished jobs → detail view (prompt, maker, preset, seed, size, time) with **Use again** and **Download**.
 - `Board.tsx`: four columns (Idea, Ready, Generating, Done). Add / Edit / Delete / Generate on each card, drag and drop between Idea and Ready, **Generate all Ready**, progress on generating cards, Open and Copy as new card on done cards.
+- `Chat.tsx`: conversation list (New chat, rename, delete) and the messages with an input box. The reply shows while it streams; **Stop** ends it and keeps the text so far. Simple markdown (paragraphs, lists, bold, code) without a package.
 - `Media.tsx`: shows `<img>` or `<video>` based on the file ending.
 - `Icons.tsx`, `Logo.tsx`, `Login.tsx`, `styles.css`: dark theme, inline SVG icons, no UI library.
 
@@ -253,5 +263,7 @@ cd backend && npm run user -- <username>
 cd backend && npm run secret
 ```
 
-Set up `backend/.env` from `backend/.env.example` (`PORT`, `COMFYUI_URL`, `MONGODB_URI`, `SESSION_SECRET`).
+Set up `backend/.env` from `backend/.env.example` (`PORT`, `COMFYUI_URL`, `MONGODB_URI`, `SESSION_SECRET`,
+and for the chat page `ANTHROPIC_API_KEY`, `CLAUDE_MODEL` and the optional `CHAT_DAILY_TOKEN_LIMIT`).
+The chat text goes to the Claude API on the internet. Generation stays on this PC.
 For ComfyUI install details, models and measured speeds, see `docs/comfyui-setup.md`.
