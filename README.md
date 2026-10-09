@@ -32,7 +32,8 @@ Browser (React, port 5173)
 Backend (Express, 127.0.0.1:4000) ──► ComfyUI (127.0.0.1:8188)   HTTP + one WebSocket for progress
    │
    ├──► MongoDB Atlas   jobs + users   (optional: generating still works when it is offline)
-   └──► data/outputs/   finished .png / .mp4 files
+   ├──► data/outputs/   finished .png / .mp4 files
+   └──► data/inputs/    kept copies of every start image (FRG-25)
 ```
 
 **Main design ideas**
@@ -54,11 +55,13 @@ Backend (Express, 127.0.0.1:4000) ──► ComfyUI (127.0.0.1:8188)   HTTP + on
 | `drafts.ts` | Board routes (FRG-22). A card is a job with status `draft`, a `title` and a `column` (`idea` / `ready`). Run turns the same record into a queued job. A card whose job fails or is cancelled goes back to Ready with the reason. Needs MongoDB. |
 | `chat.ts` | Chat with the Claude API (FRG-23). Conversations in MongoDB (`conversations`, only the owner can read them), replies streamed with SSE, newest 40 messages sent, 8,000 characters per message, token counts per reply (also in `chat_usage`), optional daily token limit. The API key never leaves the backend. Needs MongoDB. |
 | `chatPrompt.ts` | The chat system prompt. Edit it to change how Claude answers. |
-| `chatTools.ts` | Chat tools (FRG-24): one `create_card_<preset id>` tool per preset folder, built for every message from `preset.json` (no node ids). A tool call is checked like `/api/drafts` and makes a draft in **Ready** with the conversation id. It never starts a job. Check errors go back to Claude. At most 8 tool calls per message. Presets that need a start image get no tool until FRG-25. |
+| `chatTools.ts` | Chat tools (FRG-24): one `create_card_<preset id>` tool per preset folder, built for every message from `preset.json` (no node ids). A tool call is checked like `/api/drafts` and makes a draft in **Ready** with the conversation id. It never starts a job. Check errors go back to Claude. At most 8 tool calls per message. A start image must be the id of a picture attached in that chat (FRG-25). |
+| `chatImages.ts` | Pictures in chat (FRG-25). Checks each picture against the Claude API limits (PNG/JPEG/WebP, at most 10 MB base64, at most 8000 x 8000 px, at most 20 per message) before any API call. Sends at most the newest 20 pictures and 24 MB of pictures per request; older ones are named in the text. |
+| `inputs.ts` | Start images (FRG-25). Keeps every upload in `data/inputs`, reads image type and size from the first bytes, and before a job is queued uploads a start image again if ComfyUI's input folder lost it. |
 | `presets.ts` | List and load presets, check user inputs (text / seed / number / image), put values into the workflow |
 | `comfyui.ts` | ComfyUI client: queue, history polling, upload, view, error parsing |
 | `progress.ts` | One WebSocket to ComfyUI (fixed client id, so it also works after a restart). Step x of y per ComfyUI prompt id |
-| `upload.ts` | Raw image upload. Checks the file's first bytes (magic bytes). 20 MB limit. Our own file name. |
+| `upload.ts` | Raw image upload. Checks the file's first bytes (magic bytes). 20 MB limit. Our own file name. Keeps a copy in `data/inputs`. Also "Use in chat": copies a finished picture into `data/inputs`. |
 | `auth.ts` | scrypt password hashes, HMAC session cookie (7 days), `requireLogin` middleware |
 | `db.ts` | Mongo connection with a 3 s timeout, `jobs` and `users` collections, hides the connection string in logs |
 | `setUser.ts` | CLI `npm run user -- <name>` to create an account or reset a password |
@@ -72,7 +75,9 @@ Backend (Express, 127.0.0.1:4000) ──► ComfyUI (127.0.0.1:8188)   HTTP + on
 | GET | `/api/me` | yes | Who is logged in |
 | GET | `/api/health` | yes | Backend + ComfyUI reachable? |
 | GET | `/api/presets` | yes | Preset list (node ids stay hidden from the page) |
-| POST | `/api/upload` | yes | Upload a start image → ComfyUI input folder |
+| POST | `/api/upload` | yes | Upload a start image → ComfyUI input folder, and a copy in `data/inputs`. Answers `{ name, width, height }` |
+| POST | `/api/inputs/from-output` | yes | "Use in chat": `{ imageUrl: "/api/outputs/<name>" }` → copied into `data/inputs` as a new picture. Answers `{ name, width, height }`. Pictures only |
+| GET | `/api/inputs/*` | yes | Kept start images and chat pictures (same safe static serving as outputs) |
 | POST | `/api/jobs` | yes | Start a job from a preset. Answers at once with `{ jobId }` (+ `warning` if MongoDB is offline) |
 | GET | `/api/jobs/:id` | yes | One job: `status` (queued / running / done / failed), `progress` (waiting: jobs ahead / running: step x of y / finishing), `imageUrl`, `outputFile`, `error` |
 | GET | `/api/board` | yes | Board cards: all drafts, all waiting / running jobs (with `progress`), and the newest 30 finished jobs that started as a card |
@@ -86,7 +91,7 @@ Backend (Express, 127.0.0.1:4000) ──► ComfyUI (127.0.0.1:8188)   HTTP + on
 | GET | `/api/chat/conversations/:id` | yes | One of my conversations with its messages. Someone else's answers 404 |
 | PATCH | `/api/chat/conversations/:id` | yes | Rename: `{ title }` |
 | DELETE | `/api/chat/conversations/:id` | yes | Delete one of my conversations |
-| POST | `/api/chat/:conversationId/messages` | yes | `{ text }` (max 8,000 characters). Streams the reply as SSE: `text` events, `card` events (a board card Claude made), then `done` (the saved reply with token counts and cards) or `error` |
+| POST | `/api/chat/:conversationId/messages` | yes | `{ text, images }` (max 8,000 characters; `images` are picture ids from `/api/upload`, checked against the Claude limits). Streams the reply as SSE: `text` events, `card` events (a board card Claude made), then `done` (the saved reply with token counts and cards) or `error` |
 | GET | `/api/jobs` | yes | Job history, newest first. `?limit=` (default 50, max 200), `?before=<createdAt>` (next page), `?status=done` or `?status=active` (queued + running), `?mine=1` (only my jobs) |
 | GET | `/api/outputs/*` | yes | Finished files |
 
@@ -96,9 +101,9 @@ Backend (Express, 127.0.0.1:4000) ──► ComfyUI (127.0.0.1:8188)   HTTP + on
 - `Generate.tsx`: three columns. **Sidebar** (categories + models), **Create panel** (image upload,
   prompt, preset picker, Quick Prompts, Advanced Settings, Generate), **Result panel** (large view,
   download, full screen, strip of the 10 latest results).
-- `Gallery.tsx`: grid of finished jobs → detail view (prompt, maker, preset, seed, size, time) with **Use again** and **Download**.
+- `Gallery.tsx`: grid of finished jobs → detail view (prompt, maker, preset, seed, size, time) with **Use again** and **Download**. Jobs with a start image show **Start image → Result**. Pictures have **Use in chat** (attach to the last open chat).
 - `Board.tsx`: four columns (Idea, Ready, Generating, Done). Add / Edit / Delete / Generate on each card, drag and drop between Idea and Ready, **Generate all Ready**, progress on generating cards, Open and Copy as new card on done cards.
-- `Chat.tsx`: conversation list (New chat, rename, delete) and the messages with an input box. The reply shows while it streams; **Stop** ends it and keeps the text so far. Simple markdown (paragraphs, lists, bold, code) without a package.
+- `Chat.tsx`: conversation list (New chat, rename, delete) and the messages with an input box. The reply shows while it streams; **Stop** ends it and keeps the text so far. Simple markdown (paragraphs, lists, bold, code) without a package. Pictures: **Attach** button, paste, or drag and drop; shown as thumbnails.
 - `ChatCard.tsx`: a card Claude made, inside the chat: title, preset, prompt, **Generate** (runs the draft, like the board), **Edit**, **Open board**. Shows progress while it runs and the image or video when done.
 - `Media.tsx`: shows `<img>` or `<video>` based on the file ending.
 - `Icons.tsx`, `Logo.tsx`, `Login.tsx`, `styles.css`: dark theme, inline SVG icons, no UI library.
