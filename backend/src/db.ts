@@ -64,6 +64,7 @@ export type ChatMessage = {
   outputTokens?: number;
   stopped?: boolean; // The user pressed Stop. The text is what arrived until then.
   cards?: { id: string; title: string; presetId: string }[]; // Board cards Claude made in this reply (FRG-24).
+  images?: { id: string; path: string }[]; // Pictures attached to this message, kept in data/inputs (FRG-25).
 };
 
 // A chat conversation. Only its owner can read it.

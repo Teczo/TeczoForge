@@ -4,6 +4,7 @@ import type { StartValues } from "./Generate";
 import Gallery from "./Gallery";
 import Board from "./Board";
 import Chat from "./Chat";
+import type { Attachment } from "./Chat";
 import Login from "./Login";
 import Logo from "./Logo";
 import { ChatIcon, ChevronDownIcon, ImageIcon, LayersIcon, LogoutIcon, SparklesIcon } from "./Icons";
@@ -53,6 +54,30 @@ export default function App() {
   function handleUseAgain(values: StartValues) {
     setUseAgain(values);
     window.location.hash = "#/"; // Go to the Generate page.
+  }
+
+  // Set by "Use in chat" in the gallery: a picture to attach in the chat (FRG-25).
+  const [chatAttachment, setChatAttachment] = useState<Attachment | null>(null);
+
+  // The last chat that was open, so "Use in chat" goes back to it. Only kept in this browser.
+  useEffect(() => {
+    if (!conversationId) return;
+    try {
+      localStorage.setItem("teczoforge.lastChat", conversationId);
+    } catch {
+      // No storage (for example a private window). Then "Use in chat" opens the chat page.
+    }
+  }, [conversationId]);
+
+  function handleUseInChat(attachment: Attachment) {
+    setChatAttachment(attachment);
+    let last: string | null = null;
+    try {
+      last = localStorage.getItem("teczoforge.lastChat");
+    } catch {
+      // No storage: open the chat page without a conversation.
+    }
+    window.location.hash = last ? `#/chat/${last}` : "#/chat";
   }
 
   // Switch page when the address changes (link click, back button).
@@ -143,9 +168,13 @@ export default function App() {
       {page === "board" ? (
         <Board />
       ) : page === "chat" ? (
-        <Chat conversationId={conversationId} />
+        <Chat
+          conversationId={conversationId}
+          pendingAttachment={chatAttachment}
+          onPendingAttachmentUsed={() => setChatAttachment(null)}
+        />
       ) : page === "gallery" ? (
-        <Gallery onUseAgain={handleUseAgain} openJobId={openJobId} />
+        <Gallery onUseAgain={handleUseAgain} onUseInChat={handleUseInChat} openJobId={openJobId} />
       ) : (
         <Generate startValues={useAgain} onStartValuesUsed={() => setUseAgain(null)} />
       )}

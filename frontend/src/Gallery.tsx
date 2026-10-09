@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import type { StartValues } from "./Generate";
+import type { Attachment } from "./Chat";
 import Media, { isVideo } from "./Media";
-import { ArrowLeftIcon, ArrowRightIcon, DownloadIcon, PlayIcon, RepeatIcon } from "./Icons";
+import { ArrowLeftIcon, ArrowRightIcon, ChatIcon, DownloadIcon, PlayIcon, RepeatIcon } from "./Icons";
 
 // How many results the gallery shows: the newest ones.
 const GALLERY_LIMIT = 100;
@@ -33,11 +34,13 @@ function madeBy(job: Job): string {
 type GalleryProps = {
   // "Use again": open the Generate page with this job's preset and values.
   onUseAgain: (values: StartValues) => void;
+  // "Use in chat": attach this picture in the last open chat (FRG-25).
+  onUseInChat: (attachment: Attachment) => void;
   // From #/gallery/<job id>: show this job large (the board's Open button).
   openJobId?: string | null;
 };
 
-export default function Gallery({ onUseAgain, openJobId = null }: GalleryProps) {
+export default function Gallery({ onUseAgain, onUseInChat, openJobId = null }: GalleryProps) {
   const [jobs, setJobs] = useState<Job[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Job | null>(null);
@@ -96,6 +99,7 @@ export default function Gallery({ onUseAgain, openJobId = null }: GalleryProps) 
         job={selected}
         onBack={closeDetail}
         onUseAgain={() => onUseAgain({ presetId: selected.presetId, inputs: selected.inputs })}
+        onUseInChat={onUseInChat}
       />
     );
   } else if (jobs.length === 0) {
@@ -140,8 +144,28 @@ export default function Gallery({ onUseAgain, openJobId = null }: GalleryProps) 
 }
 
 // The large image or video with its prompt and settings.
-function Detail({ job, onBack, onUseAgain }: { job: Job; onBack: () => void; onUseAgain: () => void }) {
+type DetailProps = { job: Job; onBack: () => void; onUseAgain: () => void; onUseInChat: (a: Attachment) => void };
+function Detail({ job, onBack, onUseAgain, onUseInChat }: DetailProps) {
   const { prompt, seed, width, height } = job.inputs;
+  const [chatError, setChatError] = useState<string | null>(null);
+
+  // "Use in chat": the backend copies the picture into data/inputs as a new start image.
+  async function useInChat() {
+    setChatError(null);
+    try {
+      const response = await fetch("/api/inputs/from-output", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageUrl: job.imageUrl }),
+      });
+      const body = await response.json().catch(() => null);
+      if (!body) setChatError("Could not reach the backend. Make sure it is running, then try again.");
+      else if (!response.ok) setChatError(body.error ?? "Could not use this picture in chat.");
+      else onUseInChat({ id: body.name, width: body.width, height: body.height });
+    } catch {
+      setChatError("Could not reach the backend. Make sure it is running, then try again.");
+    }
+  }
 
   return (
     <>
@@ -198,10 +222,16 @@ function Detail({ job, onBack, onUseAgain }: { job: Job; onBack: () => void; onU
             <button className="button primary" onClick={onUseAgain}>
               <RepeatIcon size={18} /> Use again
             </button>
+            {!isVideo(job.imageUrl!) && (
+              <button className="button" onClick={useInChat}>
+                <ChatIcon size={18} /> Use in chat
+              </button>
+            )}
             <a className="button" href={job.imageUrl!} download>
               <DownloadIcon size={18} /> Download
             </a>
           </div>
+          {chatError && <p className="message error">{chatError}</p>}
         </div>
       </div>
     </>

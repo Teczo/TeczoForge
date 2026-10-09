@@ -27,6 +27,7 @@ type Card = {
   error: string | null;
   imageUrl: string | null;
   progress: Progress | null;
+  inputFiles?: string[]; // Kept start images, "data/inputs/<name>" (FRG-25).
 };
 
 const NO_BACKEND = "Could not reach the backend. Make sure it is running, then try again.";
@@ -102,6 +103,18 @@ export default function ChatCard({ card: ref, presets }: { card: ChatCardRef; pr
         <strong>{card?.title ?? ref.title}</strong>
         <span className="board-meta">{preset?.name ?? ref.presetId}</span>
       </div>
+      {card?.inputFiles && card.inputFiles.length > 0 && (
+        <div className="chat-images">
+          {card.inputFiles.map((file) => (
+            <img
+              key={file}
+              src={`/api/inputs/${encodeURIComponent(file.replace(/^data\/inputs\//, ""))}`}
+              alt="Start image"
+              title="Start image"
+            />
+          ))}
+        </div>
+      )}
       {shortPrompt && <p className="board-prompt">{shortPrompt}</p>}
 
       {card?.status === "draft" && card.error && <p className="message error">{card.error}</p>}
