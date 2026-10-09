@@ -3,17 +3,25 @@ import Generate from "./Generate";
 import type { StartValues } from "./Generate";
 import Gallery from "./Gallery";
 import Board from "./Board";
+import Chat from "./Chat";
 import Login from "./Login";
 import Logo from "./Logo";
-import { ChevronDownIcon, ImageIcon, LayersIcon, LogoutIcon, SparklesIcon } from "./Icons";
+import { ChatIcon, ChevronDownIcon, ImageIcon, LayersIcon, LogoutIcon, SparklesIcon } from "./Icons";
 
-// Which page to show comes from the address: #/board, #/gallery (or #/gallery/<job id> to open
-// one job), or the Generate page. Using the # part means a refresh or bookmark keeps the same page.
+// Which page to show comes from the address: #/board, #/chat (or #/chat/<conversation id>),
+// #/gallery (or #/gallery/<job id> to open one job), or the Generate page.
+// Using the # part means a refresh or bookmark keeps the same page.
 function currentPage() {
   const hash = window.location.hash;
   if (hash === "#/board") return "board";
+  if (hash === "#/chat" || hash.startsWith("#/chat/")) return "chat";
   if (hash === "#/gallery" || hash.startsWith("#/gallery/")) return "gallery";
   return "generate";
+}
+
+// The conversation id in #/chat/<id>, or null.
+function chatConversationId(): string | null {
+  return window.location.hash.match(/^#\/chat\/(.+)$/)?.[1] ?? null;
 }
 
 // The job id in #/gallery/<job id>, or null.
@@ -38,6 +46,7 @@ export default function App() {
   const [comfyui, setComfyui] = useState<Status>("checking");
   const [page, setPage] = useState(currentPage);
   const [openJobId, setOpenJobId] = useState(galleryJobId);
+  const [conversationId, setConversationId] = useState(chatConversationId);
   // Set by "Use again" in the gallery: the preset and values to fill into the Generate page.
   const [useAgain, setUseAgain] = useState<StartValues | null>(null);
 
@@ -51,6 +60,7 @@ export default function App() {
     const onHashChange = () => {
       setPage(currentPage());
       setOpenJobId(galleryJobId());
+      setConversationId(chatConversationId());
     };
     window.addEventListener("hashchange", onHashChange);
     return () => window.removeEventListener("hashchange", onHashChange);
@@ -120,6 +130,9 @@ export default function App() {
           <a href="#/board" className={page === "board" ? "active" : ""}>
             <LayersIcon size={22} /> <span>Board</span>
           </a>
+          <a href="#/chat" className={page === "chat" ? "active" : ""}>
+            <ChatIcon size={22} /> <span>Chat</span>
+          </a>
         </nav>
         <div className="status-list">
           <StatusLine label="Backend" status={backend} />
@@ -129,6 +142,8 @@ export default function App() {
       </header>
       {page === "board" ? (
         <Board />
+      ) : page === "chat" ? (
+        <Chat conversationId={conversationId} />
       ) : page === "gallery" ? (
         <Gallery onUseAgain={handleUseAgain} openJobId={openJobId} />
       ) : (

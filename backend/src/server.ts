@@ -2,6 +2,16 @@ import "dotenv/config";
 import express from "express";
 import { cancelJobHandler, createJobHandler, getJobHandler, listJobsHandler, OUTPUTS_DIR, recoverJobs, startJobChecker } from "./jobs.js";
 import { checkDatabase } from "./db.js";
+import {
+  chatStatusHandler,
+  checkChatSetup,
+  createConversationHandler,
+  deleteConversationHandler,
+  getConversationHandler,
+  listConversationsHandler,
+  renameConversationHandler,
+  sendMessageHandler,
+} from "./chat.js";
 import { boardHandler, createDraftHandler, deleteDraftHandler, runDraftHandler, updateDraftHandler } from "./drafts.js";
 import { startProgressListener } from "./progress.js";
 import { listPresets } from "./presets.js";
@@ -78,6 +88,16 @@ app.patch("/api/drafts/:id", express.json(), updateDraftHandler);
 app.delete("/api/drafts/:id", deleteDraftHandler);
 app.post("/api/drafts/:id/run", runDraftHandler);
 
+// Chat with Claude (see chat.ts). Each user only sees their own conversations.
+app.get("/api/chat/status", chatStatusHandler);
+app.get("/api/chat/conversations", listConversationsHandler);
+app.post("/api/chat/conversations", express.json(), createConversationHandler);
+app.get("/api/chat/conversations/:id", getConversationHandler);
+app.patch("/api/chat/conversations/:id", express.json(), renameConversationHandler);
+app.delete("/api/chat/conversations/:id", deleteConversationHandler);
+// Sends one message and streams the reply (SSE).
+app.post("/api/chat/:conversationId/messages", express.json(), sendMessageHandler);
+
 // Serve finished images from data/outputs.
 app.use("/api/outputs", express.static(OUTPUTS_DIR));
 
@@ -96,6 +116,7 @@ app.use((error: { type?: string }, _req: express.Request, res: express.Response,
 
 // Check the login key before the server starts, so a bad SESSION_SECRET stops it right away.
 checkSessionSecret();
+checkChatSetup();
 
 app.listen(PORT, HOST, () => {
   console.log(`Backend running at http://${HOST}:${PORT}`);

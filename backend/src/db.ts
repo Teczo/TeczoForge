@@ -51,6 +51,39 @@ export type User = {
   updatedAt: Date;
 };
 
+// One message in a chat conversation (FRG-23).
+export type ChatMessage = {
+  role: "user" | "assistant";
+  text: string;
+  createdAt: Date;
+  username: string; // Who sent it, or who asked for this reply.
+  // Only on replies: tokens used for this reply. Input includes cached tokens.
+  inputTokens?: number;
+  outputTokens?: number;
+  stopped?: boolean; // The user pressed Stop. The text is what arrived until then.
+};
+
+// A chat conversation. Only its owner can read it.
+export type Conversation = {
+  id: string; // A UUID.
+  owner: string;
+  title: string;
+  messages: ChatMessage[];
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+// Tokens used by one chat reply. Kept apart from the conversation, so deleting a
+// conversation does not change what was used today (CHAT_DAILY_TOKEN_LIMIT).
+export type ChatUsage = {
+  username: string;
+  conversationId: string;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  createdAt: Date;
+};
+
 let connecting: Promise<MongoClient> | null = null;
 
 // Connect once and reuse the connection. If it fails, the next call tries again.
@@ -83,6 +116,15 @@ export async function getUsersCollection(): Promise<Collection<User>> {
   const users = (await getDatabase()).collection<User>("users");
   await users.createIndex({ username: 1 }, { unique: true });
   return users;
+}
+
+// The chat conversations (FRG-23).
+export async function getConversationsCollection(): Promise<Collection<Conversation>> {
+  return (await getDatabase()).collection<Conversation>("conversations");
+}
+
+export async function getChatUsageCollection(): Promise<Collection<ChatUsage>> {
+  return (await getDatabase()).collection<ChatUsage>("chat_usage");
 }
 
 // Close the connection (used by the "npm run user" command when it is done).
@@ -205,6 +247,11 @@ export async function checkDatabase(): Promise<boolean> {
     const jobs = await getJobsCollection();
     await jobs.createIndex({ createdAt: -1 });
     await jobs.createIndex({ id: 1 });
+    // Chat: my conversations, newest first, and one conversation by id.
+    const conversations = await getConversationsCollection();
+    await conversations.createIndex({ owner: 1, updatedAt: -1 });
+    await conversations.createIndex({ id: 1 });
+    await (await getChatUsageCollection()).createIndex({ username: 1, createdAt: -1 });
     console.log("MongoDB: connected");
     return true;
   } catch (error) {
