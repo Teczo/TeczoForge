@@ -189,6 +189,13 @@ export const PlayIcon = (p: IconProps) => (
   </Svg>
 );
 
+export const ChatIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v8a2.5 2.5 0 0 1-2.5 2.5H10l-4.5 4v-4h0A1.5 1.5 0 0 1 4 14.5z" />
+    <path d="M8 8.5h8M8 11.5h5" />
+  </Svg>
+);
+
 export const CloseIcon = (p: IconProps) => (
   <Svg {...p}>
     <path d="M6 6l12 12M18 6L6 18" />
