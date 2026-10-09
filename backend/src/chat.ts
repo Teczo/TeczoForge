@@ -4,9 +4,12 @@ import type { Collection } from "mongodb";
 import { HttpError } from "./httpError.js";
 import { getChatUsageCollection, getConversationsCollection, safeMessage } from "./db.js";
 import type { ChatMessage, ChatUsage, Conversation } from "./db.js";
-import { CHAT_SYSTEM_PROMPT } from "./chatPrompt.js";
+import { chatSystemPrompt } from "./chatPrompt.js";
+import { buildChatTools, runChatTool } from "./chatTools.js";
+import type { ChatCard, ChatTools } from "./chatTools.js";
 
 // Chat with Claude (FRG-23). Text only.
+// Claude can make board cards with tools (FRG-24, see chatTools.ts). It never starts a generation.
 // The chat text goes to the Claude API on the internet. Generation stays on this PC.
 // The API key stays here in the backend: it is never sent to the browser and never logged.
 // Conversations are saved in MongoDB. Each user can only see their own.
@@ -32,6 +35,8 @@ const MAX_REPLY_TOKENS = 16000;
 const DEFAULT_TITLE = "New chat";
 const MAX_TITLE_LENGTH = 80;
 const LIST_LIMIT = 100;
+// The most tool calls (cards) for one user message.
+const MAX_TOOL_CALLS = 8;
 const ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // Models that support the API's refusal fallback: if Claude declines a message for safety
@@ -119,11 +124,18 @@ async function tokensUsedToday(username: string): Promise<number> {
   return rows[0]?.total ?? 0;
 }
 
+// A short note about the cards in a reply, so Claude knows later which cards it already made.
+function cardsNote(message: ChatMessage): string {
+  if (!message.cards?.length) return "";
+  const list = message.cards.map((card) => `"${card.title}" (${card.presetId})`).join(", ");
+  return `\n\n[Cards made in this reply: ${list}]`;
+}
+
 // The newest messages, as the API wants them. The first one must be from the user.
 function historyFor(messages: ChatMessage[]): Anthropic.Beta.BetaMessageParam[] {
-  const recent = messages.filter((m) => m.text.trim() !== "").slice(-HISTORY_LIMIT);
+  const recent = messages.filter((m) => (m.text + cardsNote(m)).trim() !== "").slice(-HISTORY_LIMIT);
   while (recent.length > 0 && recent[0].role !== "user") recent.shift();
-  return recent.map((m) => ({ role: m.role, content: m.text }));
+  return recent.map((m) => ({ role: m.role, content: (m.text + cardsNote(m)).trim() }));
 }
 
 // A plain-English message for an error from the Claude API. The details go to the backend log.
@@ -238,6 +250,7 @@ export async function deleteConversationHandler(req: Request, res: Response) {
 // POST /api/chat/<conversationId>/messages  Body: { "text": "..." }
 // Saves the message, then streams the reply as SSE events:
 //   event: text   data: { "text": "<next piece>" }
+//   event: card   data: { "card": { id, title, presetId } }  Claude made a board card (FRG-24)
 //   event: done   data: { "message": <the saved reply> }
 //   event: error  data: { "error": "<plain English>" }
 // Problems found before the reply starts (not set up, limit reached, ...) are a normal JSON error.
@@ -245,6 +258,7 @@ export async function deleteConversationHandler(req: Request, res: Response) {
 export async function sendMessageHandler(req: Request, res: Response) {
   const username: string = res.locals.username;
   let conversation: Conversation;
+  let tools: ChatTools;
   try {
     if (!client) throw new HttpError(503, NOT_SET_UP_MESSAGE);
     const id = checkId(req.params.conversationId);
@@ -276,6 +290,9 @@ export async function sendMessageHandler(req: Request, res: Response) {
     }
     await withConversations((c) => c.updateOne({ id, owner: username }, { $push: { messages: message }, $set: fields }));
     conversation.messages.push(message);
+
+    // The card tools, from the preset folders as they are now.
+    tools = await buildChatTools();
   } catch (error) {
     sendError(res, error);
     return;
@@ -286,58 +303,121 @@ export async function sendMessageHandler(req: Request, res: Response) {
   res.flushHeaders();
   const sendEvent = (event: string, data: unknown) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 
-  const stream = client.beta.messages.stream({
-    model: CLAUDE_MODEL,
-    max_tokens: MAX_REPLY_TOKENS,
-    system: CHAT_SYSTEM_PROMPT,
-    messages: historyFor(conversation.messages),
-    cache_control: { type: "ephemeral" }, // Reuse the earlier part of the conversation: cheaper and faster.
-    ...(FALLBACK_MODELS.includes(CLAUDE_MODEL)
-      ? { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" as const }
-      : {}),
-  });
-
   // Stop button: the page closes the request. Stop asking Claude, keep what arrived.
   let stoppedByUser = false;
+  let current: { abort(): void } | null = null; // The request to Claude that is running now.
   res.on("close", () => {
     if (!res.writableEnded) {
       stoppedByUser = true;
-      stream.abort();
+      current?.abort();
     }
   });
 
+  // The conversation for the API. Tool calls and their results are added during this reply only.
+  const messages = historyFor(conversation.messages);
+  const cards: ChatCard[] = [];
+  let toolCalls = 0;
   let replyText = "";
-  let inputTokens = 0;
+  let inputTokens = 0; // Summed over all the rounds of this reply.
   let outputTokens = 0;
+  let roundInput = 0; // This round, while it streams (used when Stop is pressed).
+  let roundOutput = 0;
   let errorText: string | null = null;
+
   try {
-    for await (const event of stream) {
-      if (event.type === "message_start") {
-        const usage = event.message.usage;
-        inputTokens = usage.input_tokens + (usage.cache_creation_input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0);
-      } else if (event.type === "message_delta") {
-        outputTokens = event.usage.output_tokens;
-      } else if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
-        replyText += event.delta.text;
-        sendEvent("text", { text: event.delta.text });
+    // One round per API request. When Claude calls a tool, run it and ask again with the result.
+    while (!stoppedByUser) {
+      const stream = client.beta.messages.stream({
+        model: CLAUDE_MODEL,
+        max_tokens: MAX_REPLY_TOKENS,
+        system: chatSystemPrompt(tools.needImage),
+        tools: tools.tools,
+        messages,
+        cache_control: { type: "ephemeral" }, // Reuse the earlier part of the conversation: cheaper and faster.
+        ...(FALLBACK_MODELS.includes(CLAUDE_MODEL)
+          ? { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" as const }
+          : {}),
+      });
+      current = stream;
+      roundInput = 0;
+      roundOutput = 0;
+      let firstText = true;
+      for await (const event of stream) {
+        if (event.type === "message_start") {
+          const usage = event.message.usage;
+          roundInput = usage.input_tokens + (usage.cache_creation_input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0);
+        } else if (event.type === "message_delta") {
+          roundOutput = event.usage.output_tokens;
+        } else if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
+          // Text after a tool call starts on a new paragraph.
+          let piece = event.delta.text;
+          if (firstText && replyText !== "" && !replyText.endsWith("\n")) piece = `\n\n${piece}`;
+          firstText = false;
+          replyText += piece;
+          sendEvent("text", { text: piece });
+        }
       }
-    }
-    // Finished normally: take the exact token counts from the whole reply.
-    const final = await stream.finalMessage();
-    inputTokens =
-      final.usage.input_tokens + (final.usage.cache_creation_input_tokens ?? 0) + (final.usage.cache_read_input_tokens ?? 0);
-    outputTokens = final.usage.output_tokens;
-    if (final.stop_reason === "refusal") {
-      errorText = "Claude declined to answer this message. Try asking in a different way.";
-    } else if (final.stop_reason === "max_tokens") {
-      errorText = "The reply was too long and was cut off. Ask for a shorter answer.";
+      // Finished normally: take the exact token counts of this round.
+      const final = await stream.finalMessage();
+      inputTokens +=
+        final.usage.input_tokens + (final.usage.cache_creation_input_tokens ?? 0) + (final.usage.cache_read_input_tokens ?? 0);
+      outputTokens += final.usage.output_tokens;
+      roundInput = 0;
+      roundOutput = 0;
+
+      if (final.stop_reason === "refusal") {
+        errorText = "Claude declined to answer this message. Try asking in a different way.";
+        break;
+      }
+      if (final.stop_reason === "max_tokens") {
+        // A tool call cut off here may look complete, so it is never run.
+        errorText = "The reply was too long and was cut off. Ask for a shorter answer.";
+        break;
+      }
+      const toolUses = final.content.filter((block) => block.type === "tool_use");
+      if (final.stop_reason !== "tool_use" || toolUses.length === 0) break;
+
+      // Run the tool calls. Each one makes a draft card in Ready, or tells Claude what is wrong.
+      messages.push({ role: "assistant", content: final.content });
+      const results: Anthropic.Beta.BetaToolResultBlockParam[] = [];
+      for (const block of toolUses) {
+        toolCalls++;
+        if (toolCalls > MAX_TOOL_CALLS) {
+          results.push({
+            type: "tool_result",
+            tool_use_id: block.id,
+            is_error: true,
+            content: `Not made: at most ${MAX_TOOL_CALLS} cards per message.`,
+          });
+          continue;
+        }
+        const outcome = await runChatTool(block, { tools, username, conversationId: conversation.id });
+        results.push(outcome.result);
+        if (outcome.card) {
+          cards.push(outcome.card);
+          sendEvent("card", { card: outcome.card });
+        }
+      }
+      // Claude asked for more than the limit: stop here and say so.
+      if (toolCalls > MAX_TOOL_CALLS) {
+        const note = `${replyText === "" ? "" : "\n\n"}I stopped here: I can make at most ${MAX_TOOL_CALLS} cards for one message.`;
+        replyText += note;
+        sendEvent("text", { text: note });
+        break;
+      }
+      messages.push({ role: "user", content: results });
     }
   } catch (error) {
-    if (!stoppedByUser) errorText = claudeErrorMessage(error);
+    if (stoppedByUser) {
+      inputTokens += roundInput;
+      outputTokens += roundOutput;
+    } else {
+      errorText = claudeErrorMessage(error);
+    }
   }
 
-  // Save the reply and its tokens, also when it was stopped or cut off.
-  if (replyText !== "" || inputTokens > 0 || outputTokens > 0) {
+  // Save the reply, its cards and its tokens, also when it was stopped or cut off.
+  if (replyText !== "" || cards.length > 0 || inputTokens > 0 || outputTokens > 0) {
     const reply: ChatMessage = {
       role: "assistant",
       text: replyText,
@@ -346,6 +426,7 @@ export async function sendMessageHandler(req: Request, res: Response) {
       inputTokens,
       outputTokens,
       ...(stoppedByUser ? { stopped: true } : {}),
+      ...(cards.length > 0 ? { cards } : {}),
     };
     try {
       await withConversations((c) =>

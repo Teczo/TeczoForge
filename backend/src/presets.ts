@@ -27,6 +27,7 @@ export type Preset = {
   id: string;
   name: string;
   description?: string;
+  promptGuide?: string; // How to write a good prompt for this model. Chat gives it to Claude (FRG-24).
   type: string;
   inputs: PresetInput[];
   output: { node: string };
@@ -41,6 +42,7 @@ export type PresetSummary = {
   id: string;
   name: string;
   description: string;
+  promptGuide: string;
   type: string;
   inputs: { key: string; label: string; kind: string; default?: number | string }[];
 };
@@ -61,6 +63,7 @@ export async function listPresets(): Promise<PresetSummary[]> {
         id: folder.name, // The folder name is the id used by POST /api/jobs.
         name: preset.name ?? folder.name,
         description: preset.description ?? "",
+        promptGuide: preset.promptGuide ?? "",
         type: preset.type,
         inputs: preset.inputs.map(({ key, label, kind, default: defaultValue }) => ({
           key,
