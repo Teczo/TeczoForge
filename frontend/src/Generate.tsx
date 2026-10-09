@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import Media, { isVideo } from "./Media";
+import SendToMenu from "./SendToMenu";
 import {
   ArrowRightIcon,
   BoltIcon,
@@ -50,7 +51,14 @@ type JobAnswer = {
 // One preset from GET /api/presets (see backend/src/presets.ts).
 // The board (Board.tsx) uses these too.
 export type PresetInput = { key: string; label: string; kind: string; default?: number | string };
-export type Preset = { id: string; name: string; description: string; type: string; inputs: PresetInput[] };
+export type Preset = {
+  id: string;
+  name: string;
+  description: string;
+  type: string;
+  inputs: PresetInput[];
+  sendToLabel?: string; // Name in the "Send to" menu (FRG-26). Empty: the preset name.
+};
 
 // The form keeps every value as text, the way the input boxes give it.
 export type FormValues = Record<string, string>;
@@ -76,7 +84,11 @@ export function toInputs(preset: Preset, values: FormValues): Record<string, str
 }
 
 // Values to start the form with, from "Use again" in the gallery.
-export type StartValues = { presetId: string | null; inputs: Record<string, unknown> };
+// From "Send to" (FRG-26) it also has the job whose result is the start image.
+export type StartValues = { presetId: string | null; inputs: Record<string, unknown>; sourceJobId?: string };
+
+// The note shown when the form was filled in by "Send to".
+const SEND_TO_NOTICE = "Filled in from Send to, with the picture as the start image. Write the prompt, then press Generate.";
 
 // The form for a preset, filled with the given values where the preset has that input.
 export function startFormValues(preset: Preset, start: StartValues): FormValues {
@@ -140,7 +152,7 @@ const QUICK_PROMPTS = [
 ];
 
 // A finished result shown on the right: made just now, or from the job history.
-type Result = { url: string; alt: string };
+type Result = { url: string; alt: string; jobId?: string }; // jobId: for "Send to" (FRG-26).
 
 // How many recent results to show under the large picture.
 const RECENT_COUNT = 10;
@@ -154,6 +166,9 @@ export default function Generate({ startValues = null, onStartValuesUsed }: Gene
   const [presets, setPresets] = useState<Preset[] | null>(null);
   const [presetsError, setPresetsError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // "Send to" (FRG-26): the job the start image came from, and the values it filled in.
+  // The new job remembers it only while those values are still in the form.
+  const [source, setSource] = useState<{ jobId: string; presetId: string; inputs: Record<string, unknown> } | null>(null);
   const [presetId, setPresetId] = useState("");
   const [values, setValues] = useState<FormValues>({});
   const [submitting, setSubmitting] = useState(false);
@@ -188,7 +203,12 @@ export default function Generate({ startValues = null, onStartValuesUsed }: Gene
           if (startValues && startPreset) {
             setPresetId(startPreset.id);
             setValues(startFormValues(startPreset, startValues));
-            setNotice(`Filled in from the gallery. Press Generate to make it again.`);
+            if (startValues.sourceJobId) {
+              setSource({ jobId: startValues.sourceJobId, presetId: startPreset.id, inputs: startValues.inputs });
+              setNotice(SEND_TO_NOTICE);
+            } else {
+              setNotice(`Filled in from the gallery. Press Generate to make it again.`);
+            }
           } else {
             // Start with the first Image preset, like the top item of the left menu.
             const first = firstPresetOf(CATEGORIES[0], list) ?? list[0];
@@ -212,10 +232,11 @@ export default function Generate({ startValues = null, onStartValuesUsed }: Gene
       try {
         const response = await fetch(`/api/jobs?status=done&limit=${RECENT_COUNT}`);
         if (!response.ok) return;
-        const body: { jobs: { imageUrl: string | null; inputs: Record<string, unknown> }[] } = await response.json();
+        const body: { jobs: { id?: string; imageUrl: string | null; inputs: Record<string, unknown> }[] } =
+          await response.json();
         const results: Result[] = body.jobs
           .filter((job) => job.imageUrl)
-          .map((job) => ({ url: job.imageUrl!, alt: String(job.inputs.prompt ?? "") }));
+          .map((job) => ({ url: job.imageUrl!, alt: String(job.inputs.prompt ?? ""), jobId: job.id }));
         setRecent(results);
         setShown((current) => current ?? results[0] ?? null);
       } catch {
@@ -271,7 +292,7 @@ export default function Generate({ startValues = null, onStartValuesUsed }: Gene
           setNotice("The job was cancelled.");
           stopFollowing();
         } else if (body.status === "done" && body.imageUrl) {
-          const result = { url: body.imageUrl, alt: String(body.inputs.prompt ?? "") };
+          const result = { url: body.imageUrl, alt: String(body.inputs.prompt ?? ""), jobId: currentJobId };
           setShown(result);
           setRecent((current) => [result, ...current.filter((r) => r.url !== result.url)].slice(0, RECENT_COUNT));
           stopFollowing();
@@ -317,6 +338,18 @@ export default function Generate({ startValues = null, onStartValuesUsed }: Gene
 
   const preset = presets?.find((p) => p.id === presetId) ?? null;
 
+  // "Send to -> Open in Generate" from the result panel: fill the form with the picture.
+  function openFromSendTo(start: StartValues) {
+    const target = presets?.find((p) => p.id === start.presetId);
+    if (!target) return;
+    setPresetId(target.id);
+    setValues(startFormValues(target, start));
+    if (start.sourceJobId) setSource({ jobId: start.sourceJobId, presetId: target.id, inputs: start.inputs });
+    setNotice(SEND_TO_NOTICE);
+    setError(null);
+    window.scrollTo({ top: 0 });
+  }
+
   function choosePreset(id: string) {
     const chosen = presets?.find((p) => p.id === id);
     if (!chosen) return;
@@ -334,11 +367,21 @@ export default function Generate({ startValues = null, onStartValuesUsed }: Gene
     setError(null);
     setWarning(null);
 
+    // Made with "Send to": remember the source job while its values are still in the form.
+    const fromSource =
+      source !== null &&
+      source.presetId === preset.id &&
+      Object.entries(source.inputs).every(([key, value]) => values[key] === String(value));
+
     try {
       const response = await fetch("/api/jobs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ presetId: preset.id, inputs: toInputs(preset, values) }),
+        body: JSON.stringify({
+          presetId: preset.id,
+          inputs: toInputs(preset, values),
+          ...(fromSource ? { sourceJobId: source!.jobId } : {}),
+        }),
       });
       // The backend always answers with JSON. If not, the backend is not running.
       const body = await response.json().catch(() => null);
@@ -619,6 +662,9 @@ export default function Generate({ startValues = null, onStartValuesUsed }: Gene
           {shownIsVideo ? <VideoIcon size={22} /> : <ImageIcon size={22} />}
           <h2>{shownIsVideo ? "Generated Video" : "Generated Image"}</h2>
           <div className="right">
+            {shown?.jobId && !isVideo(shown.url) && (
+              <SendToMenu jobId={shown.jobId} onOpenInGenerate={openFromSendTo} align="right" />
+            )}
             {shown && (
               <a className="icon-button" href={shown.url} download title="Download">
                 <DownloadIcon size={19} />
