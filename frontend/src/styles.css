@@ -1509,6 +1509,42 @@ a {
   background: none;
 }
 
+.chat-card {
+  margin: 10px 0 4px;
+  padding: 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--panel);
+}
+
+.chat-card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.chat-card .progress-card {
+  width: 100%;
+  margin-top: 12px;
+}
+
+.chat-card .progress-card .spinner {
+  width: 28px;
+  height: 28px;
+}
+
+.chat-card-result img,
+.chat-card-result video {
+  display: block;
+  width: 100%;
+  max-height: 420px;
+  object-fit: contain;
+  margin-top: 10px;
+  border-radius: var(--radius-sm);
+  background: var(--field);
+}
+
 .chat-note {
   color: var(--text-faint);
   font-size: 13px;
