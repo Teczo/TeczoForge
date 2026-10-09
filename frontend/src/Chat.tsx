@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import type { FormEvent, KeyboardEvent, ReactNode } from "react";
-import { CloseIcon, PencilIcon, SparklesIcon } from "./Icons";
+import type { ClipboardEvent, DragEvent, FormEvent, KeyboardEvent, ReactNode } from "react";
+import { CloseIcon, PaperclipIcon, PencilIcon, SparklesIcon } from "./Icons";
 import ChatCard from "./ChatCard";
 import type { ChatCardRef } from "./ChatCard";
 import type { Preset } from "./Generate";
@@ -9,9 +9,27 @@ import type { Preset } from "./Generate";
 // Left: my conversations. Right: the messages and a box to type in.
 // The reply streams in piece by piece (SSE, see backend/src/chat.ts). Stop ends it early.
 // Claude can make board cards (FRG-24). They show under its reply, with a Generate button.
+// Pictures can be attached (FRG-25): Attach button, paste, or drag and drop. Claude sees them, and
+// can use them as the start image of a card.
 
 // Same limit as the backend.
 const MAX_MESSAGE_LENGTH = 8000;
+
+// Pictures: the same checks as the upload route (backend/src/upload.ts), plus the Claude API
+// limits (backend/src/chatImages.ts). A picture Claude cannot take is refused before it is uploaded.
+const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp"];
+const MAX_UPLOAD_MB = 20;
+const MAX_IMAGE_BASE64_BYTES = 10_000_000;
+const MAX_IMAGE_SIDE = 8000;
+const MAX_IMAGES_PER_MESSAGE = 20;
+
+// A picture attached to the next message. Its id is its file name in data/inputs.
+export type Attachment = { id: string; width: number; height: number };
+
+// The address of a kept picture.
+function inputUrl(id: string): string {
+  return `/api/inputs/${encodeURIComponent(id)}`;
+}
 
 // From the backend (see backend/src/db.ts).
 type Message = {
@@ -20,6 +38,7 @@ type Message = {
   createdAt: string;
   stopped?: boolean;
   cards?: ChatCardRef[];
+  images?: { id: string; path: string }[];
 };
 type ConversationSummary = { id: string; title: string; updatedAt: string };
 type Conversation = ConversationSummary & { messages: Message[] };
@@ -29,9 +48,12 @@ const NO_BACKEND = "Could not reach the backend. Make sure it is running, then t
 type ChatProps = {
   // From #/chat/<id>: the open conversation. Keeps it open after a refresh.
   conversationId: string | null;
+  // "Use in chat" in the gallery: a picture to attach to the next message.
+  pendingAttachment?: Attachment | null;
+  onPendingAttachmentUsed?: () => void;
 };
 
-export default function Chat({ conversationId }: ChatProps) {
+export default function Chat({ conversationId, pendingAttachment = null, onPendingAttachmentUsed }: ChatProps) {
   const [setupError, setSetupError] = useState<string | null>(null);
   const [list, setList] = useState<ConversationSummary[]>([]);
   const [listError, setListError] = useState<string | null>(null);
@@ -41,6 +63,10 @@ export default function Chat({ conversationId }: ChatProps) {
   const [replyText, setReplyText] = useState(""); // The reply while it streams.
   const [replyCards, setReplyCards] = useState<ChatCardRef[]>([]); // Cards made in that reply so far.
   const [presets, setPresets] = useState<Preset[]>([]);
+  const [attached, setAttached] = useState<Attachment[]>([]);
+  const [attaching, setAttaching] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<string | null>(null);
   const stopRef = useRef<AbortController | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
@@ -103,6 +129,82 @@ export default function Chat({ conversationId }: ChatProps) {
     loadConversation();
   }, [conversationId]);
 
+  // "Use in chat" from the gallery: attach that picture to the next message.
+  useEffect(() => {
+    if (!pendingAttachment) return;
+    setAttached((current) =>
+      current.some((a) => a.id === pendingAttachment.id) ? current : [...current, pendingAttachment],
+    );
+    onPendingAttachmentUsed?.();
+  }, [pendingAttachment]);
+
+  // Check a picture against the upload and Claude limits, then upload it like the Generate page does.
+  async function attachFile(file: File) {
+    setError(null);
+    if (!IMAGE_TYPES.includes(file.type)) {
+      setError(`"${file.name}" is not a PNG, JPEG or WebP picture.`);
+      return;
+    }
+    if (file.size > MAX_UPLOAD_MB * 1024 * 1024) {
+      setError(`"${file.name}" is too big. The limit is ${MAX_UPLOAD_MB} MB.`);
+      return;
+    }
+    if (Math.ceil(file.size / 3) * 4 > MAX_IMAGE_BASE64_BYTES) {
+      const mb = (file.size / 1_000_000).toFixed(1);
+      setError(`"${file.name}" is too large for Claude (${mb} MB). Claude accepts pictures up to about 7.5 MB. Make it smaller and attach it again.`);
+      return;
+    }
+    try {
+      const bitmap = await createImageBitmap(file);
+      const { width, height } = bitmap;
+      bitmap.close();
+      if (width > MAX_IMAGE_SIDE || height > MAX_IMAGE_SIDE) {
+        setError(`"${file.name}" is ${width} x ${height} pixels. Claude accepts at most ${MAX_IMAGE_SIDE} x ${MAX_IMAGE_SIDE}. Make it smaller and attach it again.`);
+        return;
+      }
+    } catch {
+      setError(`"${file.name}" could not be read as a picture.`);
+      return;
+    }
+
+    setAttaching(true);
+    try {
+      const response = await fetch("/api/upload", { method: "POST", headers: { "Content-Type": file.type }, body: file });
+      const body = await response.json().catch(() => null);
+      if (!body) setError(NO_BACKEND);
+      else if (!response.ok) setError(body.error ?? "The upload did not work. Please try again.");
+      else setAttached((current) => [...current, { id: body.name, width: body.width, height: body.height }]);
+    } catch {
+      setError(NO_BACKEND);
+    } finally {
+      setAttaching(false);
+    }
+  }
+
+  async function attachFiles(files: File[]) {
+    const room = MAX_IMAGES_PER_MESSAGE - attached.length;
+    if (files.length > room) {
+      setError(`You can attach at most ${MAX_IMAGES_PER_MESSAGE} pictures to one message.`);
+      return;
+    }
+    for (const file of files) await attachFile(file);
+  }
+
+  // Paste a picture into the message box.
+  function handlePaste(event: ClipboardEvent<HTMLTextAreaElement>) {
+    const files = [...event.clipboardData.files].filter((f) => f.type.startsWith("image/"));
+    if (files.length === 0) return; // Plain text: paste as usual.
+    event.preventDefault();
+    attachFiles(files);
+  }
+
+  // Drop pictures anywhere on the chat.
+  function handleDrop(event: DragEvent) {
+    event.preventDefault();
+    setDragOver(false);
+    attachFiles([...event.dataTransfer.files]);
+  }
+
   // Keep the newest message in view.
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: "end" });
@@ -152,7 +254,8 @@ export default function Chat({ conversationId }: ChatProps) {
   async function send(event?: FormEvent) {
     event?.preventDefault();
     const message = text;
-    if (message.trim() === "" || streaming) return;
+    const images = attached;
+    if ((message.trim() === "" && images.length === 0) || streaming || attaching) return;
     setError(null);
 
     let id = conversationId;
@@ -163,7 +266,16 @@ export default function Chat({ conversationId }: ChatProps) {
     }
 
     setText("");
-    setMessages((current) => [...current, { role: "user", text: message, createdAt: new Date().toISOString() }]);
+    setAttached([]);
+    setMessages((current) => [
+      ...current,
+      {
+        role: "user",
+        text: message,
+        createdAt: new Date().toISOString(),
+        images: images.map((a) => ({ id: a.id, path: `data/inputs/${a.id}` })),
+      },
+    ]);
     setStreaming(true);
     setReplyText("");
     setReplyCards([]);
@@ -176,7 +288,7 @@ export default function Chat({ conversationId }: ChatProps) {
       const response = await fetch(`/api/chat/${id}/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: message }),
+        body: JSON.stringify({ text: message, images: images.map((a) => a.id) }),
         signal: controller.signal,
       });
 
@@ -187,6 +299,7 @@ export default function Chat({ conversationId }: ChatProps) {
         // The message was not saved, so take it off the screen and put it back in the box.
         setMessages((current) => current.slice(0, -1));
         setText(message);
+        setAttached(images);
         return;
       }
 
@@ -267,7 +380,16 @@ export default function Chat({ conversationId }: ChatProps) {
         ))}
       </aside>
 
-      <section className="chat-main panel">
+      <section
+        className={`chat-main panel ${dragOver ? "drop-target" : ""}`}
+        onDragOver={(event) => {
+          if (!event.dataTransfer.types.includes("Files")) return;
+          event.preventDefault(); // Allows the drop.
+          setDragOver(true);
+        }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={handleDrop}
+      >
         <div className="chat-messages">
           {setupError && <p className="message error">{setupError}</p>}
           {!setupError && messages.length === 0 && !streaming && (
@@ -278,7 +400,16 @@ export default function Chat({ conversationId }: ChatProps) {
           )}
           {messages.map((message, index) => (
             <div key={index} className={`chat-bubble ${message.role}`}>
-              {message.role === "assistant" ? <Markdown text={message.text} /> : <p>{message.text}</p>}
+              {message.images && message.images.length > 0 && (
+                <div className="chat-images">
+                  {message.images.map((image) => (
+                    <a key={image.id} href={inputUrl(image.id)} target="_blank" rel="noreferrer" title={image.id}>
+                      <img src={inputUrl(image.id)} alt={`Attached picture ${image.id}`} />
+                    </a>
+                  ))}
+                </div>
+              )}
+              {message.role === "assistant" ? <Markdown text={message.text} /> : message.text && <p>{message.text}</p>}
               {message.stopped && <p className="chat-note">Stopped.</p>}
               {message.cards?.map((card) => <ChatCard key={card.id} card={card} presets={presets} />)}
             </div>
@@ -296,15 +427,54 @@ export default function Chat({ conversationId }: ChatProps) {
         </div>
 
         <form className="chat-input" onSubmit={send}>
+          {(attached.length > 0 || attaching) && (
+            <div className="chat-attached">
+              {attached.map((a) => (
+                <span key={a.id} className="chat-attached-item" title={`${a.id} (${a.width} x ${a.height})`}>
+                  <img src={inputUrl(a.id)} alt={`Picture ${a.id}`} />
+                  <button
+                    type="button"
+                    onClick={() => setAttached((current) => current.filter((c) => c.id !== a.id))}
+                    title="Remove"
+                    disabled={streaming}
+                  >
+                    <CloseIcon size={12} />
+                  </button>
+                </span>
+              ))}
+              {attaching && <span className="chat-note">Uploading...</span>}
+            </div>
+          )}
           <textarea
             className="prompt-box"
             value={text}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={handleKey}
+            onPaste={handlePaste}
             placeholder="Type a message. Enter sends, Shift+Enter makes a new line."
             disabled={!!setupError}
           />
           <div className="chat-input-row">
+            <input
+              ref={fileRef}
+              type="file"
+              accept={IMAGE_TYPES.join(",")}
+              multiple
+              hidden
+              onChange={(e) => {
+                attachFiles([...(e.target.files ?? [])]);
+                e.target.value = ""; // So the same file can be picked again.
+              }}
+            />
+            <button
+              type="button"
+              className="button"
+              onClick={() => fileRef.current?.click()}
+              disabled={!!setupError || attaching}
+              title="Attach a picture (or paste it, or drop it here)"
+            >
+              <PaperclipIcon size={16} /> Attach
+            </button>
             <span className={`char-count ${tooLong ? "over" : ""}`}>
               {text.length} / {MAX_MESSAGE_LENGTH}
             </span>
@@ -313,7 +483,11 @@ export default function Chat({ conversationId }: ChatProps) {
                 Stop
               </button>
             ) : (
-              <button type="submit" className="button primary" disabled={!!setupError || tooLong || text.trim() === ""}>
+              <button
+                type="submit"
+                className="button primary"
+                disabled={!!setupError || tooLong || attaching || (text.trim() === "" && attached.length === 0)}
+              >
                 Send
               </button>
             )}

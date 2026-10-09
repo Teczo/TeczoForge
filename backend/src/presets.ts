@@ -11,7 +11,7 @@ const MIN_NUMBER = 1;
 const MAX_NUMBER = 4096;
 // An image input is the file name from POST /api/upload, for example "teczoforge-1791361258118-a1b2c3.png".
 // ComfyUI may add " (1)" if the name is taken. Nothing else is allowed (no folders, no "..").
-const IMAGE_NAME_PATTERN = /^[A-Za-z0-9_-]+( \(\d+\))?\.(png|jpe?g|webp)$/i;
+export const IMAGE_NAME_PATTERN = /^[A-Za-z0-9_-]+( \(\d+\))?\.(png|jpe?g|webp)$/i;
 
 // One input the user can change, from preset.json.
 type PresetInput = {

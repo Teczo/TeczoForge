@@ -20,8 +20,9 @@ export type ChatCard = { id: string; title: string; presetId: string };
 
 export type ChatTools = {
   tools: Anthropic.Beta.BetaTool[];
-  // Presets that need a start image. Pictures in chat come in FRG-25, so these have no tool yet.
-  needImage: string[];
+  // Per tool: the inputs that take a start image (FRG-25). Their value must be the id of a
+  // picture attached in this chat.
+  imageKeys: Record<string, string[]>;
 };
 
 // The tool for one preset, or null if chat cannot fill all its inputs.
@@ -42,12 +43,18 @@ function toolFor(preset: PresetSummary): Anthropic.Beta.BetaTool | null {
       if (input.default === undefined) required.push(input.key);
     } else if (input.kind === "seed") {
       properties[input.key] = { type: "integer", description: `${input.label}. Leave it out for a random seed.` };
+    } else if (input.kind === "image") {
+      properties[input.key] = {
+        type: "string",
+        description: `${input.label}: the id of a picture attached in this chat (it is shown before the picture as "Image <id>:").`,
+      };
+      required.push(input.key);
     } else if (input.kind === "number") {
       const fallback = input.default === undefined ? "" : ` Default ${input.default}.`;
       properties[input.key] = { type: "integer", description: `${input.label}. A whole number.${fallback}` };
       if (input.default === undefined) required.push(input.key);
     } else {
-      return null; // A kind chat does not know (images are handled before this).
+      return null; // A kind chat does not know.
     }
   }
 
@@ -65,23 +72,21 @@ function toolFor(preset: PresetSummary): Anthropic.Beta.BetaTool | null {
 // The tools for this message, from the preset folders as they are now.
 export async function buildChatTools(): Promise<ChatTools> {
   const tools: Anthropic.Beta.BetaTool[] = [];
-  const needImage: string[] = [];
+  const imageKeys: Record<string, string[]> = {};
   for (const preset of await listPresets()) {
-    if (preset.inputs.some((input) => input.kind === "image")) {
-      needImage.push(preset.name);
-      continue;
-    }
     const tool = toolFor(preset);
-    if (tool) tools.push(tool);
+    if (!tool) continue;
+    tools.push(tool);
+    imageKeys[tool.name] = preset.inputs.filter((input) => input.kind === "image").map((input) => input.key);
   }
-  return { tools, needImage };
+  return { tools, imageKeys };
 }
 
 // Run one tool call from Claude: check the values with the same checks as the board, then save
 // a draft in Ready. A wrong value goes back to Claude as the tool result, so it can fix it.
 export async function runChatTool(
   block: Anthropic.Beta.BetaToolUseBlock,
-  context: { tools: ChatTools; username: string; conversationId: string },
+  context: { tools: ChatTools; username: string; conversationId: string; imageIds: string[] },
 ): Promise<{ result: Anthropic.Beta.BetaToolResultBlockParam; card?: ChatCard }> {
   const error = (text: string) => ({
     result: { type: "tool_result" as const, tool_use_id: block.id, is_error: true, content: text },
@@ -93,6 +98,17 @@ export async function runChatTool(
   }
 
   const { title, ...inputs } = block.input as Record<string, unknown>;
+
+  // A start image must be a picture attached in this chat (not any file on the PC).
+  for (const key of context.tools.imageKeys[block.name] ?? []) {
+    if (context.imageIds.length === 0) {
+      return error("No picture is attached in this chat yet. Ask the user to attach one, then try again.");
+    }
+    if (!context.imageIds.includes(String(inputs[key]))) {
+      return error(`"${key}" must be the id of a picture attached in this chat: ${context.imageIds.join(", ")}.`);
+    }
+  }
+
   try {
     const draft = await createDraft({
       presetId: block.name.slice(TOOL_PREFIX.length),

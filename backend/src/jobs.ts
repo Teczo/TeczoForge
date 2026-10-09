@@ -3,6 +3,7 @@ import path from "node:path";
 import type { Request, Response } from "express";
 import { HttpError } from "./httpError.js";
 import { buildWorkflow, loadPreset } from "./presets.js";
+import { ensureStartImages, inputFilesFor } from "./inputs.js";
 import type { Workflow } from "./presets.js";
 import { downloadOutput, getFinishedOutput, getQueue, interruptJob, queueWorkflow, removeFromQueue } from "./comfyui.js";
 import { findActiveJobs, findJob, listJobs, safeMessage, saveJob } from "./db.js";
@@ -284,10 +285,13 @@ export async function createJobHandler(req: Request, res: Response) {
   const { presetId, inputs } = req.body ?? {};
 
   // 1. Load the preset and put the user's values into its workflow. Bad values: answer 400, save nothing.
+  //    Start images must be in ComfyUI's input folder; a missing one is uploaded again (FRG-25).
   let built;
+  let inputFiles: string[];
   try {
     const { preset, workflow } = await loadPreset(presetId);
-    built = buildWorkflow(preset, workflow, inputs ?? {});
+    built = await ensureStartImages(preset, workflow, buildWorkflow(preset, workflow, inputs ?? {}));
+    inputFiles = await inputFilesFor(preset, built.usedValues);
   } catch (error) {
     sendError(res, error);
     return;
@@ -306,6 +310,7 @@ export async function createJobHandler(req: Request, res: Response) {
     durationMs: 0,
     createdAt: new Date(),
     createdBy: res.locals.username ?? null, // Set by requireLogin in auth.ts.
+    ...(inputFiles.length > 0 ? { inputFiles } : {}),
   });
   await save(live);
 

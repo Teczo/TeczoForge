@@ -1084,6 +1084,28 @@ a {
   padding: 12px;
 }
 
+.start-result {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+}
+
+.start-result > svg {
+  color: var(--text-dim);
+}
+
+.start-result figure {
+  margin: 0;
+}
+
+.start-result figcaption {
+  margin-top: 6px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
 .detail-media img,
 .detail-media video {
   display: block;
@@ -1507,6 +1529,62 @@ a {
 .chat-bubble pre code {
   padding: 0;
   background: none;
+}
+
+.chat-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 6px 0;
+}
+
+.chat-images img {
+  display: block;
+  width: 120px;
+  height: 120px;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  background: var(--field);
+}
+
+.chat-attached {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.chat-attached-item {
+  position: relative;
+}
+
+.chat-attached-item img {
+  display: block;
+  width: 64px;
+  height: 64px;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+}
+
+.chat-attached-item button {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+  background: var(--panel-2);
+  color: var(--text);
+}
+
+.chat-main.drop-target {
+  border-color: var(--accent);
+  border-style: dashed;
 }
 
 .chat-card {

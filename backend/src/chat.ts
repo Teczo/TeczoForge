@@ -4,7 +4,8 @@ import type { Collection } from "mongodb";
 import { HttpError } from "./httpError.js";
 import { getChatUsageCollection, getConversationsCollection, safeMessage } from "./db.js";
 import type { ChatMessage, ChatUsage, Conversation } from "./db.js";
-import { chatSystemPrompt } from "./chatPrompt.js";
+import { CHAT_SYSTEM_PROMPT } from "./chatPrompt.js";
+import { checkMessageImages, picturesToSend } from "./chatImages.js";
 import { buildChatTools, runChatTool } from "./chatTools.js";
 import type { ChatCard, ChatTools } from "./chatTools.js";
 
@@ -132,10 +133,30 @@ function cardsNote(message: ChatMessage): string {
 }
 
 // The newest messages, as the API wants them. The first one must be from the user.
-function historyFor(messages: ChatMessage[]): Anthropic.Beta.BetaMessageParam[] {
-  const recent = messages.filter((m) => (m.text + cardsNote(m)).trim() !== "").slice(-HISTORY_LIMIT);
+// Attached pictures go along as image content, each after a line "Image <id>:" (FRG-25).
+async function historyFor(messages: ChatMessage[]): Promise<Anthropic.Beta.BetaMessageParam[]> {
+  const recent = messages
+    .filter((m) => (m.text + cardsNote(m)).trim() !== "" || (m.images?.length ?? 0) > 0)
+    .slice(-HISTORY_LIMIT);
   while (recent.length > 0 && recent[0].role !== "user") recent.shift();
-  return recent.map((m) => ({ role: m.role, content: (m.text + cardsNote(m)).trim() }));
+
+  const sent = await picturesToSend(recent.flatMap((m) => (m.images ?? []).map((image) => image.id)));
+  return recent.map((m) => {
+    const text = (m.text + cardsNote(m)).trim();
+    if (!m.images?.length) return { role: m.role, content: text };
+    const blocks: Anthropic.Beta.BetaContentBlockParam[] = [];
+    for (const image of m.images) {
+      const loaded = sent.get(image.id);
+      if (loaded) {
+        blocks.push({ type: "text", text: `Image ${image.id}:` });
+        blocks.push({ type: "image", source: { type: "base64", media_type: loaded.mediaType, data: loaded.data } });
+      } else {
+        blocks.push({ type: "text", text: `[Image ${image.id} was attached here. It is not sent again, to keep the request small.]` });
+      }
+    }
+    if (text) blocks.push({ type: "text", text });
+    return { role: m.role, content: blocks };
+  });
 }
 
 // A plain-English message for an error from the Claude API. The details go to the backend log.
@@ -247,7 +268,8 @@ export async function deleteConversationHandler(req: Request, res: Response) {
   }
 }
 
-// POST /api/chat/<conversationId>/messages  Body: { "text": "..." }
+// POST /api/chat/<conversationId>/messages  Body: { "text": "...", "images": ["<picture id>", ...] }
+// Pictures are uploaded first with POST /api/upload; their names are their ids (FRG-25).
 // Saves the message, then streams the reply as SSE events:
 //   event: text   data: { "text": "<next piece>" }
 //   event: card   data: { "card": { id, title, presetId } }  Claude made a board card (FRG-24)
@@ -262,8 +284,12 @@ export async function sendMessageHandler(req: Request, res: Response) {
   try {
     if (!client) throw new HttpError(503, NOT_SET_UP_MESSAGE);
     const id = checkId(req.params.conversationId);
-    const text = req.body?.text;
-    if (typeof text !== "string" || text.trim() === "") throw new HttpError(400, "Type a message first.");
+    const text = req.body?.text ?? "";
+    // Check the pictures first: a picture Claude cannot take gives a clear message and no API call.
+    const images = await checkMessageImages(req.body?.images);
+    if (typeof text !== "string" || (text.trim() === "" && images.length === 0)) {
+      throw new HttpError(400, "Type a message or attach a picture first.");
+    }
     if (text.length > MAX_MESSAGE_LENGTH) {
       throw new HttpError(
         400,
@@ -283,10 +309,16 @@ export async function sendMessageHandler(req: Request, res: Response) {
     }
 
     // Save the message first. The first message also becomes the title of a new chat.
-    const message: ChatMessage = { role: "user", text, createdAt: new Date(), username };
+    const message: ChatMessage = {
+      role: "user",
+      text,
+      createdAt: new Date(),
+      username,
+      ...(images.length > 0 ? { images } : {}),
+    };
     const fields: Partial<Conversation> = { updatedAt: message.createdAt };
     if (conversation.messages.length === 0 && conversation.title === DEFAULT_TITLE) {
-      fields.title = text.trim().replace(/\s+/g, " ").slice(0, 60);
+      fields.title = text.trim().replace(/\s+/g, " ").slice(0, 60) || "Picture";
     }
     await withConversations((c) => c.updateOne({ id, owner: username }, { $push: { messages: message }, $set: fields }));
     conversation.messages.push(message);
@@ -314,7 +346,16 @@ export async function sendMessageHandler(req: Request, res: Response) {
   });
 
   // The conversation for the API. Tool calls and their results are added during this reply only.
-  const messages = historyFor(conversation.messages);
+  let messages: Anthropic.Beta.BetaMessageParam[];
+  try {
+    messages = await historyFor(conversation.messages);
+  } catch (error) {
+    sendEvent("error", { error: claudeErrorMessage(error) });
+    res.end();
+    return;
+  }
+  // Pictures attached anywhere in this chat: their ids can be used as start images on cards.
+  const imageIds = conversation.messages.flatMap((m) => (m.images ?? []).map((image) => image.id));
   const cards: ChatCard[] = [];
   let toolCalls = 0;
   let replyText = "";
@@ -330,7 +371,7 @@ export async function sendMessageHandler(req: Request, res: Response) {
       const stream = client.beta.messages.stream({
         model: CLAUDE_MODEL,
         max_tokens: MAX_REPLY_TOKENS,
-        system: chatSystemPrompt(tools.needImage),
+        system: CHAT_SYSTEM_PROMPT,
         tools: tools.tools,
         messages,
         cache_control: { type: "ephemeral" }, // Reuse the earlier part of the conversation: cheaper and faster.
@@ -391,7 +432,7 @@ export async function sendMessageHandler(req: Request, res: Response) {
           });
           continue;
         }
-        const outcome = await runChatTool(block, { tools, username, conversationId: conversation.id });
+        const outcome = await runChatTool(block, { tools, username, conversationId: conversation.id, imageIds });
         results.push(outcome.result);
         if (outcome.card) {
           cards.push(outcome.card);

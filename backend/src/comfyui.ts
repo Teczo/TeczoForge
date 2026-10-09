@@ -110,6 +110,17 @@ export async function getFinishedOutput(promptId: string, outputNode: string): P
   return files;
 }
 
+// A picture from ComfyUI's input folder, or null if it is not there (FRG-25).
+export async function getInputImage(name: string): Promise<Buffer | null> {
+  const query = new URLSearchParams({ filename: name, subfolder: "", type: "input" });
+  const response = await callComfyUI(`/view?${query}`);
+  if (response.status === 404) return null;
+  if (!response.ok) {
+    throw new HttpError(502, `Could not check the start image in ComfyUI (HTTP ${response.status}).`);
+  }
+  return Buffer.from(await response.arrayBuffer());
+}
+
 // Download one output file from ComfyUI.
 export async function downloadOutput(file: OutputFile): Promise<Buffer> {
   const query = new URLSearchParams({ filename: file.filename, subfolder: file.subfolder, type: file.type });
