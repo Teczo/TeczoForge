@@ -1,5 +1,6 @@
 import { HttpError } from "./httpError.js";
 import type { Workflow } from "./presets.js";
+import type { OutputFile } from "./outputKinds.js";
 
 export const COMFYUI_URL = process.env.COMFYUI_URL ?? "http://127.0.0.1:8188";
 
@@ -11,8 +12,6 @@ export const CLIENT_ID = "teczoforge-backend";
 // How long to wait for one ComfyUI request (not the whole job).
 const REQUEST_TIMEOUT_MS = 10_000;
 
-// One output file, as ComfyUI describes it.
-export type OutputFile = { filename: string; subfolder: string; type: string };
 
 // Call ComfyUI. If it does not answer, throw a clear "offline" error.
 async function callComfyUI(urlPath: string, options: RequestInit = {}): Promise<Response> {
@@ -102,10 +101,30 @@ export async function getFinishedOutput(promptId: string, outputNode: string): P
   if (job.status?.status_str === "error") {
     throw new HttpError(502, `ComfyUI job failed: ${findErrorMessage(job.status.messages)}`);
   }
-  // Pictures and videos both come in "images". Save Video also sets "animated": [true].
-  const files: OutputFile[] = job.outputs?.[outputNode]?.images ?? [];
+  const files = outputFilesOf(job.outputs?.[outputNode]);
   if (files.length === 0) {
-    throw new HttpError(502, "ComfyUI finished the job but made no picture or video.");
+    throw new HttpError(502, "ComfyUI finished the job but made no output file.");
+  }
+  return files;
+}
+
+// Every file in one node's output, in order (FRG-29). Pictures and videos come in "images",
+// but other nodes use other lists ("audio", "gifs", "3d", ...). So every list is read, and
+// any item with a filename, a subfolder and a type is a file. Other values are skipped.
+export function outputFilesOf(nodeOutput: unknown): OutputFile[] {
+  if (typeof nodeOutput !== "object" || nodeOutput === null) return [];
+  const files: OutputFile[] = [];
+  for (const list of Object.values(nodeOutput)) {
+    if (!Array.isArray(list)) continue;
+    for (const item of list) {
+      if (
+        typeof item?.filename === "string" &&
+        typeof item?.subfolder === "string" &&
+        typeof item?.type === "string"
+      ) {
+        files.push({ filename: item.filename, subfolder: item.subfolder, type: item.type });
+      }
+    }
   }
   return files;
 }
@@ -126,7 +145,7 @@ export async function downloadOutput(file: OutputFile): Promise<Buffer> {
   const query = new URLSearchParams({ filename: file.filename, subfolder: file.subfolder, type: file.type });
   const response = await callComfyUI(`/view?${query}`);
   if (!response.ok) {
-    throw new HttpError(502, `Could not download the image from ComfyUI (HTTP ${response.status}).`);
+    throw new HttpError(502, `Could not download the result from ComfyUI (HTTP ${response.status}).`);
   }
   return Buffer.from(await response.arrayBuffer());
 }

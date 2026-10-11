@@ -1,6 +1,8 @@
 import { MongoClient } from "mongodb";
 import type { Collection, Db, Filter } from "mongodb";
 import { HttpError } from "./httpError.js";
+import { kindOfFile } from "./outputKinds.js";
+import type { OutputKind } from "./outputKinds.js";
 
 // The connection string is a secret. Never print it.
 const MONGODB_URI = process.env.MONGODB_URI;
@@ -24,7 +26,8 @@ export type Job = {
   status: JobStatus;
   promptId: string | null; // ComfyUI's job id. null until ComfyUI has accepted the job.
   outputFile: string | null; // For example "data/outputs/text-to-image-basic-1791353459669-a1b2c3.png"
-  imageUrl: string | null;
+  imageUrl: string | null; // The finished file, of any kind (the name is from before FRG-29).
+  outputKind?: OutputKind; // image, video, audio or 3d (FRG-29). Older jobs: see withOutputKind.
   error: string | null;
   durationMs: number; // 0 until the job is finished.
   createdAt: Date;
@@ -136,6 +139,13 @@ export async function closeDatabase(): Promise<void> {
   connecting = null;
 }
 
+// Jobs from before FRG-29 have no outputKind. Work it out from the file ending when reading.
+function withOutputKind(job: Job): Job {
+  if (job.outputKind || !job.imageUrl) return job;
+  const kind = kindOfFile(job.imageUrl);
+  return kind ? { ...job, outputKind: kind } : job;
+}
+
 // Save a job: add it, or replace the saved copy with the same id. Returns a warning if it could
 // not be saved. Never throws, so generation still works when MongoDB is offline.
 export async function saveJob(job: Job): Promise<string | undefined> {
@@ -157,7 +167,8 @@ export async function listJobs(query: JobQuery): Promise<Job[]> {
   if (query.createdBy) filter.createdBy = query.createdBy;
   try {
     const jobs = await getJobsCollection();
-    return await jobs.find(filter, { projection: { _id: 0 } }).sort({ createdAt: -1 }).limit(query.limit).toArray();
+    const found = await jobs.find(filter, { projection: { _id: 0 } }).sort({ createdAt: -1 }).limit(query.limit).toArray();
+    return found.map(withOutputKind);
   } catch (error) {
     console.warn(`Warning: could not read jobs. ${safeMessage(error)}`);
     throw new HttpError(503, "The job history is not available because MongoDB cannot be reached.");
@@ -168,7 +179,8 @@ export async function listJobs(query: JobQuery): Promise<Job[]> {
 export async function findJob(id: string): Promise<Job | null> {
   try {
     const jobs = await getJobsCollection();
-    return await jobs.findOne({ id }, { projection: { _id: 0 } });
+    const job = await jobs.findOne({ id }, { projection: { _id: 0 } });
+    return job && withOutputKind(job);
   } catch (error) {
     console.warn(`Warning: could not read the job. ${safeMessage(error)}`);
     throw new HttpError(503, "This job is not available because MongoDB cannot be reached.");
@@ -220,7 +232,10 @@ export function claimDraft(id: string, fields: Partial<Job>): Promise<Job | null
 
 // One job by id, for the board routes (throws the board message when MongoDB is offline).
 export function findBoardJob(id: string): Promise<Job | null> {
-  return withJobs((jobs) => jobs.findOne({ id }, { projection: { _id: 0 } }));
+  return withJobs(async (jobs) => {
+    const job = await jobs.findOne({ id }, { projection: { _id: 0 } });
+    return job && withOutputKind(job);
+  });
 }
 
 // The saved cards for the board: all drafts (oldest first), and the newest finished jobs
@@ -228,11 +243,13 @@ export function findBoardJob(id: string): Promise<Job | null> {
 export function listBoardJobs(doneLimit: number): Promise<{ drafts: Job[]; done: Job[] }> {
   return withJobs(async (jobs) => ({
     drafts: await jobs.find({ status: "draft" }, { projection: { _id: 0 } }).sort({ createdAt: 1 }).toArray(),
-    done: await jobs
-      .find({ status: "done", title: { $exists: true } }, { projection: { _id: 0 } })
-      .sort({ createdAt: -1 })
-      .limit(doneLimit)
-      .toArray(),
+    done: (
+      await jobs
+        .find({ status: "done", title: { $exists: true } }, { projection: { _id: 0 } })
+        .sort({ createdAt: -1 })
+        .limit(doneLimit)
+        .toArray()
+    ).map(withOutputKind),
   }));
 }
 
