@@ -42,6 +42,24 @@ Backend (Express, 127.0.0.1:4000) ──► ComfyUI (127.0.0.1:8188)   HTTP + on
   (which user inputs map to which node and field). A new preset needs no code change.
   Optional `promptGuide` in `preset.json`: how to write a good prompt for that model. The chat gives it to Claude.
   Optional `sendToLabel` in `preset.json`: the name in the **Send to** menu (for example `Animate`). Without it, the preset name.
+
+  **Optional fields (preset schema v2, FRG-32).** Old presets without them still load. A bad value
+  writes one warning in the backend log, and the preset loads with the default.
+
+  | Field | Example | What it does |
+  |---|---|---|
+  | `model` | `"Z-Image-Turbo"` | The sidebar **Models** list is built from this. A new model shows up by itself. Chat tells Claude the model. |
+  | `licence` | `"Apache 2.0"` | Shown as a tooltip on the badge. |
+  | `clientWork` | `"yes"`, `"no"`, `"conditions"` | Badge on the preset picker, board cards and gallery detail: **Client work OK**, **Research only**, **Check licence**. Running a Research only preset asks once. |
+  | `licenceNote` | `"Credit the author."` | One short line. Shown next to **Check licence**, and in the Research only question. |
+  | `experimental` | `true` | A small **Test** label. |
+  | `stages` | `2` | Sampler passes (1 to 10, default 1). With 2 or more, progress shows **Pass 1 of 2** and one bar for the whole job that never goes back. A pass starts when ComfyUI reports progress from another node. |
+  | `estimatedSeconds` | `270` | Shown as "Usually takes about 4 min 30 s". |
+
+  On inputs: `min`, `max` and `step` (kind `number` only), and `options` (kind `number` or `text`),
+  for example `"options": [{ "value": 768, "label": "Small" }, { "value": 1024, "label": "Medium" }]`.
+  The backend refuses other values with a clear message, and chat gets the same limits in its tool.
+  Up to 4 options show as buttons, more as a dropdown. A number input without `min` / `max` keeps the old rule: 1 to 4096.
 - **The browser never talks to ComfyUI.** ComfyUI has no login and its custom nodes can run code on the PC.
 - **No second queue.** ComfyUI's own queue is used. The backend only tracks status.
 - **MongoDB can fail without breaking generation.** You see a warning, not a crash.
@@ -60,7 +78,7 @@ Backend (Express, 127.0.0.1:4000) ──► ComfyUI (127.0.0.1:8188)   HTTP + on
 | `chatImages.ts` | Pictures in chat (FRG-25). Checks each picture against the Claude API limits (PNG/JPEG/WebP, at most 10 MB base64, at most 8000 x 8000 px, at most 20 per message) before any API call. Sends at most the newest 20 pictures and 24 MB of pictures per request; older ones are named in the text. |
 | `inputs.ts` | Start images (FRG-25). Keeps every upload in `data/inputs`, reads image type and size from the first bytes, and before a job is queued uploads a start image again if ComfyUI's input folder lost it. |
 | `sendTo.ts` | "Send to" (FRG-26). Copies a finished picture into `data/inputs` and ComfyUI's input folder, then fills the Generate form or makes a Ready card for any preset with an image input. Saves `sourceJobId`. Also lists the jobs made from a job ("Used in"). |
-| `presets.ts` | List and load presets, check user inputs (text / seed / number / image), put values into the workflow |
+| `presets.ts` | List and load presets, check the optional v2 fields (FRG-32), check user inputs (text / seed / number / image, with `min` / `max` / `step` / `options`), put values into the workflow |
 | `comfyui.ts` | ComfyUI client: queue, history polling, upload, view, error parsing. Reads every list in the output node (`images`, `audio`, `gifs`, `3d`, ...): any item with `filename`, `subfolder` and `type` is a file (FRG-29) |
 | `outputKinds.ts` | Accepted output file endings, each with a kind (`image`, `video`, `audio`, `3d`) and a content type. Picks the one file a job keeps (an audio or 3d preset prefers a non-picture file). An unknown ending fails the job with a message that names it (FRG-29) |
 | `progress.ts` | One WebSocket to ComfyUI (fixed client id, so it also works after a restart). Step x of y per ComfyUI prompt id |
@@ -104,7 +122,8 @@ Backend (Express, 127.0.0.1:4000) ──► ComfyUI (127.0.0.1:8188)   HTTP + on
 ### Frontend (`frontend/src/`)
 
 - `App.tsx`: login gate, header with Backend/ComfyUI status, user menu, page switch by URL hash (`#/`, `#/gallery`, `#/gallery/<job id>`, `#/board`, `#/chat`, `#/chat/<conversation id>`).
-- `Generate.tsx`: three columns. **Sidebar** (categories + models), **Create panel** (image upload,
+- `PresetBadges.tsx`: the licence badge and **Test** label of a preset, the Research only question, and the estimated time text (FRG-32).
+- `Generate.tsx`: three columns. **Sidebar** (categories + models from the `model` field of the presets), **Create panel** (image upload,
   prompt, preset picker, Quick Prompts, Advanced Settings, Generate), **Result panel** (large view,
   download, full screen, strip of the 10 latest results).
 - `Gallery.tsx`: grid of finished jobs → detail view (prompt, maker, preset, seed, size, time) with **Use again** and **Download**. Jobs with a start image show **Start image → Result**. Pictures have **Use in chat** (attach to the last open chat) and **Send to**. Shows **Made from** (link to the start picture's job) and **Used in** (links).
@@ -123,7 +142,7 @@ Backend (Express, 127.0.0.1:4000) ──► ComfyUI (127.0.0.1:8188)   HTTP + on
 
 | Preset | Model | Inputs | Speed (measured) |
 |---|---|---|---|
-| **Text to Image** (`text-to-image-basic`) | Z-Image-Turbo bf16, 8 steps | prompt, seed, width, height (default 1024²) | about 2.7 s warm, 7.9 s cold |
+| **Text to Image** (`text-to-image-basic`) | Z-Image-Turbo bf16, 8 steps | prompt, seed, width, height (default 1024², 512 to 2048, multiples of 16) | about 2.7 s warm, 7.9 s cold |
 | **Image to Image** (`image-to-image-basic`) | Z-Image-Turbo, denoise 0.8, about 1 MP | start image, prompt, seed | a few seconds |
 | **Image to Video** (`image-to-video-basic`) | Wan 2.2 14B I2V fp8 (high + low noise), 20 steps | start image, motion prompt, seed | **about 266 s** for 5 s of video, 640², 16 fps. Peak VRAM about 29–31 GB |
 
@@ -212,7 +231,6 @@ Severity: 🔴 fix soon · 🟠 important before team or remote use · 🟡 impr
 | Sidebar → Create | **3D** | A preset with `"type": "3d"` (for example Hunyuan3D / TRELLIS) and a 3D viewer for `.glb` files |
 | Sidebar → Create | **Edit / Inpaint** | A preset with `"type": "edit"` and a mask input (new input kind `mask` + a brush canvas) |
 | Sidebar → Create | **Upscale** | A preset with `"type": "upscale"` (for example an ESRGAN model or a tiled diffusion upscale) |
-| Sidebar → Models | **Flux**, **SDXL**, **Playground**, **Custom (ComfyUI)** | The model list is display only for now. Each needs presets, and maybe a real `model` field in `preset.json`. |
 | Create panel | **Presets** button | A browser for saved prompt and style presets |
 | Create panel | **Quick Prompts** (Cinematic Landscape, Futuristic City, Product Render, Anime Character, Interior Design) + "View more" | A list of starter prompts / style templates that fill the prompt box |
 | Advanced Settings | **Steps** selector | A new `steps` input in `preset.json` (or Fast / Quality modes) |
