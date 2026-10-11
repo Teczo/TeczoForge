@@ -89,6 +89,23 @@ Date: 2026-10-07. Model chosen by Jaya: Wan 2.2 14B image to video (option A).
 - Output: an `.mp4` file of about 1.5 MB in `ComfyUI\output\video\`.
 - The first run after starting ComfyUI is slower, because about 30 GB of models must load. Not measured.
 
+## Image-to-video fast preset (FRG-33)
+
+Date: 2026-10-11. Preset `presets/image-to-video-fast/`.
+
+- Jaya opened the Wan 2.2 image-to-video workflow in ComfyUI, turned the 4-step LightX2V switch **on**
+  ("Enable 4steps LoRA?"), ran it, and exported it with Workflow > Export (API). workflow.json is the unchanged export.
+- Settings: 640 x 640, 81 frames at 16 fps (5 seconds), 4 steps (2 high-noise + 2 low-noise), cfg 1,
+  with the LoRAs `wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise` and `..._low_noise`. Still two sampler passes (`"stages": 2`).
+- Measured by Jaya, plus one check run:
+
+| Run | Time | Peak GPU memory |
+|---|---|---|
+| First run, including model loading | 36.72 s | 28.8 GB |
+| Check run by Claude Code through the preset (app's own input checks, then ComfyUI API), 2026-10-11 | 38.5 s | not measured |
+
+- About 7 times faster than the basic preset (about 266 s). `estimatedSeconds` in preset.json is 37.
+
 ## Problems found during setup
 
 1. Claude Code could not start the `.bat` file itself. Jaya starts ComfyUI by hand.
