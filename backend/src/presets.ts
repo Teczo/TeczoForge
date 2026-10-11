@@ -49,6 +49,9 @@ export type PresetSummary = {
   inputs: { key: string; label: string; kind: string; default?: number | string }[];
 };
 
+// Folders whose preset.json "id" differs from the folder name. Each is warned about once (FRG-28).
+const warnedIds = new Set<string>();
+
 // Every folder in presets/ that has a preset.json and a workflow.json, sorted by name.
 // A broken folder is skipped with a warning in the log, so one bad preset does not hide the others.
 export async function listPresets(): Promise<PresetSummary[]> {
@@ -61,6 +64,12 @@ export async function listPresets(): Promise<PresetSummary[]> {
       const folderPath = path.join(PRESETS_DIR, folder.name);
       await access(path.join(folderPath, "workflow.json"));
       const preset: Preset = JSON.parse(await readFile(path.join(folderPath, "preset.json"), "utf8"));
+      if (preset.id !== undefined && preset.id !== folder.name && !warnedIds.has(folder.name)) {
+        warnedIds.add(folder.name);
+        console.warn(
+          `Warning: preset folder "${folder.name}" has "id": "${preset.id}" in preset.json. The folder name is used as the id.`,
+        );
+      }
       presets.push({
         id: folder.name, // The folder name is the id used by POST /api/jobs.
         name: preset.name ?? folder.name,

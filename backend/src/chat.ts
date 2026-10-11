@@ -281,6 +281,7 @@ export async function sendMessageHandler(req: Request, res: Response) {
   const username: string = res.locals.username;
   let conversation: Conversation;
   let tools: ChatTools;
+  let usedBefore = 0; // Tokens this user used today before this reply (only counted when there is a limit).
   try {
     if (!client) throw new HttpError(503, NOT_SET_UP_MESSAGE);
     const id = checkId(req.params.conversationId);
@@ -301,7 +302,8 @@ export async function sendMessageHandler(req: Request, res: Response) {
     if (!found) throw NOT_FOUND();
     conversation = found;
 
-    if (dailyTokenLimit > 0 && (await tokensUsedToday(username)) >= dailyTokenLimit) {
+    if (dailyTokenLimit > 0) usedBefore = await tokensUsedToday(username);
+    if (dailyTokenLimit > 0 && usedBefore >= dailyTokenLimit) {
       throw new HttpError(
         429,
         `You have used your chat limit for today (${dailyTokenLimit.toLocaleString("en")} tokens). It starts again at midnight.`,
@@ -442,6 +444,16 @@ export async function sendMessageHandler(req: Request, res: Response) {
       // Claude asked for more than the limit: stop here and say so.
       if (toolCalls > MAX_TOOL_CALLS) {
         const note = `${replyText === "" ? "" : "\n\n"}I stopped here: I can make at most ${MAX_TOOL_CALLS} cards for one message.`;
+        replyText += note;
+        sendEvent("text", { text: note });
+        break;
+      }
+      // Each round costs tokens. Check the daily limit before asking Claude again (FRG-28).
+      if (dailyTokenLimit > 0 && usedBefore + inputTokens + outputTokens >= dailyTokenLimit) {
+        const made = cards.length > 0 ? " The cards made so far are on the board." : "";
+        const note =
+          `${replyText === "" ? "" : "\n\n"}I stopped here: you have used your chat limit for today ` +
+          `(${dailyTokenLimit.toLocaleString("en")} tokens).${made} It starts again at midnight.`;
         replyText += note;
         sendEvent("text", { text: note });
         break;

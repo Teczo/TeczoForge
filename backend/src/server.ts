@@ -1,7 +1,7 @@
 import "dotenv/config";
 import express from "express";
 import { cancelJobHandler, createJobHandler, getJobHandler, listJobsHandler, OUTPUTS_DIR, recoverJobs, startJobChecker } from "./jobs.js";
-import { checkDatabase } from "./db.js";
+import { connectDatabase } from "./db.js";
 import {
   chatStatusHandler,
   checkChatSetup,
@@ -131,10 +131,9 @@ checkChatSetup();
 app.listen(PORT, HOST, () => {
   console.log(`Backend running at http://${HOST}:${PORT}`);
   console.log(`ComfyUI address: ${COMFYUI_URL}`);
-  // After MongoDB is checked, pick up the jobs that were not finished when the backend stopped.
-  checkDatabase().then((connected) => {
-    if (connected) return recoverJobs();
-  });
+  // Once MongoDB works (tried again every minute if not), pick up the jobs that were not
+  // finished when the backend stopped. This runs only once.
+  connectDatabase(recoverJobs);
   startProgressListener();
   startJobChecker();
 });

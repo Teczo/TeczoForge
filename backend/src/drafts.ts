@@ -10,7 +10,8 @@ import { activeJobs, follow, JOB_ID_PATTERN, sendError, sendToComfyUI } from "./
 // A card is a job with status "draft": a preset, its inputs and a title. It is saved but not run.
 // Running a draft turns the same record into a normal queued job (see jobs.ts).
 // Drafts live in MongoDB only. When MongoDB is offline the board shows a message (see db.ts).
-// There are no roles: everyone on the team can add, edit, move, run and delete drafts.
+// There are no roles: everyone on the team can add and run drafts. Only the user who made a
+// card can edit, move or delete it (FRG-28). Cards from before logins (no createdBy) are open to all.
 
 const MAX_TITLE_LENGTH = 100;
 // How many finished cards the Done column shows.
@@ -72,6 +73,17 @@ async function notADraft(id: string, action: string): Promise<HttpError> {
   return new HttpError(409, `This card has already run, so it cannot be ${action}.`);
 }
 
+// Load a draft that the user may change: it must exist, still be a draft, and be theirs.
+// action is used in the message, for example "edited".
+async function ownDraft(id: string, username: string | null, action: string): Promise<Job> {
+  const draft = await findBoardJob(id);
+  if (!draft || draft.status !== "draft") throw await notADraft(id, action);
+  if (draft.createdBy && draft.createdBy !== username) {
+    throw new HttpError(403, `Only ${draft.createdBy}, who made this card, can change or delete it. You can still run it with Generate.`);
+  }
+  return draft;
+}
+
 // Check and save a new draft. Also used by the chat when Claude makes a card (chatTools.ts).
 // Throws an HttpError with a clear message if a value is wrong.
 export async function createDraft(fields: {
@@ -124,18 +136,17 @@ export async function createDraftHandler(req: Request, res: Response) {
 }
 
 // PATCH /api/drafts/<id>
-// Body: any of { "title", "inputs", "column" }. Only while the card is a draft.
+// Body: any of { "title", "inputs", "column" }. Only while the card is a draft, and only by who made it.
 // New inputs are checked like POST /api/jobs, and clear the card's last error.
 export async function updateDraftHandler(req: Request, res: Response) {
   try {
     const id = checkId(req);
+    const draft = await ownDraft(id, res.locals.username ?? null, "edited");
     const { title, inputs, column } = req.body ?? {};
     const fields: Partial<Job> = {};
     if (title !== undefined) fields.title = checkTitle(title);
     if (column !== undefined) fields.column = checkColumn(column);
     if (inputs !== undefined) {
-      const draft = await findBoardJob(id);
-      if (!draft || draft.status !== "draft") throw await notADraft(id, "edited");
       fields.inputs = await checkInputs(draft.presetId, inputs);
       fields.inputFiles = await cardInputFiles(draft.presetId, fields.inputs as Record<string, unknown>);
       fields.error = null;
@@ -151,10 +162,11 @@ export async function updateDraftHandler(req: Request, res: Response) {
 }
 
 // DELETE /api/drafts/<id>
-// Deletes a draft. A card that has run is never deleted.
+// Deletes a draft. Only by who made it. A card that has run is never deleted.
 export async function deleteDraftHandler(req: Request, res: Response) {
   try {
     const id = checkId(req);
+    await ownDraft(id, res.locals.username ?? null, "deleted");
     if (!(await deleteDraft(id))) throw await notADraft(id, "deleted");
     res.json({ deleted: id });
   } catch (error) {
