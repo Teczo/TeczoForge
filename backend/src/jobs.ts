@@ -47,7 +47,9 @@ const MAX_LIMIT = 200;
 // Where a job is now. The page shows it as text and a progress bar.
 export type Progress =
   | { state: "waiting"; jobsAhead: number } // In ComfyUI's queue behind other jobs.
-  | { state: "running"; step: number; steps: number } // steps is 0 until sampling starts.
+  // steps is 0 until sampling starts. stage of stages: the sampler pass (FRG-32, "stages" in
+  // preset.json). percent: the whole job from 0 to 100, over all passes. It never goes down.
+  | { state: "running"; step: number; steps: number; stage: number; stages: number; percent: number }
   | { state: "finishing" }; // ComfyUI is done; the backend is saving the file.
 
 // A job the backend is following, with what it knows besides the saved record.
@@ -59,6 +61,8 @@ type LiveJob = {
   finishing: boolean; // Copying the result into data/outputs.
   warning: string | undefined; // Set when the last save to MongoDB did not work.
   saving: Promise<void>; // Saves run one after the other, so the last save has the newest status.
+  stages: number; // Sampler passes, from preset.json (FRG-32). 1 until the preset is read.
+  percent: number; // The highest percent shown so far, so the bar never goes back.
 };
 
 // Unfinished jobs, and jobs that finished in the last hour. Key: job id.
@@ -77,8 +81,14 @@ export function follow(job: Job): LiveJob {
     finishing: false,
     warning: undefined,
     saving: Promise.resolve(),
+    stages: 1,
+    percent: 0,
   };
   liveJobs.set(job.id, live);
+  // How many sampler passes this preset makes. Not waited for: progress only needs it later.
+  loadPreset(job.presetId)
+    .then(({ preset }) => (live.stages = preset.stages ?? 1))
+    .catch(() => {});
   return live;
 }
 
@@ -130,7 +140,14 @@ function progressOf(live: LiveJob): Progress | null {
   const { status, promptId } = live.job;
   if (!isActive(status)) return null;
   if (live.finishing) return { state: "finishing" };
-  if (status === "running" && promptId) return { state: "running", ...getSteps(promptId) };
+  if (status === "running" && promptId) {
+    const { step, steps, pass } = getSteps(promptId);
+    const stage = Math.min(pass, live.stages);
+    // Each pass is an equal part of the bar: pass 1 of 2 is 0 to 50, pass 2 of 2 is 50 to 100.
+    const done = steps > 0 ? (stage - 1 + step / steps) / live.stages : 0;
+    live.percent = Math.max(live.percent, Math.min(100, Math.round(done * 100)));
+    return { state: "running", step, steps, stage, stages: live.stages, percent: live.percent };
+  }
   return { state: "waiting", jobsAhead: live.jobsAhead };
 }
 

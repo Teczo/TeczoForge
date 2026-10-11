@@ -3,6 +3,7 @@ import type { DragEvent, FormEvent } from "react";
 import Media, { outputKind } from "./Media";
 import SendToMenu from "./SendToMenu";
 import { defaultValues, Field, ImageBox, ProgressView, startFormValues, toInputs } from "./Generate";
+import PresetBadges, { confirmResearchOnly } from "./PresetBadges";
 import type { FormValues, Preset, Progress, StartValues } from "./Generate";
 import { CloseIcon, PlayIcon, SparklesIcon } from "./Icons";
 
@@ -125,6 +126,11 @@ export default function Board({ onOpenInGenerate }: { onOpenInGenerate: (values:
     return send(`/api/drafts/${card.id}/run`, { method: "POST" });
   }
 
+  // Generate on one card. A "Research only" preset asks first (FRG-32).
+  async function runOneCard(card: Card) {
+    if (confirmResearchOnly(presets.find((p) => p.id === card.presetId))) await runCard(card);
+  }
+
   async function deleteCard(card: Card) {
     if (!window.confirm(`Delete the card "${card.title}"?`)) return;
     setMessage(null);
@@ -135,6 +141,14 @@ export default function Board({ onOpenInGenerate }: { onOpenInGenerate: (values:
     const ready = (cards ?? []).filter((card) => columnOf(card) === "ready");
     const jobs = ready.length === 1 ? "1 job" : `${ready.length} jobs`;
     if (!window.confirm(`Generate all Ready cards? This starts ${jobs}.`)) return;
+    // "Research only" presets (FRG-32): one question for all of them.
+    const research = [...new Set(ready.map((card) => presets.find((p) => p.id === card.presetId)).filter((p) => p?.clientWork === "no"))];
+    if (
+      research.length > 0 &&
+      !window.confirm(`These presets are Research only (no client work): ${research.map((p) => p!.name).join(", ")}. Run them anyway?`)
+    ) {
+      return;
+    }
     setBusy(true);
     setMessage(null);
     let started = 0;
@@ -229,8 +243,9 @@ export default function Board({ onOpenInGenerate }: { onOpenInGenerate: (values:
                   card={card}
                   column={column.id}
                   presetName={presetName(card)}
+                  preset={presets.find((p) => p.id === card.presetId)}
                   busy={busy}
-                  onRun={() => runCard(card)}
+                  onRun={() => runOneCard(card)}
                   onEdit={() => openForm(card, false)}
                   onCopy={() => openForm(card, true)}
                   onDelete={() => deleteCard(card)}
@@ -268,6 +283,7 @@ type CardViewProps = {
   card: Card;
   column: ColumnId;
   presetName: string;
+  preset: Preset | undefined; // For the licence badge (FRG-32).
   busy: boolean;
   onRun: () => void;
   onEdit: () => void;
@@ -306,6 +322,7 @@ function CardView(props: CardViewProps) {
       <p className="board-meta">
         {presetName} · by {card.createdBy ?? "Unknown"}
       </p>
+      {props.preset && <PresetBadges preset={props.preset} />}
       {shortPrompt && <p className="board-prompt">{shortPrompt}</p>}
       {isDraft && card.error && <p className="message error">{card.error}</p>}
       {column === "generating" && <ProgressView progress={card.progress ?? null} onCancel={null} cancelling={false} />}
@@ -419,7 +436,7 @@ export function CardForm({ presets, state, onClose, onSaved }: CardFormProps) {
         {preset?.inputs.map((input) => {
           const value = values[input.key] ?? "";
           const onChange = (next: string) => setValues((current) => ({ ...current, [input.key]: next }));
-          if (input.kind === "text") {
+          if (input.kind === "text" && !input.options) {
             return (
               <label key={input.key}>
                 <span className="field-label">{input.label}</span>

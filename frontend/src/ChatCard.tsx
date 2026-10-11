@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import Media, { outputKind } from "./Media";
+import { confirmResearchOnly } from "./PresetBadges";
 import SendToMenu from "./SendToMenu";
 import { CardForm } from "./Board";
 import type { FormState } from "./Board";
@@ -75,6 +76,7 @@ export default function ChatCard({ card: ref, presets, onOpenInGenerate }: ChatC
 
   // Generate: run the draft, the same as the board's Generate button.
   async function generate() {
+    if (!confirmResearchOnly(preset)) return; // FRG-32
     setBusy(true);
     setProblem(null);
     try {
