@@ -3,12 +3,15 @@
   "name": "Text to Image",
   "description": "Z-Image-Turbo. Fast text to image, 8 steps.",
   "promptGuide": "Write one paragraph of plain English, about 40 to 120 words. Start with the main subject, then the setting, lighting, camera angle or lens, mood and style (photo, illustration, 3D render, ...). Be concrete: colors, materials, time of day. Put any text that must appear in the picture in double quotes. Do not write a negative prompt or weights like (word:1.2); this model does not use them. The size is 1024 x 1024 unless you set width and height. These are only examples, other sizes work too: 1344 x 768 for landscape, 768 x 1344 for portrait.",
+  "model": "Z-Image-Turbo",
+  "licence": "Apache 2.0",
+  "clientWork": "yes",
   "type": "image",
   "inputs": [
     { "key": "prompt", "label": "Prompt", "kind": "text", "node": "57:27", "field": "text" },
     { "key": "seed", "label": "Seed", "kind": "seed", "node": "57:3", "field": "seed" },
-    { "key": "width", "label": "Width", "kind": "number", "node": "57:13", "field": "width", "default": 1024 },
-    { "key": "height", "label": "Height", "kind": "number", "node": "57:13", "field": "height", "default": 1024 }
+    { "key": "width", "label": "Width", "kind": "number", "node": "57:13", "field": "width", "default": 1024, "min": 512, "max": 2048, "step": 16 },
+    { "key": "height", "label": "Height", "kind": "number", "node": "57:13", "field": "height", "default": 1024, "min": 512, "max": 2048, "step": 16 }
   ],
   "output": { "node": "9" }
 }
