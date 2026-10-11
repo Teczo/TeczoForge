@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { StartValues } from "./Generate";
 import type { Attachment } from "./Chat";
-import Media, { isVideo } from "./Media";
+import Media, { outputKind } from "./Media";
 import SendToMenu from "./SendToMenu";
 import { ArrowLeftIcon, ArrowRightIcon, ChatIcon, DownloadIcon, PlayIcon, RepeatIcon } from "./Icons";
 
@@ -15,7 +15,8 @@ type Job = {
   inputs: Record<string, unknown>;
   status: "queued" | "running" | "done" | "failed" | "cancelled";
   outputFile: string | null;
-  imageUrl: string | null;
+  imageUrl: string | null; // The finished file, of any kind.
+  outputKind?: string; // image, video, audio or 3d (FRG-29). Missing on older jobs.
   error: string | null;
   durationMs: number;
   createdAt: string;
@@ -128,8 +129,8 @@ export default function Gallery({ onUseAgain, onUseInChat, openJobId = null }: G
         <div className="gallery-grid">
           {jobs.map((job) => (
             <button key={job.imageUrl} className="tile" onClick={() => setSelected(job)} title={String(job.inputs.prompt ?? "")}>
-              <Media url={job.imageUrl!} mode="thumbnail" alt={String(job.inputs.prompt ?? "")} />
-              {isVideo(job.imageUrl!) && (
+              <Media url={job.imageUrl!} kind={outputKind(job)} mode="thumbnail" alt={String(job.inputs.prompt ?? "")} />
+              {outputKind(job) === "video" && (
                 <span className="video-tag">
                   <PlayIcon size={10} /> Video
                 </span>
@@ -211,12 +212,12 @@ function Detail({ job, onBack, onUseAgain, onUseInChat, onSendToGenerate }: Deta
               </figure>
               <ArrowRightIcon size={26} />
               <figure>
-                <Media url={job.imageUrl!} mode="full" alt={String(prompt ?? "")} />
+                <Media url={job.imageUrl!} kind={outputKind(job)} mode="full" alt={String(prompt ?? "")} />
                 <figcaption>Result</figcaption>
               </figure>
             </div>
           ) : (
-            <Media url={job.imageUrl!} mode="full" alt={String(prompt ?? "")} />
+            <Media url={job.imageUrl!} kind={outputKind(job)} mode="full" alt={String(prompt ?? "")} />
           )}
         </div>
         <div className="detail-info panel">
@@ -276,8 +277,8 @@ function Detail({ job, onBack, onUseAgain, onUseInChat, onSendToGenerate }: Deta
             <button className="button primary" onClick={onUseAgain}>
               <RepeatIcon size={18} /> Use again
             </button>
-            {!isVideo(job.imageUrl!) && job.id && <SendToMenu jobId={job.id} onOpenInGenerate={onSendToGenerate} />}
-            {!isVideo(job.imageUrl!) && (
+            {outputKind(job) === "image" && job.id && <SendToMenu jobId={job.id} onOpenInGenerate={onSendToGenerate} />}
+            {outputKind(job) === "image" && (
               <button className="button" onClick={useInChat}>
                 <ChatIcon size={18} /> Use in chat
               </button>

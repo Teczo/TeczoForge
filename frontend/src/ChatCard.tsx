@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import Media, { isVideo } from "./Media";
+import Media, { outputKind } from "./Media";
 import SendToMenu from "./SendToMenu";
 import { CardForm } from "./Board";
 import type { FormState } from "./Board";
@@ -27,6 +27,7 @@ type Card = {
   status: "draft" | "queued" | "running" | "done" | "failed" | "cancelled";
   error: string | null;
   imageUrl: string | null;
+  outputKind?: string; // image, video, audio or 3d (FRG-29). Missing on older jobs.
   progress: Progress | null;
   inputFiles?: string[]; // Kept start images, "data/inputs/<name>" (FRG-25).
 };
@@ -128,7 +129,7 @@ export default function ChatCard({ card: ref, presets, onOpenInGenerate }: ChatC
       {active && <ProgressView progress={card.progress} onCancel={null} cancelling={false} />}
       {card?.status === "done" && card.imageUrl && (
         <div className="chat-card-result">
-          <Media url={card.imageUrl} mode="full" alt={prompt} />
+          <Media url={card.imageUrl} kind={outputKind(card)} mode="full" alt={prompt} />
         </div>
       )}
       {problem && <p className="message error">{problem}</p>}
@@ -149,7 +150,7 @@ export default function ChatCard({ card: ref, presets, onOpenInGenerate }: ChatC
             Open in gallery
           </a>
         )}
-        {card?.status === "done" && card.imageUrl && !isVideo(card.imageUrl) && (
+        {card?.status === "done" && card.imageUrl && outputKind(card) === "image" && (
           <SendToMenu jobId={ref.id} onOpenInGenerate={onOpenInGenerate} />
         )}
         <a className="button" href="#/board">

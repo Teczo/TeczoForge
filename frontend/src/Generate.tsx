@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
-import Media, { isVideo } from "./Media";
+import Media, { outputKind } from "./Media";
+import type { OutputKind } from "./Media";
 import SendToMenu from "./SendToMenu";
 import {
   ArrowRightIcon,
@@ -43,6 +44,7 @@ type JobAnswer = {
   status: "draft" | "queued" | "running" | "done" | "failed" | "cancelled";
   inputs: Record<string, unknown>;
   imageUrl: string | null;
+  outputKind?: string; // image, video, audio or 3d (FRG-29).
   error: string | null;
   progress: Progress | null;
   warning?: string;
@@ -152,7 +154,16 @@ const QUICK_PROMPTS = [
 ];
 
 // A finished result shown on the right: made just now, or from the job history.
-type Result = { url: string; alt: string; jobId?: string }; // jobId: for "Send to" (FRG-26).
+// jobId: for "Send to" (FRG-26). kind: image, video, audio or 3d (FRG-29).
+type Result = { url: string; kind: OutputKind; alt: string; jobId?: string };
+
+// The result panel's title for each kind of result.
+const RESULT_TITLES: Record<OutputKind, string> = {
+  image: "Generated Image",
+  video: "Generated Video",
+  audio: "Generated Audio",
+  "3d": "Generated 3D Model",
+};
 
 // How many recent results to show under the large picture.
 const RECENT_COUNT = 10;
@@ -232,11 +243,12 @@ export default function Generate({ startValues = null, onStartValuesUsed }: Gene
       try {
         const response = await fetch(`/api/jobs?status=done&limit=${RECENT_COUNT}`);
         if (!response.ok) return;
-        const body: { jobs: { id?: string; imageUrl: string | null; inputs: Record<string, unknown> }[] } =
-          await response.json();
+        const body: {
+          jobs: { id?: string; imageUrl: string | null; outputKind?: string; inputs: Record<string, unknown> }[];
+        } = await response.json();
         const results: Result[] = body.jobs
           .filter((job) => job.imageUrl)
-          .map((job) => ({ url: job.imageUrl!, alt: String(job.inputs.prompt ?? ""), jobId: job.id }));
+          .map((job) => ({ url: job.imageUrl!, kind: outputKind(job), alt: String(job.inputs.prompt ?? ""), jobId: job.id }));
         setRecent(results);
         setShown((current) => current ?? results[0] ?? null);
       } catch {
@@ -292,7 +304,12 @@ export default function Generate({ startValues = null, onStartValuesUsed }: Gene
           setNotice("The job was cancelled.");
           stopFollowing();
         } else if (body.status === "done" && body.imageUrl) {
-          const result = { url: body.imageUrl, alt: String(body.inputs.prompt ?? ""), jobId: currentJobId };
+          const result = {
+            url: body.imageUrl,
+            kind: outputKind(body),
+            alt: String(body.inputs.prompt ?? ""),
+            jobId: currentJobId,
+          };
           setShown(result);
           setRecent((current) => [result, ...current.filter((r) => r.url !== result.url)].slice(0, RECENT_COUNT));
           stopFollowing();
@@ -447,7 +464,8 @@ export default function Generate({ startValues = null, onStartValuesUsed }: Gene
   // Use the latest values: an image upload can finish after the user typed something else.
   const setValue = (key: string) => (value: string) => setValues((current) => ({ ...current, [key]: value }));
 
-  const shownIsVideo = shown ? isVideo(shown.url) : preset.type === "video";
+  // What the result panel shows: the shown result's kind, or what this preset makes.
+  const shownKind: OutputKind = shown ? shown.kind : outputKind({ outputKind: preset.type, imageUrl: null });
 
   return (
     <div className="studio">
@@ -659,10 +677,10 @@ export default function Generate({ startValues = null, onStartValuesUsed }: Gene
 
       <section className="result panel">
         <div className="section-head">
-          {shownIsVideo ? <VideoIcon size={22} /> : <ImageIcon size={22} />}
-          <h2>{shownIsVideo ? "Generated Video" : "Generated Image"}</h2>
+          {shownKind === "video" ? <VideoIcon size={22} /> : <ImageIcon size={22} />}
+          <h2>{RESULT_TITLES[shownKind]}</h2>
           <div className="right">
-            {shown?.jobId && !isVideo(shown.url) && (
+            {shown?.jobId && shown.kind === "image" && (
               <SendToMenu jobId={shown.jobId} onOpenInGenerate={openFromSendTo} align="right" />
             )}
             {shown && (
@@ -684,7 +702,7 @@ export default function Generate({ startValues = null, onStartValuesUsed }: Gene
 
         <div className="stage" ref={stageRef}>
           {shown ? (
-            <Media key={shown.url} url={shown.url} mode="full" alt={shown.alt} />
+            <Media key={shown.url} url={shown.url} kind={shown.kind} mode="full" alt={shown.alt} />
           ) : (
             <div className="stage-empty">
               <ImageIcon size={56} />
@@ -711,8 +729,8 @@ export default function Generate({ startValues = null, onStartValuesUsed }: Gene
                 onClick={() => setShown(result)}
                 title={result.alt}
               >
-                <Media url={result.url} mode="thumbnail" alt={result.alt} />
-                {isVideo(result.url) && (
+                <Media url={result.url} kind={result.kind} mode="thumbnail" alt={result.alt} />
+                {result.kind === "video" && (
                   <span className="video-tag">
                     <PlayIcon size={10} /> Video
                   </span>
