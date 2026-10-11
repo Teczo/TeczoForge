@@ -23,7 +23,7 @@ export type Job = {
   inputs: unknown; // The values used, including the random seed. A draft keeps the values as typed.
   status: JobStatus;
   promptId: string | null; // ComfyUI's job id. null until ComfyUI has accepted the job.
-  outputFile: string | null; // For example "data/outputs/text-to-image-basic-1791353459669.png"
+  outputFile: string | null; // For example "data/outputs/text-to-image-basic-1791353459669-a1b2c3.png"
   imageUrl: string | null;
   error: string | null;
   durationMs: number; // 0 until the job is finished.
@@ -116,11 +116,9 @@ async function getJobsCollection(): Promise<Collection<Job>> {
   return (await getDatabase()).collection<Job>("jobs");
 }
 
-// The users collection. Usernames are unique.
+// The users collection. Usernames are unique (the index is made once, in checkDatabase).
 export async function getUsersCollection(): Promise<Collection<User>> {
-  const users = (await getDatabase()).collection<User>("users");
-  await users.createIndex({ username: 1 }, { unique: true });
-  return users;
+  return (await getDatabase()).collection<User>("users");
 }
 
 // The chat conversations (FRG-23).
@@ -256,7 +254,7 @@ export async function findActiveJobs(): Promise<Job[]> {
 }
 
 // Check the connection when the backend starts, and say clearly if it does not work.
-// Also makes the indexes: createdAt for the newest-first list, id to find one job.
+// Also makes the indexes: createdAt for the newest-first list, id to find one job, and the others below.
 // Returns true if MongoDB works.
 export async function checkDatabase(): Promise<boolean> {
   try {
@@ -269,12 +267,30 @@ export async function checkDatabase(): Promise<boolean> {
     await conversations.createIndex({ owner: 1, updatedAt: -1 });
     await conversations.createIndex({ id: 1 });
     await (await getChatUsageCollection()).createIndex({ username: 1, createdAt: -1 });
+    // Usernames are unique. Made here once, not on every login (FRG-28).
+    await (await getUsersCollection()).createIndex({ username: 1 }, { unique: true });
     console.log("MongoDB: connected");
     return true;
   } catch (error) {
     console.warn(`Warning: MongoDB is not available. Images still work, but jobs are not saved. ${safeMessage(error)}`);
     return false;
   }
+}
+
+// How often to try MongoDB again when it could not be reached at start (FRG-28).
+const RETRY_MS = 60_000;
+
+// Check MongoDB when the backend starts. If it cannot be reached, try again every minute until
+// it works. onFirstConnect runs once, the first time it works (used to recover unfinished jobs).
+export async function connectDatabase(onFirstConnect: () => Promise<void>): Promise<void> {
+  if (await checkDatabase()) {
+    await onFirstConnect();
+    return;
+  }
+  console.log(`MongoDB: trying again in ${RETRY_MS / 1000} seconds.`);
+  setTimeout(() => {
+    connectDatabase(onFirstConnect).catch((error) => console.error("Connecting to MongoDB failed:", safeMessage(error)));
+  }, RETRY_MS);
 }
 
 // An error message that is safe to log: any connection string is hidden.

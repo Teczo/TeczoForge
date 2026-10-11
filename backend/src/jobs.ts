@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Request, Response } from "express";
@@ -158,9 +159,11 @@ async function collectResult(live: LiveJob) {
     }
 
     // Copy the image or video into data/outputs (it keeps ComfyUI's extension, for example .png or .mp4).
+    // A short random part, like uploads have, so two jobs that finish in the same millisecond
+    // never get the same name (FRG-28).
     const [file] = files;
     const data = await downloadOutput(file);
-    const fileName = `${job.presetId}-${Date.now()}${path.extname(file.filename)}`;
+    const fileName = `${job.presetId}-${Date.now()}-${randomBytes(3).toString("hex")}${path.extname(file.filename)}`;
     await mkdir(OUTPUTS_DIR, { recursive: true });
     await writeFile(path.join(OUTPUTS_DIR, fileName), data);
     await finish(live, "done", { outputFile: `data/outputs/${fileName}`, imageUrl: `/api/outputs/${fileName}` });
@@ -251,7 +254,8 @@ export function startJobChecker() {
   }, CHECK_INTERVAL_MS);
 }
 
-// When the backend starts: follow the jobs that were waiting or running when it stopped.
+// When the backend starts (or MongoDB first works, see connectDatabase in db.ts): follow the jobs
+// that were waiting or running when it stopped.
 // The checker then finds out what happened to each one in ComfyUI: still running (keep following),
 // finished (copy the result), or unknown (failed).
 export async function recoverJobs() {
@@ -262,9 +266,14 @@ export async function recoverJobs() {
     console.warn(`Warning: could not look for unfinished jobs. ${safeMessage(error)}`);
     return;
   }
-  if (jobs.length === 0) return;
+  // Jobs started since this backend started are already followed (MongoDB may have come back late).
+  jobs = jobs.filter((job) => !liveJobs.has(job.id));
+  if (jobs.length === 0) {
+    console.log("Recovery: no unfinished jobs from before the restart.");
+    return;
+  }
 
-  console.log(`Found ${jobs.length} unfinished job(s) from before the restart. Checking them with ComfyUI.`);
+  console.log(`Recovery: found ${jobs.length} unfinished job(s) from before the restart. Checking them with ComfyUI.`);
   for (const job of jobs) {
     const live = follow(job);
     if (!job.promptId) {
