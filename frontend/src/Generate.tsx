@@ -3,6 +3,7 @@ import type { FormEvent, ReactNode } from "react";
 import Media, { outputKind } from "./Media";
 import type { OutputKind } from "./Media";
 import SendToMenu from "./SendToMenu";
+import PresetBadges, { confirmResearchOnly, formatSeconds } from "./PresetBadges";
 import {
   ArrowRightIcon,
   BoltIcon,
@@ -36,7 +37,8 @@ const MAX_TEXT_LENGTH = 2000;
 // Where a job is now, from GET /api/jobs/<id> (see backend/src/jobs.ts).
 export type Progress =
   | { state: "waiting"; jobsAhead: number }
-  | { state: "running"; step: number; steps: number }
+  // stage of stages: the sampler pass (FRG-32). percent: the whole job, never goes down.
+  | { state: "running"; step: number; steps: number; stage: number; stages: number; percent: number }
   | { state: "finishing" };
 
 // The answer from GET /api/jobs/<id>. Only the parts this page uses.
@@ -52,7 +54,17 @@ type JobAnswer = {
 
 // One preset from GET /api/presets (see backend/src/presets.ts).
 // The board (Board.tsx) uses these too.
-export type PresetInput = { key: string; label: string; kind: string; default?: number | string };
+export type InputOption = { value: string | number; label: string };
+export type PresetInput = {
+  key: string;
+  label: string;
+  kind: string;
+  default?: number | string;
+  min?: number; // min, max and step: only on number inputs (FRG-32).
+  max?: number;
+  step?: number;
+  options?: InputOption[]; // The allowed values, on number or text inputs (FRG-32).
+};
 export type Preset = {
   id: string;
   name: string;
@@ -60,6 +72,14 @@ export type Preset = {
   type: string;
   inputs: PresetInput[];
   sendToLabel?: string; // Name in the "Send to" menu (FRG-26). Empty: the preset name.
+  // From preset.json (FRG-32). Empty or null when preset.json does not say.
+  model: string;
+  licence: string;
+  clientWork: "yes" | "no" | "conditions" | null;
+  licenceNote: string;
+  experimental: boolean;
+  stages: number;
+  estimatedSeconds: number | null;
 };
 
 // The form keeps every value as text, the way the input boxes give it.
@@ -132,17 +152,19 @@ function firstPresetOf(category: Category, presets: Preset[]): Preset | undefine
   return inGroup.find((p) => !hasImageInput(p)) ?? inGroup[0];
 }
 
-// The models in the left menu. Only for show: the preset decides which model really runs.
-// A model is highlighted when it belongs to the chosen group. Models with no group are "Soon".
-type Model = { name: string; note: string; colors: string; categories: string[] };
-const MODELS: Model[] = [
-  { name: "Z-Image-Turbo", note: "Fast & Detailed", colors: "#0f5f4a, #1c9d6b", categories: ["image"] },
-  { name: "Wan 2.2", note: "Image to Video", colors: "#123a6b, #1e9bff", categories: ["image-to-video"] },
-  { name: "Flux", note: "High Quality", colors: "#5b3a1a, #c98a3e", categories: [] },
-  { name: "SDXL", note: "Versatile", colors: "#4a2a6b, #e0758a", categories: [] },
-  { name: "Playground", note: "Creative", colors: "#2a1a6b, #8a5cff", categories: [] },
-  { name: "Custom (ComfyUI)", note: "Your workflows", colors: "#1a3a4a, #4a8aa0", categories: [] },
-];
+// The models in the left menu, from the "model" field of the presets (FRG-32). Only for show:
+// the preset decides which model really runs. A new model folder shows up here by itself.
+// note: the groups its presets are in. colors: picked from the name, so they stay the same.
+type Model = { name: string; note: string; colors: string };
+function modelsOf(presets: Preset[]): Model[] {
+  const names = [...new Set(presets.map((p) => p.model).filter((name) => name !== ""))];
+  return names.map((name) => {
+    const groups = [...new Set(presets.filter((p) => p.model === name).map((p) => categoryOf(p).label))];
+    let hue = 0;
+    for (const char of name) hue = (hue * 31 + char.charCodeAt(0)) % 360;
+    return { name, note: groups.join(", "), colors: `hsl(${hue} 60% 22%), hsl(${(hue + 30) % 360} 65% 45%)` };
+  });
+}
 
 // The Quick Prompts cards. Not working yet ("Soon").
 const QUICK_PROMPTS = [
@@ -378,7 +400,7 @@ export default function Generate({ startValues = null, onStartValuesUsed }: Gene
   // Start the job. The backend answers at once with its id; the effect above follows it.
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    if (!preset) return;
+    if (!preset || !confirmResearchOnly(preset)) return;
     setSubmitting(true);
     setProgress(null);
     setError(null);
@@ -447,7 +469,9 @@ export default function Generate({ startValues = null, onStartValuesUsed }: Gene
     else if (presetWithImage) choosePreset(presetWithImage.id);
   }
 
-  const textInputs = preset.inputs.filter((input) => input.kind === "text");
+  // Text inputs with a list of choices show as buttons or a dropdown, not as a text box (FRG-32).
+  const textInputs = preset.inputs.filter((input) => input.kind === "text" && !input.options);
+  const choiceInputs = preset.inputs.filter((input) => input.kind === "text" && input.options);
   const imageInputs = preset.inputs.filter((input) => input.kind === "image");
   // Advanced Settings, in the mockup's order: size (and other numbers), then Steps, then the seed.
   const seedInputs = preset.inputs.filter((input) => input.kind === "seed");
@@ -492,11 +516,10 @@ export default function Generate({ startValues = null, onStartValuesUsed }: Gene
         <hr />
         <div className="models">
           <h3>Models</h3>
-          {MODELS.map((model) => {
-            const soon = model.categories.length === 0;
-            const active = model.categories.includes(category.id);
+          {modelsOf(presets).map((model) => {
+            const active = model.name === preset.model;
             return (
-              <div key={model.name} className={`model ${active ? "active" : ""} ${soon ? "disabled" : ""}`}>
+              <div key={model.name} className={`model ${active ? "active" : ""}`}>
                 <div className="model-thumb" style={{ background: `linear-gradient(135deg, ${model.colors})` }}>
                   <SparklesIcon size={22} />
                 </div>
@@ -505,7 +528,6 @@ export default function Generate({ startValues = null, onStartValuesUsed }: Gene
                   <div className="model-note">{model.note}</div>
                 </div>
                 {active && <span className="badge">In use</span>}
-                {soon && <span className="soon">Soon</span>}
               </div>
             );
           })}
@@ -555,6 +577,16 @@ export default function Generate({ startValues = null, onStartValuesUsed }: Gene
             />
           ))}
 
+          {choiceInputs.map((input) => (
+            <Field
+              key={`${preset.id}/${input.key}`}
+              input={input}
+              value={values[input.key] ?? ""}
+              disabled={running}
+              onChange={setValue(input.key)}
+            />
+          ))}
+
           <div className="prompt-tools">
             <button
               type="button"
@@ -589,6 +621,12 @@ export default function Generate({ startValues = null, onStartValuesUsed }: Gene
             )}
           </div>
           {preset.description && <p className="preset-note">{preset.description}</p>}
+          {(preset.clientWork || preset.experimental || preset.estimatedSeconds) && (
+            <div className="preset-facts">
+              <PresetBadges preset={preset} />
+              {preset.estimatedSeconds && <span>Usually takes {formatSeconds(preset.estimatedSeconds)}.</span>}
+            </div>
+          )}
         </div>
 
         <div className="create-section">
@@ -744,12 +782,58 @@ export default function Generate({ startValues = null, onStartValuesUsed }: Gene
   );
 }
 
-// One number or seed input in Advanced Settings. Which box it is depends on "kind" in preset.json.
+// Up to this many choices show as buttons. More show as a dropdown (FRG-32).
+const MAX_CHOICE_BUTTONS = 4;
+
+// One number or seed input in Advanced Settings, or an input with choices.
+// Which box it is depends on "kind" and "options" in preset.json.
 export function Field(props: { input: PresetInput; value: string; disabled: boolean; onChange: (value: string) => void }) {
   const { input, value, disabled, onChange } = props;
 
   let box;
-  if (input.kind === "seed") {
+  if (input.options) {
+    // A list of allowed values (FRG-32). The form keeps them as text, like the other boxes.
+    const options = input.options;
+    if (options.length <= MAX_CHOICE_BUTTONS) {
+      box = (
+        <div className="choice-buttons" role="group" aria-label={input.label}>
+          {options.map((option) => (
+            <button
+              key={String(option.value)}
+              type="button"
+              className={`button ${value === String(option.value) ? "active" : ""}`}
+              aria-pressed={value === String(option.value)}
+              onClick={() => onChange(String(option.value))}
+              disabled={disabled}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      );
+    } else {
+      box = (
+        <div className="select-wrap">
+          <select className="select" value={value} onChange={(event) => onChange(event.target.value)} disabled={disabled} style={{ width: "100%", paddingLeft: 12 }}>
+            {value === "" && <option value="">Pick one</option>}
+            {options.map((option) => (
+              <option key={String(option.value)} value={String(option.value)}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+          <ChevronDownIcon size={18} />
+        </div>
+      );
+    }
+    // A label around buttons would click the first one, so a div is used here.
+    return (
+      <div>
+        <span className="field-label">{input.label}</span>
+        {box}
+      </div>
+    );
+  } else if (input.kind === "seed") {
     box = (
       <div className="field-row">
         <CubeIcon size={22} />
@@ -778,8 +862,9 @@ export function Field(props: { input: PresetInput; value: string; disabled: bool
         <input
           className="input"
           type="number"
-          step={1}
-          min={1}
+          step={input.step ?? 1}
+          min={input.min ?? 1}
+          max={input.max ?? 4096}
           value={value}
           onChange={(event) => onChange(event.target.value)}
           disabled={disabled}
@@ -887,8 +972,14 @@ export function ProgressView({ progress, onCancel, cancelling }: ProgressViewPro
     const ahead = progress.jobsAhead === 1 ? "1 job" : `${progress.jobsAhead} jobs`;
     text = `Waiting in the queue: ${ahead} ahead of yours.`;
   } else if (progress?.state === "running" && progress.steps > 0) {
-    text = `Step ${progress.step} of ${progress.steps}`;
-    percent = (progress.step / progress.steps) * 100;
+    // Several sampler passes (FRG-32): say which one. The bar is for the whole job.
+    const pass = progress.stages > 1 ? `Pass ${progress.stage} of ${progress.stages} · ` : "";
+    text = `${pass}Step ${progress.step} of ${progress.steps}`;
+    percent = progress.percent;
+  } else if (progress?.state === "running" && progress.percent > 0) {
+    // Between two passes: keep the bar where it was.
+    text = `Pass ${progress.stage} of ${progress.stages}`;
+    percent = progress.percent;
   } else if (progress?.state === "running") {
     // Running, but no steps yet: ComfyUI is loading the model (slow only the first time).
     text = "Starting...";

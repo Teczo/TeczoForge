@@ -588,6 +588,81 @@ a {
   color: var(--text-dim);
 }
 
+/* Licence badge and Test label of a preset (FRG-32) */
+.preset-badges {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+}
+
+.licence-badge,
+.test-label {
+  padding: 2px 8px;
+  font-weight: 600;
+  border-radius: 6px;
+  border: 1px solid;
+  white-space: nowrap;
+}
+
+.licence-badge.ok {
+  color: var(--green);
+  border-color: rgba(61, 220, 132, 0.45);
+  background: rgba(61, 220, 132, 0.08);
+}
+
+.licence-badge.check {
+  color: #ffc857;
+  border-color: rgba(255, 200, 87, 0.45);
+  background: rgba(255, 200, 87, 0.08);
+}
+
+.licence-badge.research {
+  color: var(--red);
+  border-color: rgba(255, 107, 107, 0.45);
+  background: rgba(255, 107, 107, 0.08);
+}
+
+.licence-note {
+  color: var(--text-dim);
+}
+
+.test-label {
+  color: var(--text-dim);
+  border-color: var(--border-strong);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.preset-facts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 2px 0;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+/* An input with a short list of choices (FRG-32) */
+.choice-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.choice-buttons .button {
+  height: 36px;
+  padding: 0 12px;
+}
+
+.choice-buttons .button.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
 /* Image upload drop zone */
 
 .upload {

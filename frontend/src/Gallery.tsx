@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import type { StartValues } from "./Generate";
+import type { Preset, StartValues } from "./Generate";
+import PresetBadges from "./PresetBadges";
 import type { Attachment } from "./Chat";
 import Media, { outputKind } from "./Media";
 import SendToMenu from "./SendToMenu";
@@ -163,6 +164,16 @@ function Detail({ job, onBack, onUseAgain, onUseInChat, onSendToGenerate }: Deta
   const { prompt, seed, width, height } = job.inputs;
   const [chatError, setChatError] = useState<string | null>(null);
   const [usedIn, setUsedIn] = useState<UsedIn[]>([]);
+  // The job's preset, for its name and licence badge (FRG-32). Missing if the folder is gone.
+  const [preset, setPreset] = useState<Preset | null>(null);
+
+  useEffect(() => {
+    setPreset(null);
+    fetch("/api/presets")
+      .then((response) => (response.ok ? response.json() : { presets: [] }))
+      .then((body: { presets?: Preset[] }) => setPreset(body.presets?.find((p) => p.id === job.presetId) ?? null))
+      .catch(() => {});
+  }, [job.presetId]);
 
   // "Used in": the jobs and cards made from this result with "Send to".
   useEffect(() => {
@@ -227,7 +238,15 @@ function Detail({ job, onBack, onUseAgain, onUseInChat, onSendToGenerate }: Deta
             <dt>Made by</dt>
             <dd>{madeBy(job)}</dd>
             <dt>Preset</dt>
-            <dd>{job.presetId}</dd>
+            <dd>
+              {job.presetId}
+              {preset && (
+                <>
+                  {" "}
+                  <PresetBadges preset={preset} />
+                </>
+              )}
+            </dd>
             <dt>Seed</dt>
             <dd>{String(seed ?? "")}</dd>
             {width !== undefined && (
