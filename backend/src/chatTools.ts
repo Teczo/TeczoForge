@@ -25,6 +25,25 @@ export type ChatTools = {
   imageKeys: Record<string, string[]>;
 };
 
+// The choices of an input for the tool, for example " Choices: 512 = Small, 1024 = Large." (FRG-32)
+function choicesNote(input: PresetSummary["inputs"][number]): string {
+  if (!input.options) return "";
+  return ` Choices: ${input.options.map((option) => `${JSON.stringify(option.value)} = ${option.label}`).join(", ")}.`;
+}
+
+// The model and licence line of a tool description (FRG-32), or "" if preset.json has neither.
+const CLIENT_WORK_TEXT = { yes: "allowed", no: "not allowed (research only)", conditions: "only with conditions" };
+function modelNote(preset: PresetSummary): string {
+  const parts: string[] = [];
+  if (preset.model) parts.push(`Model: ${preset.model}.`);
+  if (preset.clientWork) {
+    const note = preset.licenceNote ? ` (${preset.licenceNote})` : "";
+    parts.push(`Client work: ${CLIENT_WORK_TEXT[preset.clientWork]}${note}.`);
+  }
+  if (preset.experimental) parts.push("This preset is a test.");
+  return parts.length > 0 ? `${parts.join(" ")}\n` : "";
+}
+
 // The tool for one preset, or null if chat cannot fill all its inputs.
 function toolFor(preset: PresetSummary): Anthropic.Beta.BetaTool | null {
   const name = TOOL_PREFIX + preset.id;
@@ -33,13 +52,14 @@ function toolFor(preset: PresetSummary): Anthropic.Beta.BetaTool | null {
     return null;
   }
 
-  const properties: Record<string, unknown> = {
+  const properties: Record<string, Record<string, unknown>> = {
     title: { type: "string", description: "A short name for the card on the board, at most 100 characters." },
   };
   const required = ["title"];
   for (const input of preset.inputs) {
     if (input.kind === "text") {
-      properties[input.key] = { type: "string", description: input.label };
+      properties[input.key] = { type: "string", description: input.label + choicesNote(input) };
+      if (input.options) properties[input.key].enum = input.options.map((option) => option.value);
       if (input.default === undefined) required.push(input.key);
     } else if (input.kind === "seed") {
       properties[input.key] = { type: "integer", description: `${input.label}. Leave it out for a random seed.` };
@@ -50,8 +70,20 @@ function toolFor(preset: PresetSummary): Anthropic.Beta.BetaTool | null {
       };
       required.push(input.key);
     } else if (input.kind === "number") {
+      // The same limits the backend checks (FRG-32): min and max, or a list of choices.
       const fallback = input.default === undefined ? "" : ` Default ${input.default}.`;
-      properties[input.key] = { type: "integer", description: `${input.label}. A whole number.${fallback}` };
+      const multiple = input.step ? ` A multiple of ${input.step}.` : "";
+      const schema: Record<string, unknown> = {
+        type: "integer",
+        description: `${input.label}. A whole number.${multiple}${fallback}${choicesNote(input)}`,
+      };
+      if (input.options) {
+        schema.enum = input.options.map((option) => option.value);
+      } else {
+        schema.minimum = input.min ?? 1;
+        schema.maximum = input.max ?? 4096;
+      }
+      properties[input.key] = schema;
       if (input.default === undefined) required.push(input.key);
     } else {
       return null; // A kind chat does not know.
@@ -63,6 +95,7 @@ function toolFor(preset: PresetSummary): Anthropic.Beta.BetaTool | null {
     name,
     description:
       `Make a board card for the preset "${preset.name}": ${preset.description}\n` +
+      modelNote(preset) +
       `The card goes to the Ready column. It does not start a generation: the user clicks Generate.${guide}`,
     input_schema: { type: "object", properties, required, additionalProperties: false },
     eager_input_streaming: true, // Inputs stream as they are written. They are checked before use (runChatTool).
