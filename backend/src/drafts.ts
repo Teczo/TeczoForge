@@ -46,7 +46,9 @@ async function checkInputs(presetId: unknown, inputs: unknown, allowEmptyText = 
     // Check the other values with a stand-in for each empty text.
     const filled = { ...values };
     for (const input of preset.inputs) {
-      if (input.kind === "text" && (filled[input.key] ?? "") === "") filled[input.key] = "(to be written)";
+      if (input.kind === "text" && (filled[input.key] ?? "") === "") {
+        filled[input.key] = input.options?.[0]?.value ?? "(to be written)"; // A text with choices (FRG-32).
+      }
     }
     toCheck = filled;
   }
