@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { DragEvent, FormEvent } from "react";
-import Media, { isVideo } from "./Media";
+import Media, { outputKind } from "./Media";
 import SendToMenu from "./SendToMenu";
 import { defaultValues, Field, ImageBox, ProgressView, startFormValues, toInputs } from "./Generate";
 import type { FormValues, Preset, Progress, StartValues } from "./Generate";
@@ -25,6 +25,7 @@ type Card = {
   column?: "idea" | "ready";
   error: string | null;
   imageUrl: string | null;
+  outputKind?: string; // image, video, audio or 3d (FRG-29). Missing on older jobs.
   createdBy: string | null;
   progress?: Progress | null;
 };
@@ -293,8 +294,8 @@ function CardView(props: CardViewProps) {
     >
       {card.status === "done" && card.imageUrl && (
         <div className="board-thumb">
-          <Media url={card.imageUrl} mode="thumbnail" alt={prompt} />
-          {isVideo(card.imageUrl) && (
+          <Media url={card.imageUrl} kind={outputKind(card)} mode="thumbnail" alt={prompt} />
+          {outputKind(card) === "video" && (
             <span className="video-tag">
               <PlayIcon size={10} /> Video
             </span>
@@ -333,7 +334,7 @@ function CardView(props: CardViewProps) {
           <button className="button" onClick={props.onCopy}>
             Copy as new card
           </button>
-          {card.imageUrl && !isVideo(card.imageUrl) && (
+          {card.imageUrl && outputKind(card) === "image" && (
             <SendToMenu jobId={card.id} onOpenInGenerate={props.onOpenInGenerate} />
           )}
         </div>

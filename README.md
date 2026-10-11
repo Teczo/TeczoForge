@@ -61,7 +61,8 @@ Backend (Express, 127.0.0.1:4000) ──► ComfyUI (127.0.0.1:8188)   HTTP + on
 | `inputs.ts` | Start images (FRG-25). Keeps every upload in `data/inputs`, reads image type and size from the first bytes, and before a job is queued uploads a start image again if ComfyUI's input folder lost it. |
 | `sendTo.ts` | "Send to" (FRG-26). Copies a finished picture into `data/inputs` and ComfyUI's input folder, then fills the Generate form or makes a Ready card for any preset with an image input. Saves `sourceJobId`. Also lists the jobs made from a job ("Used in"). |
 | `presets.ts` | List and load presets, check user inputs (text / seed / number / image), put values into the workflow |
-| `comfyui.ts` | ComfyUI client: queue, history polling, upload, view, error parsing |
+| `comfyui.ts` | ComfyUI client: queue, history polling, upload, view, error parsing. Reads every list in the output node (`images`, `audio`, `gifs`, `3d`, ...): any item with `filename`, `subfolder` and `type` is a file (FRG-29) |
+| `outputKinds.ts` | Accepted output file endings, each with a kind (`image`, `video`, `audio`, `3d`) and a content type. Picks the one file a job keeps (an audio or 3d preset prefers a non-picture file). An unknown ending fails the job with a message that names it (FRG-29) |
 | `progress.ts` | One WebSocket to ComfyUI (fixed client id, so it also works after a restart). Step x of y per ComfyUI prompt id |
 | `upload.ts` | Raw image upload. Checks the file's first bytes (magic bytes). 20 MB limit. Our own file name. Keeps a copy in `data/inputs`. Also "Use in chat": copies a finished picture into `data/inputs`. |
 | `auth.ts` | scrypt password hashes, HMAC session cookie (7 days), `requireLogin` middleware |
@@ -84,7 +85,7 @@ Backend (Express, 127.0.0.1:4000) ──► ComfyUI (127.0.0.1:8188)   HTTP + on
 | POST | `/api/send-to` | yes | `{ jobId, presetId, target: "generate" \| "board" }`. `generate` answers `{ presetId, inputs, sourceJobId }` for the form; `board` makes a Ready card (prompt still to write) and answers `{ card }`. Pictures only |
 | GET | `/api/jobs/:id/used-in` | yes | Jobs and cards made from this job with "Send to" |
 | POST | `/api/jobs/:id/cancel` | yes | Cancel a waiting or running job (removed from ComfyUI's queue, or stopped). Only who started it. A finished job answers 409 |
-| GET | `/api/jobs/:id` | yes | One job: `status` (queued / running / done / failed), `progress` (waiting: jobs ahead / running: step x of y / finishing), `imageUrl`, `outputFile`, `error` |
+| GET | `/api/jobs/:id` | yes | One job: `status` (queued / running / done / failed), `progress` (waiting: jobs ahead / running: step x of y / finishing), `imageUrl` (the finished file, of any kind), `outputKind` (image / video / audio / 3d; worked out from the file ending for older jobs), `outputFile`, `error` |
 | GET | `/api/board` | yes | Board cards: all drafts, all waiting / running jobs (with `progress`), and the newest 30 finished jobs that started as a card |
 | POST | `/api/drafts` | yes | Add a card: `presetId`, `inputs`, `title`, `column` (default `idea`). Inputs are checked like `/api/jobs` |
 | PATCH | `/api/drafts/:id` | yes | Change `title`, `inputs` or `column`. Only while it is a draft, and only by who made it (others get 403) |
@@ -98,7 +99,7 @@ Backend (Express, 127.0.0.1:4000) ──► ComfyUI (127.0.0.1:8188)   HTTP + on
 | DELETE | `/api/chat/conversations/:id` | yes | Delete one of my conversations |
 | POST | `/api/chat/:conversationId/messages` | yes | `{ text, images }` (max 8,000 characters; `images` are picture ids from `/api/upload`, checked against the Claude limits). Streams the reply as SSE: `text` events, `card` events (a board card Claude made), then `done` (the saved reply with token counts and cards) or `error` |
 | GET | `/api/jobs` | yes | Job history, newest first. `?limit=` (default 50, max 200), `?before=<createdAt>` (next page), `?status=done` or `?status=active` (queued + running), `?mine=1` (only my jobs) |
-| GET | `/api/outputs/*` | yes | Finished files |
+| GET | `/api/outputs/*` | yes | Finished files, each with the content type of its ending (for example `.glb` → `model/gltf-binary`) |
 
 ### Frontend (`frontend/src/`)
 
@@ -111,7 +112,7 @@ Backend (Express, 127.0.0.1:4000) ──► ComfyUI (127.0.0.1:8188)   HTTP + on
 - `Board.tsx`: four columns (Idea, Ready, Generating, Done). Add / Edit / Delete / Generate on each card, drag and drop between Idea and Ready, **Generate all Ready**, progress on generating cards, Open and Copy as new card on done cards.
 - `Chat.tsx`: conversation list (New chat, rename, delete) and the messages with an input box. The reply shows while it streams; **Stop** ends it and keeps the text so far. Simple markdown (paragraphs, lists, bold, code) without a package. Pictures: **Attach** button, paste, or drag and drop; shown as thumbnails.
 - `ChatCard.tsx`: a card Claude made, inside the chat: title, preset, prompt, **Generate** (runs the draft, like the board), **Edit**, **Open board**. Shows progress while it runs and the image or video when done.
-- `Media.tsx`: shows `<img>` or `<video>` based on the file ending.
+- `Media.tsx`: `outputKind(job)` (one helper for every page) and `<Media>`: `<img>` for pictures, `<video>` for videos, and for audio and 3d a simple tile with an icon, the file name and Download (players come later). Send to and Use in chat are only for pictures.
 - `Icons.tsx`, `Logo.tsx`, `Login.tsx`, `styles.css`: dark theme, inline SVG icons, no UI library.
 
 ---

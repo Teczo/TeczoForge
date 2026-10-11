@@ -2,6 +2,7 @@ import "dotenv/config";
 import express from "express";
 import { cancelJobHandler, createJobHandler, getJobHandler, listJobsHandler, OUTPUTS_DIR, recoverJobs, startJobChecker } from "./jobs.js";
 import { connectDatabase } from "./db.js";
+import { contentTypeOf } from "./outputKinds.js";
 import {
   chatStatusHandler,
   checkChatSetup,
@@ -104,8 +105,16 @@ app.delete("/api/chat/conversations/:id", deleteConversationHandler);
 // Sends one message and streams the reply (SSE).
 app.post("/api/chat/:conversationId/messages", express.json(), sendMessageHandler);
 
-// Serve finished images from data/outputs.
-app.use("/api/outputs", express.static(OUTPUTS_DIR));
+// Serve finished files from data/outputs, each ending with its own content type (FRG-29).
+app.use(
+  "/api/outputs",
+  express.static(OUTPUTS_DIR, {
+    setHeaders: (res, filePath) => {
+      const contentType = contentTypeOf(filePath);
+      if (contentType) res.setHeader("Content-Type", contentType);
+    },
+  }),
+);
 // Serve kept start images from data/inputs (FRG-25). Behind the login, like outputs.
 app.use("/api/inputs", express.static(INPUTS_DIR));
 // "Use in chat": copy a finished picture into data/inputs as a start image (FRG-25).

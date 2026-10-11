@@ -10,6 +10,7 @@ import { downloadOutput, getFinishedOutput, getQueue, interruptJob, queueWorkflo
 import { findActiveJobs, findJob, listJobs, safeMessage, saveJob } from "./db.js";
 import type { Job, JobStatus } from "./db.js";
 import { forgetSteps, getSteps } from "./progress.js";
+import { pickOutputFile } from "./outputKinds.js";
 
 // Jobs (FRG-20).
 // 1. POST /api/jobs checks the inputs, saves the job as "queued", sends it to ComfyUI,
@@ -158,15 +159,22 @@ async function collectResult(live: LiveJob) {
       return;
     }
 
-    // Copy the image or video into data/outputs (it keeps ComfyUI's extension, for example .png or .mp4).
+    // Keep one file: the first with an accepted ending (picture, video, sound or 3D model, FRG-29).
+    // An ending that is not accepted fails the job with a message that names it.
+    const { file, kind } = pickOutputFile(files, preset.type);
+
+    // Copy it into data/outputs (it keeps ComfyUI's extension, for example .png, .mp4 or .glb).
     // A short random part, like uploads have, so two jobs that finish in the same millisecond
     // never get the same name (FRG-28).
-    const [file] = files;
     const data = await downloadOutput(file);
     const fileName = `${job.presetId}-${Date.now()}-${randomBytes(3).toString("hex")}${path.extname(file.filename)}`;
     await mkdir(OUTPUTS_DIR, { recursive: true });
     await writeFile(path.join(OUTPUTS_DIR, fileName), data);
-    await finish(live, "done", { outputFile: `data/outputs/${fileName}`, imageUrl: `/api/outputs/${fileName}` });
+    await finish(live, "done", {
+      outputFile: `data/outputs/${fileName}`,
+      imageUrl: `/api/outputs/${fileName}`,
+      outputKind: kind,
+    });
   } catch (error) {
     // 503: ComfyUI did not answer (see callComfyUI). Try again at the next check.
     if (error instanceof HttpError && error.status === 503) {

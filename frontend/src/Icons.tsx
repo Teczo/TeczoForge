@@ -63,6 +63,14 @@ export const CubeIcon = (p: IconProps) => (
   </Svg>
 );
 
+export const MusicIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M9 18V5l11-2v13" />
+    <circle cx="6" cy="18" r="3" />
+    <circle cx="17" cy="16" r="3" />
+  </Svg>
+);
+
 export const PencilIcon = (p: IconProps) => (
   <Svg {...p}>
     <path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z" />
