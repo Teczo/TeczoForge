@@ -7,7 +7,7 @@ import Chat from "./Chat";
 import type { Attachment } from "./Chat";
 import Login from "./Login";
 import Logo from "./Logo";
-import { ChatIcon, ChevronDownIcon, ImageIcon, LayersIcon, LogoutIcon, SparklesIcon } from "./Icons";
+import { ChatIcon, ChevronDownIcon, FolderIcon, ImageIcon, LayersIcon, LogoutIcon, SparklesIcon } from "./Icons";
 
 // Which page to show comes from the address: #/board, #/chat (or #/chat/<conversation id>),
 // #/gallery (or #/gallery/<job id> to open one job), or the Generate page.
@@ -30,6 +30,31 @@ function galleryJobId(): string | null {
   return window.location.hash.match(/^#\/gallery\/(.+)$/)?.[1] ?? null;
 }
 
+// One project, as GET /api/projects returns it (see backend/src/projects.ts). Only the parts the page uses.
+export type Project = { id: string; name: string };
+
+// The project that always exists (FRG-39). New files go here when nothing else is chosen.
+const UNSORTED_NAME = "Unsorted";
+
+// The chosen project is remembered in this browser only (FRG-41).
+const PROJECT_KEY = "teczoforge.project";
+
+function readStoredProject(): string | null {
+  try {
+    return localStorage.getItem(PROJECT_KEY);
+  } catch {
+    return null; // No storage (for example a private window). Then "Unsorted" is used.
+  }
+}
+
+function storeProject(id: string) {
+  try {
+    localStorage.setItem(PROJECT_KEY, id);
+  } catch {
+    // No storage: the choice is kept until the page is refreshed.
+  }
+}
+
 // What the page knows about each part.
 type Status = "checking" | "online" | "offline" | "unknown";
 
@@ -48,6 +73,10 @@ export default function App() {
   const [page, setPage] = useState(currentPage);
   const [openJobId, setOpenJobId] = useState(galleryJobId);
   const [conversationId, setConversationId] = useState(chatConversationId);
+  // The projects for the picker, and the current one (FRG-41). project is undefined while loading,
+  // and null if the projects could not be loaded (MongoDB offline): then pages work without a project.
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [project, setProject] = useState<Project | null | undefined>(undefined);
   // Set by "Use again" in the gallery: the preset and values to fill into the Generate page.
   const [useAgain, setUseAgain] = useState<StartValues | null>(null);
 
@@ -134,6 +163,38 @@ export default function App() {
     checkHealth();
   }, [user]);
 
+  // Load the projects once, after logging in. Pick the remembered project, or "Unsorted" if
+  // nothing is remembered or that project is gone (archived).
+  useEffect(() => {
+    if (!user) return;
+    async function loadProjects() {
+      try {
+        const response = await fetch("/api/projects");
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const list: Project[] = (await response.json()).projects;
+        const stored = readStoredProject();
+        const chosen = list.find((p) => p.id === stored) ?? list.find((p) => p.name === UNSORTED_NAME) ?? null;
+        setProjects(list);
+        setProject(chosen);
+        if (chosen) storeProject(chosen.id);
+      } catch {
+        setProject(null);
+      }
+    }
+    loadProjects();
+  }, [user]);
+
+  function chooseProject(chosen: Project) {
+    setProject(chosen);
+    storeProject(chosen.id);
+  }
+
+  // "+ New project": add it to the list (sorted by name, like the backend) and choose it.
+  function addProject(created: Project) {
+    setProjects((list) => [...list, created].sort((a, b) => a.name.localeCompare(b.name, "en", { sensitivity: "base" })));
+    chooseProject(created);
+  }
+
   if (user === undefined) {
     return <div className="loading-page">Loading...</div>;
   }
@@ -159,6 +220,7 @@ export default function App() {
             <ChatIcon size={22} /> <span>Chat</span>
           </a>
         </nav>
+        <ProjectPicker projects={projects} project={project} onChoose={chooseProject} onCreated={addProject} />
         <div className="status-list">
           <StatusLine label="Backend" status={backend} />
           <StatusLine label="ComfyUI" status={comfyui} />
@@ -175,9 +237,9 @@ export default function App() {
           onOpenInGenerate={handleUseAgain}
         />
       ) : page === "gallery" ? (
-        <Gallery onUseAgain={handleUseAgain} onUseInChat={handleUseInChat} openJobId={openJobId} />
+        <Gallery onUseAgain={handleUseAgain} onUseInChat={handleUseInChat} openJobId={openJobId} project={project} />
       ) : (
-        <Generate startValues={useAgain} onStartValuesUsed={() => setUseAgain(null)} />
+        <Generate startValues={useAgain} onStartValuesUsed={() => setUseAgain(null)} project={project} />
       )}
     </>
   );
@@ -198,6 +260,82 @@ function StatusLine({ label, status }: { label: string; status: Status }) {
       <span className="status-dot" />
       {label} <span className="status-word">{statusText[status]}</span>
     </span>
+  );
+}
+
+// Value of the last item in the picker. Not a project id, so it can never clash with one.
+const NEW_PROJECT = "new";
+
+type ProjectPickerProps = {
+  projects: Project[];
+  project: Project | null | undefined;
+  onChoose: (project: Project) => void;
+  onCreated: (project: Project) => void;
+};
+
+// The current project, in the header (FRG-41). New files go into it, and the gallery shows only its files.
+// The last item, "+ New project", asks for a name and makes the project.
+function ProjectPicker({ projects, project, onChoose, onCreated }: ProjectPickerProps) {
+  const [creating, setCreating] = useState(false);
+
+  async function createProject() {
+    const name = window.prompt("Name of the new project (at most 60 characters):");
+    if (name === null || name.trim() === "") return;
+    setCreating(true);
+    try {
+      const response = await fetch("/api/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      const body = await response.json().catch(() => null);
+      if (!body) window.alert("Could not reach the backend. Make sure it is running, then try again.");
+      else if (!response.ok) window.alert(body.error ?? "Could not make the project.");
+      else onCreated(body);
+    } catch {
+      window.alert("Could not reach the backend. Make sure it is running, then try again.");
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  function onChange(value: string) {
+    if (value === NEW_PROJECT) {
+      createProject();
+      return;
+    }
+    const chosen = projects.find((p) => p.id === value);
+    if (chosen) onChoose(chosen);
+  }
+
+  if (project === null) {
+    return (
+      <span className="project-picker project-offline" title="Projects need MongoDB, which cannot be reached right now.">
+        <FolderIcon size={18} /> <span>No projects</span>
+      </span>
+    );
+  }
+
+  return (
+    <label className="project-picker select-wrap" title="Current project: new files go here, and the gallery shows its files">
+      <FolderIcon size={18} />
+      <select
+        className="select"
+        aria-label="Project"
+        value={project?.id ?? ""}
+        onChange={(event) => onChange(event.target.value)}
+        disabled={project === undefined || creating}
+      >
+        {project === undefined && <option value="">Loading...</option>}
+        {projects.map((p) => (
+          <option key={p.id} value={p.id}>
+            {p.name}
+          </option>
+        ))}
+        {project !== undefined && <option value={NEW_PROJECT}>+ New project</option>}
+      </select>
+      <ChevronDownIcon size={18} />
+    </label>
   );
 }
 

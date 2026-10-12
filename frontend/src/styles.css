@@ -152,6 +152,28 @@ a {
   color: var(--accent);
 }
 
+/* The current project, next to the nav (FRG-41). Long names are cut with "...". */
+.project-picker {
+  flex: 0 1 220px;
+  min-width: 140px;
+}
+
+.project-picker .select {
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-offline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
 .status-list {
   display: flex;
   gap: 22px;
@@ -885,6 +907,22 @@ a {
   filter: grayscale(0.7) brightness(0.6);
 }
 
+/* Under the Generate button: where new files go (FRG-41). */
+.project-note {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin: 10px 0 0;
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.project-note strong {
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
 /* Messages */
 
 .message {
@@ -1216,6 +1254,20 @@ a {
 .gallery-head p {
   margin: 0;
   color: var(--text-dim);
+}
+
+/* The project the gallery shows (FRG-41). */
+.project-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--accent-soft);
+  font-size: 14px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
 }
 
 .gallery-grid {
@@ -1931,6 +1983,16 @@ a {
   .status-list {
     display: none;
   }
+  /* Room for the project picker (FRG-41). */
+  .header {
+    gap: 16px;
+  }
+  .nav {
+    gap: 2px;
+  }
+  .nav a {
+    padding: 0 10px;
+  }
 }
 
 @media (max-width: 860px) {
@@ -1967,6 +2029,19 @@ a {
   .user-menu {
     padding-left: 0;
     border-left: none;
+  }
+  .project-picker {
+    flex-basis: 150px;
+    min-width: 110px;
+  }
+  .project-picker .select {
+    padding: 0 30px 0 34px;
+  }
+  .project-picker > svg:first-child {
+    left: 10px;
+  }
+  .project-picker > svg:last-child {
+    right: 8px;
   }
   .logo {
     gap: 6px;
@@ -2011,5 +2086,20 @@ a {
   }
   .page {
     padding: 16px;
+  }
+}
+
+/* Phones: the project picker gets its own row under the header, so its name stays readable (FRG-41). */
+@media (max-width: 600px) {
+  .header {
+    height: auto;
+    min-height: var(--header-h);
+    flex-wrap: wrap;
+    row-gap: 0;
+    padding-bottom: 10px;
+  }
+  .project-picker {
+    order: 10;
+    flex-basis: 100%;
   }
 }

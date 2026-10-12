@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Preset, StartValues } from "./Generate";
 import PresetBadges from "./PresetBadges";
 import type { Attachment } from "./Chat";
+import type { Project } from "./App";
 import Media, { outputKind } from "./Media";
 import SendToMenu from "./SendToMenu";
-import { ArrowLeftIcon, ArrowRightIcon, ChatIcon, DownloadIcon, PlayIcon, RepeatIcon } from "./Icons";
+import { ArrowLeftIcon, ArrowRightIcon, ChatIcon, DownloadIcon, FolderIcon, PlayIcon, RepeatIcon } from "./Icons";
 
 // How many results the gallery shows: the newest ones.
 const GALLERY_LIMIT = 100;
@@ -46,19 +47,35 @@ type GalleryProps = {
   onUseInChat: (attachment: Attachment) => void;
   // From #/gallery/<job id>: show this job large (the board's Open button).
   openJobId?: string | null;
+  // The project chosen in the header (FRG-41): only its jobs are shown.
+  // undefined while the projects load. null if they could not be loaded: then all jobs are shown.
+  project: Project | null | undefined;
 };
 
-export default function Gallery({ onUseAgain, onUseInChat, openJobId = null }: GalleryProps) {
+export default function Gallery({ onUseAgain, onUseInChat, openJobId = null, project }: GalleryProps) {
   const [jobs, setJobs] = useState<Job[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Job | null>(null);
+  const projectId = project === undefined ? undefined : (project?.id ?? null);
+  // The project of the list on screen, so a change of project can close the large view.
+  const shownProjectId = useRef(projectId);
 
-  // Load the job history once, when the page opens.
+  // Load the job history when the page opens, and again when the project changes (FRG-41).
   useEffect(() => {
+    if (projectId === undefined) return; // Wait for the projects, so the list loads only once.
+    // Another project was chosen: go back to its grid.
+    if (shownProjectId.current !== undefined && shownProjectId.current !== projectId) closeDetail();
+    shownProjectId.current = projectId;
+    // A slower answer for the project chosen before must not replace the new list.
+    let stale = false;
+    setJobs(null);
+    setError(null);
     async function loadJobs() {
       try {
-        const response = await fetch(`/api/jobs?status=done&limit=${GALLERY_LIMIT}`);
+        const filter = projectId ? `&projectId=${encodeURIComponent(projectId)}` : "";
+        const response = await fetch(`/api/jobs?status=done&limit=${GALLERY_LIMIT}${filter}`);
         const body = await response.json().catch(() => null);
+        if (stale) return;
         if (!body) {
           setError("Could not reach the backend. Make sure it is running, then refresh the page.");
         } else if (!response.ok) {
@@ -68,11 +85,14 @@ export default function Gallery({ onUseAgain, onUseInChat, openJobId = null }: G
           setJobs(body.jobs.filter((job: Job) => job.imageUrl));
         }
       } catch {
-        setError("Could not reach the backend. Make sure it is running, then refresh the page.");
+        if (!stale) setError("Could not reach the backend. Make sure it is running, then refresh the page.");
       }
     }
     loadJobs();
-  }, []);
+    return () => {
+      stale = true;
+    };
+  }, [projectId]);
 
   // Open one job from a link. It may be older than the jobs in the grid, so ask for it by id.
   useEffect(() => {
@@ -114,7 +134,7 @@ export default function Gallery({ onUseAgain, onUseInChat, openJobId = null }: G
   } else if (jobs.length === 0) {
     content = (
       <p className="empty">
-        No results yet. Make one on the <a href="#/">Generate</a> page.
+        No results {project ? `in the project "${project.name}" ` : ""}yet. Make one on the <a href="#/">Generate</a> page.
       </p>
     );
   } else {
@@ -122,6 +142,11 @@ export default function Gallery({ onUseAgain, onUseInChat, openJobId = null }: G
       <>
         <div className="gallery-head">
           <h1>Gallery</h1>
+          {project && (
+            <span className="project-name" title="The project chosen in the header">
+              <FolderIcon size={16} /> {project.name}
+            </span>
+          )}
           <p>
             {jobs.length < GALLERY_LIMIT ? `${jobs.length} results` : `The latest ${GALLERY_LIMIT} results`}, newest
             first. Click one to see it large.

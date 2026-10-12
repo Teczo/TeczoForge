@@ -125,7 +125,7 @@ Backend (Express, 127.0.0.1:4000) ──► ComfyUI (127.0.0.1:8188)   HTTP + on
 
 ### Frontend (`frontend/src/`)
 
-- `App.tsx`: login gate, header with Backend/ComfyUI status, user menu, page switch by URL hash (`#/`, `#/gallery`, `#/gallery/<job id>`, `#/board`, `#/chat`, `#/chat/<conversation id>`).
+- `App.tsx`: login gate, header with **project picker** (FRG-41: projects from `/api/projects`, "+ New project" at the end, choice kept in `localStorage` as `teczoforge.project`, "Unsorted" if none or gone; Generate sends its `projectId`, Gallery shows only its jobs), Backend/ComfyUI status, user menu, page switch by URL hash (`#/`, `#/gallery`, `#/gallery/<job id>`, `#/board`, `#/chat`, `#/chat/<conversation id>`).
 - `PresetBadges.tsx`: the licence badge and **Test** label of a preset, the Research only question, and the estimated time text (FRG-32).
 - `Generate.tsx`: three columns. **Sidebar** (categories + models from the `model` field of the presets), **Create panel** (image upload,
   prompt, preset picker, Quick Prompts, Advanced Settings, Generate), **Result panel** (large view,
