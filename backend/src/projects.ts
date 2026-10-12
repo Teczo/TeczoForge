@@ -1,7 +1,15 @@
 import type { Request, Response } from "express";
 import type { Collection } from "mongodb";
 import { HttpError } from "./httpError.js";
-import { findJob, getProjectsCollection, getUnsortedProjectId, PROJECT_NAME_COLLATION, safeMessage, UNSORTED_PROJECT_NAME } from "./db.js";
+import {
+  countJobsByProject,
+  findJob,
+  getProjectsCollection,
+  getUnsortedProjectId,
+  PROJECT_NAME_COLLATION,
+  safeMessage,
+  UNSORTED_PROJECT_NAME,
+} from "./db.js";
 import type { Project } from "./db.js";
 import { JOB_ID_PATTERN, sendError } from "./jobs.js";
 
@@ -67,6 +75,13 @@ export async function checkProjectId(projectId: unknown): Promise<string> {
   return projectId;
 }
 
+// The project to move a job or a chat to (FRG-43). It must be sent, and it must be a project
+// that exists and is not archived (400 otherwise).
+export async function checkTargetProjectId(projectId: unknown): Promise<string> {
+  if (projectId === undefined || projectId === null) throw new HttpError(400, "Choose a project to move to.");
+  return await checkProjectId(projectId);
+}
+
 // The project of a new job or card. "Send to" (FRG-26): a job or card made from another
 // job's result goes into the same project as that job, whatever projectId was sent.
 // Otherwise the projectId that was sent is checked (see checkProjectId).
@@ -85,9 +100,10 @@ export async function projectForNewItem(projectId: unknown, sourceJobId?: string
 }
 
 // GET /api/projects
+//   ?counts=1  also "jobCount" on each project: its jobs, not counting board cards that have not run (FRG-43)
 // Answer: { "projects": [...] }: every project that is not archived, sorted by name
 // (capital letters do not matter). "Unsorted" is never archived, so it is always in the list.
-export async function listProjectsHandler(_req: Request, res: Response) {
+export async function listProjectsHandler(req: Request, res: Response) {
   try {
     const projects = await withProjects((p) =>
       p
@@ -95,6 +111,11 @@ export async function listProjectsHandler(_req: Request, res: Response) {
         .sort({ name: 1 })
         .toArray(),
     );
+    if (req.query.counts === "1") {
+      const counts = await countJobsByProject();
+      res.json({ projects: projects.map((project) => ({ ...project, jobCount: counts.get(project.id) ?? 0 })) });
+      return;
+    }
     res.json({ projects });
   } catch (error) {
     sendError(res, error);

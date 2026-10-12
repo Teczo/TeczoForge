@@ -7,7 +7,7 @@ import type { ChatMessage, ChatUsage, Conversation } from "./db.js";
 import { CHAT_SYSTEM_PROMPT } from "./chatPrompt.js";
 import { checkMessageImages, picturesToSend } from "./chatImages.js";
 import { buildChatTools, runChatTool } from "./chatTools.js";
-import { checkProjectId } from "./projects.js";
+import { checkProjectId, checkTargetProjectId } from "./projects.js";
 import type { ChatCard, ChatTools } from "./chatTools.js";
 
 // Chat with Claude (FRG-23). Text only.
@@ -252,15 +252,24 @@ export async function getConversationHandler(req: Request, res: Response) {
   }
 }
 
-// PATCH /api/chat/conversations/<id>  Body: { "title": "..." }  Rename one of my conversations.
+// PATCH /api/chat/conversations/<id>  Body: any of { "title": "...", "projectId": "..." }
+// Rename one of my conversations, or move it to another project (FRG-43).
+// An unknown or archived project answers 400. Moving does not change the order of the list.
 export async function renameConversationHandler(req: Request, res: Response) {
   try {
     const id = checkId(req.params.id);
-    const title = checkTitle(req.body?.title);
+    const { title, projectId } = req.body ?? {};
+    if (title === undefined && projectId === undefined) throw new HttpError(400, "Send a title or a projectId to change.");
+    const fields: { title?: string; updatedAt?: Date; projectId?: string } = {};
+    if (title !== undefined) {
+      fields.title = checkTitle(title);
+      fields.updatedAt = new Date();
+    }
+    if (projectId !== undefined) fields.projectId = await checkTargetProjectId(projectId);
     const owner: string = res.locals.username;
-    const result = await withConversations((c) => c.updateOne({ id, owner }, { $set: { title, updatedAt: new Date() } }));
+    const result = await withConversations((c) => c.updateOne({ id, owner }, { $set: fields }));
     if (result.matchedCount === 0) throw NOT_FOUND();
-    res.json({ id, title });
+    res.json({ id, ...(fields.title ? { title: fields.title } : {}), ...(fields.projectId ? { projectId: fields.projectId } : {}) });
   } catch (error) {
     sendError(res, error);
   }

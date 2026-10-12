@@ -1,6 +1,15 @@
 import "dotenv/config";
 import express from "express";
-import { cancelJobHandler, createJobHandler, getJobHandler, listJobsHandler, OUTPUTS_DIR, recoverJobs, startJobChecker } from "./jobs.js";
+import {
+  cancelJobHandler,
+  createJobHandler,
+  getJobHandler,
+  listJobsHandler,
+  moveJobHandler,
+  OUTPUTS_DIR,
+  recoverJobs,
+  startJobChecker,
+} from "./jobs.js";
 import { connectDatabase } from "./db.js";
 import { contentTypeOf } from "./outputKinds.js";
 import {
@@ -88,6 +97,8 @@ app.get("/api/jobs/:id", getJobHandler);
 app.post("/api/send-to", express.json(), sendToHandler);
 app.get("/api/jobs/:id/used-in", usedInHandler);
 app.post("/api/jobs/:id/cancel", cancelJobHandler);
+// Move one job to another project (FRG-43).
+app.patch("/api/jobs/:id/project", express.json(), moveJobHandler);
 
 // The board (see drafts.ts): cards are saved jobs that have not run yet ("drafts").
 app.get("/api/board", boardHandler);

@@ -288,6 +288,37 @@ export function listBoardJobs(doneLimit: number, projectId: string | null): Prom
   }));
 }
 
+// How many jobs each project has, for "Manage projects" (FRG-43). Board cards that have not run
+// (drafts) are not counted. Key: project id.
+export async function countJobsByProject(): Promise<Map<string, number>> {
+  try {
+    const jobs = await getJobsCollection();
+    const rows = await jobs
+      .aggregate<{ _id: string; count: number }>([
+        { $match: { status: { $ne: "draft" } } },
+        { $group: { _id: "$projectId", count: { $sum: 1 } } },
+      ])
+      .toArray();
+    return new Map(rows.map((row) => [row._id, row.count]));
+  } catch (error) {
+    console.warn(`Warning: could not count the jobs. ${safeMessage(error)}`);
+    throw new HttpError(503, "Projects are not available because MongoDB cannot be reached.");
+  }
+}
+
+// Move one job or card to another project (FRG-43). Only its projectId changes: its files stay
+// where they are. Returns the changed job, or null if there is no job with this id.
+export async function moveJobToProject(id: string, projectId: string): Promise<Job | null> {
+  try {
+    const jobs = await getJobsCollection();
+    const job = await jobs.findOneAndUpdate({ id }, { $set: { projectId } }, { returnDocument: "after", projection: { _id: 0 } });
+    return job && withOutputKind(job);
+  } catch (error) {
+    console.warn(`Warning: could not move the job. ${safeMessage(error)}`);
+    throw new HttpError(503, "This job cannot be moved because MongoDB cannot be reached.");
+  }
+}
+
 // The jobs and cards made from this job's result with "Send to" (FRG-26), oldest first.
 export async function findUsedIn(id: string): Promise<Job[]> {
   try {

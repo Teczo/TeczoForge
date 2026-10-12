@@ -7,11 +7,11 @@ import { buildWorkflow, loadPreset } from "./presets.js";
 import { ensureStartImages, inputFilesFor } from "./inputs.js";
 import type { Workflow } from "./presets.js";
 import { downloadOutput, getFinishedOutput, getQueue, interruptJob, queueWorkflow, removeFromQueue } from "./comfyui.js";
-import { findActiveJobs, findJob, knownUnsortedProjectId, listJobs, safeMessage, saveJob } from "./db.js";
+import { findActiveJobs, findJob, knownUnsortedProjectId, listJobs, moveJobToProject, safeMessage, saveJob } from "./db.js";
 import type { Job, JobStatus } from "./db.js";
 import { forgetSteps, getSteps } from "./progress.js";
 import { pickOutputFile } from "./outputKinds.js";
-import { projectForNewItem } from "./projects.js";
+import { checkTargetProjectId, projectForNewItem } from "./projects.js";
 
 // Jobs (FRG-20).
 // 1. POST /api/jobs checks the inputs, saves the job as "queued", sends it to ComfyUI,
@@ -470,6 +470,26 @@ export async function cancelJobHandler(req: Request, res: Response) {
       return;
     }
     res.json({ ...live.job, progress: null, warning: live.warning });
+  } catch (error) {
+    sendError(res, error);
+  }
+}
+
+// PATCH /api/jobs/<id>/project
+// Body: { "projectId": "..." }. Move one job (or board card) to another project (FRG-43).
+// Only its projectId changes: its files stay where they are. Everyone on the team can move any job.
+// An unknown or archived project answers 400. Answer: the job.
+export async function moveJobHandler(req: Request, res: Response) {
+  try {
+    const id = String(req.params.id);
+    if (!JOB_ID_PATTERN.test(id)) throw new HttpError(400, "This is not a job id.");
+    const projectId = await checkTargetProjectId(req.body?.projectId);
+    const job = await moveJobToProject(id, projectId);
+    if (!job) throw new HttpError(404, "There is no job with this id.");
+    // A job the backend is still following is saved again on each change. Keep the new project there too.
+    const live = liveJobs.get(id);
+    if (live) live.job.projectId = projectId;
+    res.json(job);
   } catch (error) {
     sendError(res, error);
   }
