@@ -1,5 +1,5 @@
 import { MongoClient } from "mongodb";
-import type { Collection, Db, Filter } from "mongodb";
+import type { CollationOptions, Collection, Db, Filter } from "mongodb";
 import { HttpError } from "./httpError.js";
 import { kindOfFile } from "./outputKinds.js";
 import type { OutputKind } from "./outputKinds.js";
@@ -92,6 +92,24 @@ export type ChatUsage = {
   createdAt: Date;
 };
 
+// A project: a named container for jobs, board cards and chats (FRG-39).
+// Everyone on the team can see and use every project. Projects are never deleted, only archived.
+export type Project = {
+  id: string; // A UUID.
+  name: string; // 1 to 60 characters. Unique, not counting capital letters.
+  createdBy: string | null; // The username. null for "Unsorted", which the backend makes itself.
+  createdAt: Date;
+  updatedAt: Date;
+  archived: boolean;
+};
+
+// The project that always exists. Made when the backend starts, if it is missing (FRG-39).
+export const UNSORTED_PROJECT_NAME = "Unsorted";
+
+// Compare project names without capital letters: "Summer" and "summer" are the same name.
+// Used by the unique index on name, and to sort the list by name.
+export const PROJECT_NAME_COLLATION: CollationOptions = { locale: "en", strength: 2 };
+
 let connecting: Promise<MongoClient> | null = null;
 
 // Connect once and reuse the connection. If it fails, the next call tries again.
@@ -127,6 +145,11 @@ export async function getUsersCollection(): Promise<Collection<User>> {
 // The chat conversations (FRG-23).
 export async function getConversationsCollection(): Promise<Collection<Conversation>> {
   return (await getDatabase()).collection<Conversation>("conversations");
+}
+
+// The projects (FRG-39). Names are unique (the index is made once, in checkDatabase).
+export async function getProjectsCollection(): Promise<Collection<Project>> {
+  return (await getDatabase()).collection<Project>("projects");
 }
 
 export async function getChatUsageCollection(): Promise<Collection<ChatUsage>> {
@@ -286,12 +309,39 @@ export async function checkDatabase(): Promise<boolean> {
     await (await getChatUsageCollection()).createIndex({ username: 1, createdAt: -1 });
     // Usernames are unique. Made here once, not on every login (FRG-28).
     await (await getUsersCollection()).createIndex({ username: 1 }, { unique: true });
+    // Project names are unique, not counting capital letters (FRG-39).
+    const projects = await getProjectsCollection();
+    await projects.createIndex({ name: 1 }, { unique: true, collation: PROJECT_NAME_COLLATION });
+    await projects.createIndex({ id: 1 });
+    await ensureUnsortedProject(projects);
     console.log("MongoDB: connected");
     return true;
   } catch (error) {
     console.warn(`Warning: MongoDB is not available. Images still work, but jobs are not saved. ${safeMessage(error)}`);
     return false;
   }
+}
+
+// Make the "Unsorted" project if it is missing (FRG-39). Runs each time the backend starts.
+// It only adds the project when no project has this name, and the unique index above
+// stops a second one, so a restart never makes two.
+async function ensureUnsortedProject(projects: Collection<Project>): Promise<void> {
+  const now = new Date();
+  const result = await projects.updateOne(
+    { name: UNSORTED_PROJECT_NAME },
+    {
+      $setOnInsert: {
+        id: crypto.randomUUID(),
+        name: UNSORTED_PROJECT_NAME,
+        createdBy: null,
+        createdAt: now,
+        updatedAt: now,
+        archived: false,
+      },
+    },
+    { upsert: true, collation: PROJECT_NAME_COLLATION },
+  );
+  if (result.upsertedCount > 0) console.log(`Projects: made the "${UNSORTED_PROJECT_NAME}" project.`);
 }
 
 // How often to try MongoDB again when it could not be reached at start (FRG-28).

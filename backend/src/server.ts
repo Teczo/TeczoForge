@@ -18,6 +18,7 @@ import { startProgressListener } from "./progress.js";
 import { INPUTS_DIR } from "./inputs.js";
 import { sendToHandler, usedInHandler } from "./sendTo.js";
 import { listPresets } from "./presets.js";
+import { createProjectHandler, listProjectsHandler, updateProjectHandler } from "./projects.js";
 import { IMAGE_TYPES, MAX_UPLOAD_BYTES, uploadHandler, useOutputHandler } from "./upload.js";
 import { checkSessionSecret, loginHandler, logoutHandler, meHandler, requireLogin } from "./auth.js";
 
@@ -94,6 +95,12 @@ app.post("/api/drafts", express.json(), createDraftHandler);
 app.patch("/api/drafts/:id", express.json(), updateDraftHandler);
 app.delete("/api/drafts/:id", deleteDraftHandler);
 app.post("/api/drafts/:id/run", runDraftHandler);
+
+// Projects (see projects.ts, FRG-39): everyone on the team can see and use every project.
+// No delete: a project is archived instead.
+app.get("/api/projects", listProjectsHandler);
+app.post("/api/projects", express.json(), createProjectHandler);
+app.patch("/api/projects/:id", express.json(), updateProjectHandler);
 
 // Chat with Claude (see chat.ts). Each user only sees their own conversations.
 app.get("/api/chat/status", chatStatusHandler);

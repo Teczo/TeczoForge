@@ -73,6 +73,7 @@ Backend (Express, 127.0.0.1:4000) ──► ComfyUI (127.0.0.1:8188)   HTTP + on
 | `jobs.ts` | Job routes. `POST /api/jobs`: check inputs → save as `queued` → queue in ComfyUI → answer at once. A 1 s checker follows unfinished jobs (`running` → copy output → `done` / `failed`), saving each change. At start it picks up jobs left `queued` / `running`. |
 | `drafts.ts` | Board routes (FRG-22). A card is a job with status `draft`, a `title` and a `column` (`idea` / `ready`). Run turns the same record into a queued job. A card whose job fails or is cancelled goes back to Ready with the reason. Anyone can run a card; only who made it can edit, move or delete it (FRG-28). Needs MongoDB. |
 | `chat.ts` | Chat with the Claude API (FRG-23). Conversations in MongoDB (`conversations`, only the owner can read them), replies streamed with SSE, newest 40 messages sent, 8,000 characters per message, token counts per reply (also in `chat_usage`), optional daily token limit. The API key never leaves the backend. Needs MongoDB. |
+| `projects.ts` | Project routes (FRG-39). A project is a named container for jobs, board cards and chats. Names are 1 to 60 characters and unique, not counting capital letters (unique index in `projects`). Everyone can see and use every project. No delete, only archive. The backend makes the "Unsorted" project at start if it is missing; it cannot be renamed or archived. Needs MongoDB. |
 | `chatPrompt.ts` | The chat system prompt. Edit it to change how Claude answers. |
 | `chatTools.ts` | Chat tools (FRG-24): one `create_card_<preset id>` tool per preset folder, built for every message from `preset.json` (no node ids). A tool call is checked like `/api/drafts` and makes a draft in **Ready** with the conversation id. It never starts a job. Check errors go back to Claude. At most 8 tool calls per message. Between tool rounds the daily token limit is checked again; when it is passed the reply stops with a note (FRG-28). A start image must be the id of a picture attached in that chat (FRG-25). |
 | `chatImages.ts` | Pictures in chat (FRG-25). Checks each picture against the Claude API limits (PNG/JPEG/WebP, at most 10 MB base64, at most 8000 x 8000 px, at most 20 per message) before any API call. Sends at most the newest 20 pictures and 24 MB of pictures per request; older ones are named in the text. |
@@ -109,6 +110,9 @@ Backend (Express, 127.0.0.1:4000) ──► ComfyUI (127.0.0.1:8188)   HTTP + on
 | PATCH | `/api/drafts/:id` | yes | Change `title`, `inputs` or `column`. Only while it is a draft, and only by who made it (others get 403) |
 | DELETE | `/api/drafts/:id` | yes | Delete a card. Only while it is a draft, and only by who made it (others get 403) |
 | POST | `/api/drafts/:id/run` | yes | Check the inputs again, then queue the card like `/api/jobs`. Answers `{ jobId }` |
+| GET | `/api/projects` | yes | Projects that are not archived, sorted by name. "Unsorted" is always there |
+| POST | `/api/projects` | yes | New project: `{ name }`. Empty, longer than 60 characters, or already used (any capital letters, also archived ones) answers 400 |
+| PATCH | `/api/projects/:id` | yes | Rename or archive: `{ name?, archived? }`. "Unsorted" answers 400 |
 | GET | `/api/chat/status` | yes | `{ ready: true }`, or `{ ready: false, error: "Chat is not set up..." }` |
 | GET | `/api/chat/conversations` | yes | My conversations (id, title, dates), newest first |
 | POST | `/api/chat/conversations` | yes | New conversation. Optional `title` (default "New chat"; the first message becomes the title) |
