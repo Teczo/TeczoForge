@@ -89,6 +89,9 @@ export default function App() {
     window.location.hash = "#/generate"; // Go to the Generate page.
   }
 
+  // Goes up when the Chat page changed the chat list, so the sidebar loads it again (FRG-47).
+  const [chatListVersion, setChatListVersion] = useState(0);
+
   // Set by "Use in chat" in the gallery: a picture to attach in the chat (FRG-25).
   const [chatAttachment, setChatAttachment] = useState<Attachment | null>(null);
 
@@ -249,6 +252,8 @@ export default function App() {
       onChooseProject={chooseProject}
       onCreatedProject={addProject}
       onManageProjects={() => setManaging(true)}
+      conversationId={page === "chat" ? conversationId : null}
+      chatListVersion={chatListVersion}
     >
       {page === "board" ? (
         <Board onOpenInGenerate={handleUseAgain} project={project} />
@@ -259,7 +264,7 @@ export default function App() {
           onPendingAttachmentUsed={() => setChatAttachment(null)}
           onOpenInGenerate={handleUseAgain}
           project={project}
-          projects={projects}
+          onListChanged={() => setChatListVersion((v) => v + 1)}
           onShowProject={showProjectOf}
         />
       ) : page === "gallery" ? (

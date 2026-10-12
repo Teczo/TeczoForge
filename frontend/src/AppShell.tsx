@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { ChevronDown, Folder, Image, LayoutDashboard, LogOut, Sparkles } from "lucide-react";
 import type { Project } from "./App";
 import Logo from "./Logo";
+import RecentChats, { useRecentChats } from "./RecentChats";
 
 // The frame around every page (FRG-46): the left sidebar, and a small status box at the top right.
 // Built with Tailwind classes and lucide-react icons, after docs/design/teczoforge_redesign.tsx.
@@ -13,7 +14,7 @@ export type Status = "checking" | "online" | "offline" | "unknown";
 // The pages, by the name in the address (see currentPage() in App.tsx).
 export type Page = "chat" | "generate" | "gallery" | "board" | "projects";
 
-// The page links in the sidebar. Chat is not here: it is the home page, opened with "New chat".
+// The page links in the sidebar. Chat is not here: it is the home page, opened with "New chat" or a recent chat.
 const NAV_ITEMS = [
   { page: "generate", href: "#/generate", label: "Generate", icon: Sparkles },
   { page: "gallery", href: "#/gallery", label: "Gallery", icon: Image },
@@ -32,10 +33,15 @@ type AppShellProps = {
   onChooseProject: (project: Project) => void;
   onCreatedProject: (project: Project) => void;
   onManageProjects: () => void;
+  conversationId: string | null; // The chat open on the Chat page (FRG-47).
+  chatListVersion: number; // Goes up when the Chat page changed the chat list.
   children: ReactNode;
 };
 
 export default function AppShell(props: AppShellProps) {
+  const projectId = props.project === undefined ? undefined : (props.project?.id ?? null);
+  const chats = useRecentChats(projectId, props.chatListVersion);
+
   return (
     <div className="flex min-h-screen">
       <aside className="sticky top-0 flex h-screen w-72 shrink-0 flex-col border-r border-slate-700/50 bg-slate-800">
@@ -44,15 +50,17 @@ export default function AppShell(props: AppShellProps) {
           <Logo />
         </div>
 
-        {/* New chat: opens an empty chat. The chat is made when the first message is sent. */}
+        {/* New chat: makes a chat in the current project and opens it (FRG-47). */}
         <div className="shrink-0 px-4 pb-4">
-          <a
-            href="#/chat"
-            className="flex w-full items-center justify-center gap-2 rounded-xl bg-teal-600/90 px-4 py-2.5 text-sm font-medium text-white shadow-sm shadow-teal-900/20 transition-colors duration-200 hover:bg-teal-500"
+          <button
+            type="button"
+            onClick={chats.newChat}
+            disabled={projectId === undefined}
+            className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl border-0 bg-teal-600/90 px-4 py-2.5 text-sm font-medium text-white shadow-sm shadow-teal-900/20 transition-colors duration-200 hover:bg-teal-500 disabled:cursor-wait disabled:opacity-60"
           >
             <Sparkles size={16} />
             New chat
-          </a>
+          </button>
         </div>
 
         {/* Page links. The open page is highlighted. */}
@@ -87,9 +95,10 @@ export default function AppShell(props: AppShellProps) {
           />
         </div>
 
-        {/* Recent chats. Empty for now: FRG-47 fills it. */}
+        {/* Recent chats of the current project (FRG-47). Only this part scrolls. */}
         <div className="min-h-0 flex-1 overflow-y-auto px-2 pt-4 pb-4">
           <div className="px-3 pb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">Recent</div>
+          <RecentChats chats={chats} openId={props.conversationId} project={props.project} projects={props.projects} />
         </div>
 
         {/* Bottom: who is logged in, and "Log out". */}
