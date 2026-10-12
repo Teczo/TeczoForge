@@ -1,7 +1,7 @@
 import type { Request, Response } from "express";
 import type { Collection } from "mongodb";
 import { HttpError } from "./httpError.js";
-import { getProjectsCollection, PROJECT_NAME_COLLATION, safeMessage, UNSORTED_PROJECT_NAME } from "./db.js";
+import { findJob, getProjectsCollection, getUnsortedProjectId, PROJECT_NAME_COLLATION, safeMessage, UNSORTED_PROJECT_NAME } from "./db.js";
 import type { Project } from "./db.js";
 import { JOB_ID_PATTERN, sendError } from "./jobs.js";
 
@@ -48,6 +48,40 @@ function checkId(req: Request): string {
   const id = String(req.params.id);
   if (!JOB_ID_PATTERN.test(id)) throw new HttpError(400, "This is not a project id.");
   return id;
+}
+
+// ---- The project of a new job or card (FRG-40) ----
+
+// Check a projectId sent with a new job or card, and return the id to save.
+// No projectId: "Unsorted". An unknown or archived project: 400.
+export async function checkProjectId(projectId: unknown): Promise<string> {
+  if (projectId === undefined || projectId === null) {
+    return await withProjects(() => getUnsortedProjectId());
+  }
+  if (typeof projectId !== "string" || !JOB_ID_PATTERN.test(projectId)) {
+    throw new HttpError(400, "projectId must be a project id.");
+  }
+  const project = await withProjects((p) => p.findOne({ id: projectId }));
+  if (!project) throw new HttpError(400, "There is no project with this id.");
+  if (project.archived) throw new HttpError(400, `The project "${project.name}" is archived. Choose another project.`);
+  return projectId;
+}
+
+// The project of a new job or card. "Send to" (FRG-26): a job or card made from another
+// job's result goes into the same project as that job, whatever projectId was sent.
+// Otherwise the projectId that was sent is checked (see checkProjectId).
+export async function projectForNewItem(projectId: unknown, sourceJobId?: string): Promise<string> {
+  if (sourceJobId) {
+    const source = await findJob(sourceJobId);
+    if (source?.projectId) {
+      const project = await withProjects((p) => p.findOne({ id: source.projectId }));
+      if (project?.archived) {
+        throw new HttpError(400, `The picture comes from the project "${project.name}", which is archived.`);
+      }
+      if (project) return project.id;
+    }
+  }
+  return await checkProjectId(projectId);
 }
 
 // GET /api/projects

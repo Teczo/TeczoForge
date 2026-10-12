@@ -39,6 +39,9 @@ export type Job = {
   conversationId?: string; // Only on cards Claude made in a chat (FRG-24).
   inputFiles?: string[]; // Kept start images, for example "data/inputs/teczoforge-1-a1b2c3.png" (FRG-25).
   sourceJobId?: string; // "Send to": the job whose result is this job's start image (FRG-26).
+  // The project this job or card belongs to (FRG-40). Older jobs get "Unsorted" when the backend
+  // starts (see moveOldJobsToUnsorted). Empty only if MongoDB was never reached since the start.
+  projectId: string;
 };
 
 // Which jobs GET /api/jobs returns. See listJobs.
@@ -47,6 +50,7 @@ export type JobQuery = {
   before: Date | null; // Only jobs made before this time (for the next page).
   status: JobStatus | null;
   createdBy: string | null;
+  projectId: string | null; // Only jobs in this project (FRG-40).
 };
 
 // One team member who can log in. Accounts are made with "npm run user" (see setUser.ts).
@@ -109,6 +113,9 @@ export const UNSORTED_PROJECT_NAME = "Unsorted";
 // Compare project names without capital letters: "Summer" and "summer" are the same name.
 // Used by the unique index on name, and to sort the list by name.
 export const PROJECT_NAME_COLLATION: CollationOptions = { locale: "en", strength: 2 };
+
+// The id of "Unsorted", kept once it is known. It never changes: "Unsorted" cannot be renamed.
+let unsortedProjectId: string | null = null;
 
 let connecting: Promise<MongoClient> | null = null;
 
@@ -188,6 +195,7 @@ export async function listJobs(query: JobQuery): Promise<Job[]> {
   if (query.before) filter.createdAt = { $lt: query.before };
   if (query.status) filter.status = query.status;
   if (query.createdBy) filter.createdBy = query.createdBy;
+  if (query.projectId) filter.projectId = query.projectId;
   try {
     const jobs = await getJobsCollection();
     const found = await jobs.find(filter, { projection: { _id: 0 } }).sort({ createdAt: -1 }).limit(query.limit).toArray();
@@ -302,6 +310,7 @@ export async function checkDatabase(): Promise<boolean> {
     await jobs.createIndex({ createdAt: -1 });
     await jobs.createIndex({ id: 1 });
     await jobs.createIndex({ sourceJobId: 1 }); // "Used in" (FRG-26).
+    await jobs.createIndex({ projectId: 1, createdAt: -1 }); // One project's jobs, newest first (FRG-40).
     // Chat: my conversations, newest first, and one conversation by id.
     const conversations = await getConversationsCollection();
     await conversations.createIndex({ owner: 1, updatedAt: -1 });
@@ -314,6 +323,7 @@ export async function checkDatabase(): Promise<boolean> {
     await projects.createIndex({ name: 1 }, { unique: true, collation: PROJECT_NAME_COLLATION });
     await projects.createIndex({ id: 1 });
     await ensureUnsortedProject(projects);
+    await moveOldJobsToUnsorted(jobs);
     console.log("MongoDB: connected");
     return true;
   } catch (error) {
@@ -342,6 +352,32 @@ async function ensureUnsortedProject(projects: Collection<Project>): Promise<voi
     { upsert: true, collation: PROJECT_NAME_COLLATION },
   );
   if (result.upsertedCount > 0) console.log(`Projects: made the "${UNSORTED_PROJECT_NAME}" project.`);
+  await getUnsortedProjectId();
+}
+
+// The id of "Unsorted" (FRG-40). Throws if MongoDB cannot be reached and the id is not known yet.
+export async function getUnsortedProjectId(): Promise<string> {
+  if (unsortedProjectId) return unsortedProjectId;
+  const projects = await getProjectsCollection();
+  const unsorted = await projects.findOne({ name: UNSORTED_PROJECT_NAME }, { collation: PROJECT_NAME_COLLATION });
+  if (!unsorted) throw new Error(`The "${UNSORTED_PROJECT_NAME}" project is missing.`);
+  unsortedProjectId = unsorted.id;
+  return unsortedProjectId;
+}
+
+// The id of "Unsorted" if it is already known, without asking MongoDB. Used when MongoDB is offline.
+export function knownUnsortedProjectId(): string | null {
+  return unsortedProjectId;
+}
+
+// Give "Unsorted" to every job and card that has no project yet (FRG-40). Runs each time the
+// backend starts. It only changes jobs without a project, so running it again changes nothing.
+async function moveOldJobsToUnsorted(jobs: Collection<Job>): Promise<void> {
+  const projectId = await getUnsortedProjectId();
+  const result = await jobs.updateMany({ $or: [{ projectId: { $exists: false } }, { projectId: "" }] }, { $set: { projectId } });
+  if (result.modifiedCount > 0) {
+    console.log(`Projects: moved ${result.modifiedCount} job(s) without a project to "${UNSORTED_PROJECT_NAME}".`);
+  }
 }
 
 // How often to try MongoDB again when it could not be reached at start (FRG-28).

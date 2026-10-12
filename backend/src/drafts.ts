@@ -5,6 +5,7 @@ import { ensureStartImages, inputFilesFor } from "./inputs.js";
 import { claimDraft, deleteDraft, findBoardJob, insertDraft, listBoardJobs, updateDraft } from "./db.js";
 import type { DraftColumn, Job } from "./db.js";
 import { activeJobs, follow, JOB_ID_PATTERN, sendError, sendToComfyUI } from "./jobs.js";
+import { projectForNewItem } from "./projects.js";
 
 // The board (FRG-22).
 // A card is a job with status "draft": a preset, its inputs and a title. It is saved but not run.
@@ -94,6 +95,7 @@ export async function createDraft(fields: {
   title: unknown;
   column?: unknown;
   createdBy: string | null;
+  projectId?: unknown; // Missing: "Unsorted". With sourceJobId: the project of that job (FRG-40).
   conversationId?: string;
   sourceJobId?: string;
   allowEmptyText?: boolean;
@@ -101,6 +103,7 @@ export async function createDraft(fields: {
 }): Promise<Job> {
   const inputs = await checkInputs(fields.presetId, fields.inputs, fields.allowEmptyText);
   const inputFiles = await cardInputFiles(fields.presetId, inputs);
+  const projectId = await projectForNewItem(fields.projectId, fields.sourceJobId);
   const draft: Job = {
     id: crypto.randomUUID(),
     presetId: fields.presetId as string,
@@ -113,6 +116,7 @@ export async function createDraft(fields: {
     durationMs: 0,
     createdAt: new Date(),
     createdBy: fields.createdBy,
+    projectId,
     title: checkTitle(fields.title),
     column: fields.column === undefined ? "idea" : checkColumn(fields.column),
     ...(fields.conversationId ? { conversationId: fields.conversationId } : {}),
@@ -124,13 +128,14 @@ export async function createDraft(fields: {
 }
 
 // POST /api/drafts
-// Body: { "presetId": "...", "inputs": { ... }, "title": "...", "column": "idea" (default) }
+// Body: { "presetId": "...", "inputs": { ... }, "title": "...", "column": "idea" (default),
+//         "projectId": "<optional, default Unsorted>" }
 // Answer: the new draft.
 export async function createDraftHandler(req: Request, res: Response) {
   try {
-    const { presetId, inputs, title, column } = req.body ?? {};
+    const { presetId, inputs, title, column, projectId } = req.body ?? {};
     // createdBy is set by requireLogin in auth.ts.
-    const draft = await createDraft({ presetId, inputs, title, column, createdBy: res.locals.username ?? null });
+    const draft = await createDraft({ presetId, inputs, title, column, projectId, createdBy: res.locals.username ?? null });
     res.status(201).json(draft);
   } catch (error) {
     sendError(res, error);

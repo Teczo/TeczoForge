@@ -100,13 +100,13 @@ Backend (Express, 127.0.0.1:4000) ──► ComfyUI (127.0.0.1:8188)   HTTP + on
 | POST | `/api/upload` | yes | Upload a start image → ComfyUI input folder, and a copy in `data/inputs`. Answers `{ name, width, height }` |
 | POST | `/api/inputs/from-output` | yes | "Use in chat": `{ imageUrl: "/api/outputs/<name>" }` → copied into `data/inputs` as a new picture. Answers `{ name, width, height }`. Pictures only |
 | GET | `/api/inputs/*` | yes | Kept start images and chat pictures (same safe static serving as outputs) |
-| POST | `/api/jobs` | yes | Start a job from a preset. Answers at once with `{ jobId }` (+ `warning` if MongoDB is offline) |
+| POST | `/api/jobs` | yes | Start a job from a preset. Answers at once with `{ jobId }` (+ `warning` if MongoDB is offline). Optional `projectId` (default "Unsorted"; unknown or archived answers 400). With `sourceJobId` the job goes into the source job's project (FRG-40) |
 | POST | `/api/send-to` | yes | `{ jobId, presetId, target: "generate" \| "board" }`. `generate` answers `{ presetId, inputs, sourceJobId }` for the form; `board` makes a Ready card (prompt still to write) and answers `{ card }`. Pictures only |
 | GET | `/api/jobs/:id/used-in` | yes | Jobs and cards made from this job with "Send to" |
 | POST | `/api/jobs/:id/cancel` | yes | Cancel a waiting or running job (removed from ComfyUI's queue, or stopped). Only who started it. A finished job answers 409 |
 | GET | `/api/jobs/:id` | yes | One job: `status` (queued / running / done / failed), `progress` (waiting: jobs ahead / running: step x of y / finishing), `imageUrl` (the finished file, of any kind), `outputKind` (image / video / audio / 3d; worked out from the file ending for older jobs), `outputFile`, `error` |
 | GET | `/api/board` | yes | Board cards: all drafts, all waiting / running jobs (with `progress`), and the newest 30 finished jobs that started as a card |
-| POST | `/api/drafts` | yes | Add a card: `presetId`, `inputs`, `title`, `column` (default `idea`). Inputs are checked like `/api/jobs` |
+| POST | `/api/drafts` | yes | Add a card: `presetId`, `inputs`, `title`, `column` (default `idea`), `projectId` (default "Unsorted"). Inputs and project are checked like `/api/jobs`. Cards from chat go to "Unsorted"; Send to cards go into the source job's project (FRG-40) |
 | PATCH | `/api/drafts/:id` | yes | Change `title`, `inputs` or `column`. Only while it is a draft, and only by who made it (others get 403) |
 | DELETE | `/api/drafts/:id` | yes | Delete a card. Only while it is a draft, and only by who made it (others get 403) |
 | POST | `/api/drafts/:id/run` | yes | Check the inputs again, then queue the card like `/api/jobs`. Answers `{ jobId }` |
@@ -120,7 +120,7 @@ Backend (Express, 127.0.0.1:4000) ──► ComfyUI (127.0.0.1:8188)   HTTP + on
 | PATCH | `/api/chat/conversations/:id` | yes | Rename: `{ title }` |
 | DELETE | `/api/chat/conversations/:id` | yes | Delete one of my conversations |
 | POST | `/api/chat/:conversationId/messages` | yes | `{ text, images }` (max 8,000 characters; `images` are picture ids from `/api/upload`, checked against the Claude limits). Streams the reply as SSE: `text` events, `card` events (a board card Claude made), then `done` (the saved reply with token counts and cards) or `error` |
-| GET | `/api/jobs` | yes | Job history, newest first. `?limit=` (default 50, max 200), `?before=<createdAt>` (next page), `?status=done` or `?status=active` (queued + running), `?mine=1` (only my jobs) |
+| GET | `/api/jobs` | yes | Job history, newest first. `?limit=` (default 50, max 200), `?before=<createdAt>` (next page), `?status=done` or `?status=active` (queued + running), `?mine=1` (only my jobs), `?projectId=<id>` (only jobs in this project) |
 | GET | `/api/outputs/*` | yes | Finished files, each with the content type of its ending (for example `.glb` → `model/gltf-binary`) |
 
 ### Frontend (`frontend/src/`)

@@ -7,10 +7,11 @@ import { buildWorkflow, loadPreset } from "./presets.js";
 import { ensureStartImages, inputFilesFor } from "./inputs.js";
 import type { Workflow } from "./presets.js";
 import { downloadOutput, getFinishedOutput, getQueue, interruptJob, queueWorkflow, removeFromQueue } from "./comfyui.js";
-import { findActiveJobs, findJob, listJobs, safeMessage, saveJob } from "./db.js";
+import { findActiveJobs, findJob, knownUnsortedProjectId, listJobs, safeMessage, saveJob } from "./db.js";
 import type { Job, JobStatus } from "./db.js";
 import { forgetSteps, getSteps } from "./progress.js";
 import { pickOutputFile } from "./outputKinds.js";
+import { projectForNewItem } from "./projects.js";
 
 // Jobs (FRG-20).
 // 1. POST /api/jobs checks the inputs, saves the job as "queued", sends it to ComfyUI,
@@ -311,12 +312,26 @@ export async function recoverJobs() {
 
 // ---- Routes ----
 
+// The project of a new job (FRG-40). Like a card (see projectForNewItem), but a job must still
+// start when MongoDB is offline. Then the project cannot be checked: a projectId that looks like
+// an id is kept, otherwise "Unsorted" (empty if it was never known; fixed at the next start).
+async function jobProjectId(projectId: unknown, sourceJobId: string | undefined): Promise<string> {
+  try {
+    return await projectForNewItem(projectId, sourceJobId);
+  } catch (error) {
+    if (!(error instanceof HttpError) || error.status !== 503) throw error;
+    if (typeof projectId === "string" && JOB_ID_PATTERN.test(projectId)) return projectId;
+    return knownUnsortedProjectId() ?? "";
+  }
+}
+
 // POST /api/jobs
-// Body: { "presetId": "text-to-image-basic", "inputs": { "prompt": "a red car" }, "sourceJobId": "<optional>" }
+// Body: { "presetId": "text-to-image-basic", "inputs": { "prompt": "a red car" }, "sourceJobId": "<optional>",
+//         "projectId": "<optional, default Unsorted>" }
 // Answer: { "jobId": "<uuid>" }, plus "warning" if the job could not be saved in MongoDB.
 // If ComfyUI does not accept the job, the answer is an error, with the jobId of the failed job.
 export async function createJobHandler(req: Request, res: Response) {
-  const { presetId, inputs, sourceJobId } = req.body ?? {};
+  const { presetId, inputs, sourceJobId, projectId } = req.body ?? {};
   // "Send to -> Open in Generate" (FRG-26): the job whose result is the start image.
   if (sourceJobId !== undefined && (typeof sourceJobId !== "string" || !JOB_ID_PATTERN.test(sourceJobId))) {
     res.status(400).json({ error: "sourceJobId must be a job id." });
@@ -325,12 +340,15 @@ export async function createJobHandler(req: Request, res: Response) {
 
   // 1. Load the preset and put the user's values into its workflow. Bad values: answer 400, save nothing.
   //    Start images must be in ComfyUI's input folder; a missing one is uploaded again (FRG-25).
+  //    An unknown or archived project also answers 400 (FRG-40).
   let built;
   let inputFiles: string[];
+  let project: string;
   try {
     const { preset, workflow } = await loadPreset(presetId);
     built = await ensureStartImages(preset, workflow, buildWorkflow(preset, workflow, inputs ?? {}));
     inputFiles = await inputFilesFor(preset, built.usedValues);
+    project = await jobProjectId(projectId, sourceJobId);
   } catch (error) {
     sendError(res, error);
     return;
@@ -349,6 +367,7 @@ export async function createJobHandler(req: Request, res: Response) {
     durationMs: 0,
     createdAt: new Date(),
     createdBy: res.locals.username ?? null, // Set by requireLogin in auth.ts.
+    projectId: project,
     ...(inputFiles.length > 0 ? { inputFiles } : {}),
     ...(sourceJobId ? { sourceJobId } : {}),
   });
@@ -495,6 +514,7 @@ function queryValue(value: unknown): string | undefined {
 //   ?status=active      only queued and running jobs (from memory, also works when MongoDB is offline)
 //   ?status=done        only finished jobs with a result (for the gallery)
 //   ?mine=1             only jobs I started
+//   ?projectId=<id>     only jobs in this project (FRG-40)
 // Answer: { "jobs": [...] }
 export async function listJobsHandler(req: Request, res: Response) {
   const limitText = queryValue(req.query.limit);
@@ -519,11 +539,18 @@ export async function listJobsHandler(req: Request, res: Response) {
 
   const createdBy: string | null = queryValue(req.query.mine) === "1" ? (res.locals.username ?? null) : null;
 
+  const projectId = queryValue(req.query.projectId) ?? null;
+  if (projectId !== null && !JOB_ID_PATTERN.test(projectId)) {
+    res.status(400).json({ error: "projectId must be a project id." });
+    return;
+  }
+
   if (status === "active") {
     const jobs = [...liveJobs.values()]
       .map((live) => live.job)
       .filter((job) => isActive(job.status))
       .filter((job) => !createdBy || job.createdBy === createdBy)
+      .filter((job) => !projectId || job.projectId === projectId)
       .filter((job) => !before || job.createdAt < before)
       .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
       .slice(0, limit);
@@ -532,7 +559,7 @@ export async function listJobsHandler(req: Request, res: Response) {
   }
 
   try {
-    res.json({ jobs: await listJobs({ limit, before, status: status === "done" ? "done" : null, createdBy }) });
+    res.json({ jobs: await listJobs({ limit, before, status: status === "done" ? "done" : null, createdBy, projectId }) });
   } catch (error) {
     sendError(res, error);
   }
