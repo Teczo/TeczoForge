@@ -4,6 +4,7 @@ import Media, { outputKind } from "./Media";
 import type { OutputKind } from "./Media";
 import SendToMenu from "./SendToMenu";
 import PresetBadges, { confirmResearchOnly, formatSeconds } from "./PresetBadges";
+import type { Project } from "./App";
 import {
   ArrowRightIcon,
   BoltIcon,
@@ -12,6 +13,7 @@ import {
   CubeIcon,
   DownloadIcon,
   ExpandIcon,
+  FolderIcon,
   GearIcon,
   ImageIcon,
   ImageToVideoIcon,
@@ -195,9 +197,12 @@ const RECENT_COUNT = 10;
 type GenerateProps = {
   startValues?: StartValues | null;
   onStartValuesUsed?: () => void;
+  // The project chosen in the header (FRG-41). New jobs go into it.
+  // undefined while loading, null if the projects could not be loaded: then the backend uses "Unsorted".
+  project?: Project | null;
 };
 
-export default function Generate({ startValues = null, onStartValuesUsed }: GenerateProps) {
+export default function Generate({ startValues = null, onStartValuesUsed, project }: GenerateProps) {
   const [presets, setPresets] = useState<Preset[] | null>(null);
   const [presetsError, setPresetsError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -422,6 +427,7 @@ export default function Generate({ startValues = null, onStartValuesUsed }: Gene
           presetId: preset.id,
           inputs: toInputs(preset, values),
           ...(fromSource ? { sourceJobId: source!.jobId } : {}),
+          ...(project ? { projectId: project.id } : {}),
         }),
       });
       // The backend always answers with JSON. If not, the backend is not running.
@@ -714,6 +720,11 @@ export default function Generate({ startValues = null, onStartValuesUsed }: Gene
             <SparklesIcon size={26} />
             {running ? "Generating..." : "Generate"}
           </button>
+          {project && (
+            <p className="project-note">
+              <FolderIcon size={16} /> New files go to the project <strong>{project.name}</strong>
+            </p>
+          )}
         </div>
       </form>
 

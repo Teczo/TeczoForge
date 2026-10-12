@@ -117,6 +117,12 @@ export const MonitorIcon = (p: IconProps) => (
   </Svg>
 );
 
+export const FolderIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <path d="M3 6.5A1.5 1.5 0 0 1 4.5 5H9l2 2.5h8.5A1.5 1.5 0 0 1 21 9v9.5a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18.5z" />
+  </Svg>
+);
+
 export const LayersIcon = (p: IconProps) => (
   <Svg {...p}>
     <path d="M12 3l9 5-9 5-9-5z" />
