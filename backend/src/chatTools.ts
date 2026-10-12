@@ -129,7 +129,7 @@ export async function buildChatTools(): Promise<ChatTools> {
 // a draft in Ready. A wrong value goes back to Claude as the tool result, so it can fix it.
 export async function runChatTool(
   block: Anthropic.Beta.BetaToolUseBlock,
-  context: { tools: ChatTools; username: string; conversationId: string; imageIds: string[] },
+  context: { tools: ChatTools; username: string; conversationId: string; projectId: string; imageIds: string[] },
 ): Promise<{ result: Anthropic.Beta.BetaToolResultBlockParam; card?: ChatCard }> {
   const error = (text: string) => ({
     result: { type: "tool_result" as const, tool_use_id: block.id, is_error: true, content: text },
@@ -160,7 +160,7 @@ export async function runChatTool(
       column: "ready",
       createdBy: context.username,
       conversationId: context.conversationId,
-      // No projectId: cards from chat go to "Unsorted" for now (FRG-40). FRG-42 changes this.
+      projectId: context.projectId, // The card goes into the conversation's project (FRG-42).
     });
     return {
       result: {

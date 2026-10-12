@@ -230,12 +230,16 @@ export async function runDraftHandler(req: Request, res: Response) {
 }
 
 // GET /api/board
+//   ?projectId=<id>  only this project's cards (FRG-42)
 // Answer: { "cards": [...] }: all drafts, every waiting or running job (with "progress"),
 // and the newest finished jobs that started as a card.
-export async function boardHandler(_req: Request, res: Response) {
+export async function boardHandler(req: Request, res: Response) {
   try {
-    const { drafts, done } = await listBoardJobs(DONE_LIMIT);
-    res.json({ cards: [...drafts, ...activeJobs(), ...done] });
+    const projectId = typeof req.query.projectId === "string" ? req.query.projectId : null;
+    if (projectId !== null && !JOB_ID_PATTERN.test(projectId)) throw new HttpError(400, "projectId must be a project id.");
+    const { drafts, done } = await listBoardJobs(DONE_LIMIT, projectId);
+    const active = activeJobs().filter((job) => !projectId || job.projectId === projectId);
+    res.json({ cards: [...drafts, ...active, ...done] });
   } catch (error) {
     sendError(res, error);
   }

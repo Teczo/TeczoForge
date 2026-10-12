@@ -79,6 +79,9 @@ export type ChatMessage = {
 export type Conversation = {
   id: string; // A UUID.
   owner: string;
+  // The project this conversation belongs to (FRG-42). Cards Claude makes here go into it.
+  // Older conversations get "Unsorted" when the backend starts (see moveOldConversationsToUnsorted).
+  projectId: string;
   title: string;
   messages: ChatMessage[];
   createdAt: Date;
@@ -270,13 +273,14 @@ export function findBoardJob(id: string): Promise<Job | null> {
 }
 
 // The saved cards for the board: all drafts (oldest first), and the newest finished jobs
-// that started as a draft (they have a title).
-export function listBoardJobs(doneLimit: number): Promise<{ drafts: Job[]; done: Job[] }> {
+// that started as a draft (they have a title). With a projectId, only that project's cards (FRG-42).
+export function listBoardJobs(doneLimit: number, projectId: string | null): Promise<{ drafts: Job[]; done: Job[] }> {
+  const inProject: Filter<Job> = projectId ? { projectId } : {};
   return withJobs(async (jobs) => ({
-    drafts: await jobs.find({ status: "draft" }, { projection: { _id: 0 } }).sort({ createdAt: 1 }).toArray(),
+    drafts: await jobs.find({ status: "draft", ...inProject }, { projection: { _id: 0 } }).sort({ createdAt: 1 }).toArray(),
     done: (
       await jobs
-        .find({ status: "done", title: { $exists: true } }, { projection: { _id: 0 } })
+        .find({ status: "done", title: { $exists: true }, ...inProject }, { projection: { _id: 0 } })
         .sort({ createdAt: -1 })
         .limit(doneLimit)
         .toArray()
@@ -324,6 +328,7 @@ export async function checkDatabase(): Promise<boolean> {
     await projects.createIndex({ id: 1 });
     await ensureUnsortedProject(projects);
     await moveOldJobsToUnsorted(jobs);
+    await moveOldConversationsToUnsorted(conversations);
     console.log("MongoDB: connected");
     return true;
   } catch (error) {
@@ -377,6 +382,16 @@ async function moveOldJobsToUnsorted(jobs: Collection<Job>): Promise<void> {
   const result = await jobs.updateMany({ $or: [{ projectId: { $exists: false } }, { projectId: "" }] }, { $set: { projectId } });
   if (result.modifiedCount > 0) {
     console.log(`Projects: moved ${result.modifiedCount} job(s) without a project to "${UNSORTED_PROJECT_NAME}".`);
+  }
+}
+
+// Give "Unsorted" to every chat conversation that has no project yet (FRG-42). Runs each time the
+// backend starts. It only changes conversations without a project, so running it again changes nothing.
+async function moveOldConversationsToUnsorted(conversations: Collection<Conversation>): Promise<void> {
+  const projectId = await getUnsortedProjectId();
+  const result = await conversations.updateMany({ projectId: { $exists: false } }, { $set: { projectId } });
+  if (result.modifiedCount > 0) {
+    console.log(`Projects: moved ${result.modifiedCount} chat(s) without a project to "${UNSORTED_PROJECT_NAME}".`);
   }
 }
 

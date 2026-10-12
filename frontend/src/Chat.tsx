@@ -4,6 +4,7 @@ import { CloseIcon, PaperclipIcon, PencilIcon, SparklesIcon } from "./Icons";
 import ChatCard from "./ChatCard";
 import type { ChatCardRef } from "./ChatCard";
 import type { Preset, StartValues } from "./Generate";
+import type { Project } from "./App";
 
 // The chat page (FRG-23): talk with Claude about scenes and prompts. Text only.
 // Left: my conversations. Right: the messages and a box to type in.
@@ -40,7 +41,7 @@ type Message = {
   cards?: ChatCardRef[];
   images?: { id: string; path: string }[];
 };
-type ConversationSummary = { id: string; title: string; updatedAt: string };
+type ConversationSummary = { id: string; title: string; updatedAt: string; projectId?: string };
 type Conversation = ConversationSummary & { messages: Message[] };
 
 const NO_BACKEND = "Could not reach the backend. Make sure it is running, then try again.";
@@ -53,6 +54,11 @@ type ChatProps = {
   onPendingAttachmentUsed?: () => void;
   // "Send to -> Open in Generate" on a finished card (FRG-26).
   onOpenInGenerate: (values: StartValues) => void;
+  // The project chosen in the header (FRG-42): the list shows its chats, and new chats go into it.
+  // undefined while the projects load. null if they could not be loaded: then all chats are shown.
+  project: Project | null | undefined;
+  // A chat opened from a link is in another project: switch the picker to it.
+  onShowProject: (projectId: string | undefined) => void;
 };
 
 export default function Chat({
@@ -60,6 +66,8 @@ export default function Chat({
   pendingAttachment = null,
   onPendingAttachmentUsed,
   onOpenInGenerate,
+  project,
+  onShowProject,
 }: ChatProps) {
   const [setupError, setSetupError] = useState<string | null>(null);
   const [list, setList] = useState<ConversationSummary[]>([]);
@@ -79,15 +87,24 @@ export default function Chat({
   const endRef = useRef<HTMLDivElement>(null);
   // A chat that send() just made: its messages are already on screen, so do not load it again.
   const justCreatedRef = useRef<string | null>(null);
+  const projectId = project === undefined ? undefined : (project?.id ?? null);
+  // The project of the open chat (FRG-42). When another project is chosen, the chat closes.
+  const [openProjectId, setOpenProjectId] = useState<string | null>(null);
+  // The project of the list on screen, so a slow answer for the project before is ignored.
+  const listProjectRef = useRef(projectId);
 
   function open(id: string | null) {
     window.location.hash = id ? `#/chat/${id}` : "#/chat";
   }
 
   async function loadList() {
+    const forProject = listProjectRef.current;
+    if (forProject === undefined) return; // Wait for the projects.
     try {
-      const response = await fetch("/api/chat/conversations");
+      const filter = forProject ? `?projectId=${encodeURIComponent(forProject)}` : "";
+      const response = await fetch(`/api/chat/conversations${filter}`);
       const body = await response.json().catch(() => null);
+      if (forProject !== listProjectRef.current) return;
       if (!body) setListError(NO_BACKEND);
       else if (!response.ok) setListError(body.error ?? "Could not load your conversations.");
       else {
@@ -109,8 +126,17 @@ export default function Chat({
       .then((response) => response.json())
       .then((body) => setPresets(body.presets ?? []))
       .catch(() => {});
-    loadList();
   }, []);
+
+  // My chats in the current project: when the page opens, and again when the project changes (FRG-42).
+  useEffect(() => {
+    listProjectRef.current = projectId;
+    if (projectId === undefined) return;
+    setList([]);
+    loadList();
+    // Another project was chosen while a chat of the project before is open: close that chat.
+    if (projectId && openProjectId && openProjectId !== projectId) open(null);
+  }, [projectId]);
 
   // Open the conversation from the address.
   useEffect(() => {
@@ -121,6 +147,7 @@ export default function Chat({
     stopRef.current?.abort(); // Another chat was opened: stop the reply that is still coming in.
     setMessages([]);
     setError(null);
+    setOpenProjectId(null);
     if (!conversationId) return;
     async function loadConversation() {
       try {
@@ -128,7 +155,12 @@ export default function Chat({
         const body = await response.json().catch(() => null);
         if (!body) setError(NO_BACKEND);
         else if (!response.ok) setError(body.error ?? "Could not open this conversation.");
-        else setMessages((body as Conversation).messages);
+        else {
+          setMessages((body as Conversation).messages);
+          // A chat of another project (for example from a link): switch the picker to it (FRG-42).
+          setOpenProjectId((body as Conversation).projectId ?? null);
+          onShowProject((body as Conversation).projectId);
+        }
       } catch {
         setError(NO_BACKEND);
       }
@@ -220,11 +252,17 @@ export default function Chat({
   async function newChat(): Promise<string | null> {
     setError(null);
     try {
-      const response = await fetch("/api/chat/conversations", { method: "POST" });
+      // A new chat goes into the current project (FRG-42).
+      const response = await fetch("/api/chat/conversations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(project ? { projectId: project.id } : {}),
+      });
       const body = await response.json().catch(() => null);
       if (!body) setError(NO_BACKEND);
       else if (!response.ok) setError(body.error ?? "Could not start a new chat.");
       else {
+        setOpenProjectId(body.projectId ?? null);
         await loadList();
         open(body.id);
         return body.id;
@@ -371,7 +409,9 @@ export default function Chat({
           <SparklesIcon size={18} /> New chat
         </button>
         {listError && <p className="message error">{listError}</p>}
-        {list.length === 0 && !listError && <p className="board-hint">No chats yet.</p>}
+        {list.length === 0 && !listError && (
+          <p className="board-hint">{project ? `No chats in the project "${project.name}" yet.` : "No chats yet."}</p>
+        )}
         {list.map((conversation) => (
           <div key={conversation.id} className={`chat-item ${conversation.id === conversationId ? "active" : ""}`}>
             <a href={`#/chat/${conversation.id}`} title={conversation.title}>

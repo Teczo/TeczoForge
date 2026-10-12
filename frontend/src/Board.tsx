@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { DragEvent, FormEvent } from "react";
 import Media, { outputKind } from "./Media";
 import SendToMenu from "./SendToMenu";
@@ -6,6 +6,7 @@ import { defaultValues, Field, ImageBox, ProgressView, startFormValues, toInputs
 import PresetBadges, { confirmResearchOnly } from "./PresetBadges";
 import type { FormValues, Preset, Progress, StartValues } from "./Generate";
 import { CloseIcon, PlayIcon, SparklesIcon } from "./Icons";
+import type { Project } from "./App";
 
 // The board (FRG-22): cards are prompts that are saved but not run yet.
 // Idea and Ready are moved by the user. Generating and Done follow the job status.
@@ -48,8 +49,15 @@ function columnOf(card: Card): ColumnId {
 // The add, edit and copy form. The chat uses it too, to edit a card Claude made (FRG-24).
 export type FormState = { cardId: string | null; presetId: string; title: string; values: FormValues };
 
-// onOpenInGenerate: "Send to -> Open in Generate" on a Done card (FRG-26).
-export default function Board({ onOpenInGenerate }: { onOpenInGenerate: (values: StartValues) => void }) {
+type BoardProps = {
+  // "Send to -> Open in Generate" on a Done card (FRG-26).
+  onOpenInGenerate: (values: StartValues) => void;
+  // The project chosen in the header (FRG-42): the board shows its cards, and new cards go into it.
+  // undefined while the projects load. null if they could not be loaded: then all cards are shown.
+  project: Project | null | undefined;
+};
+
+export default function Board({ onOpenInGenerate, project }: BoardProps) {
   const [presets, setPresets] = useState<Preset[]>([]);
   const [cards, setCards] = useState<Card[] | null>(null);
   const [boardError, setBoardError] = useState<string | null>(null);
@@ -57,11 +65,18 @@ export default function Board({ onOpenInGenerate }: { onOpenInGenerate: (values:
   const [form, setForm] = useState<FormState | null>(null);
   const [busy, setBusy] = useState(false);
   const [dragging, setDragging] = useState<string | null>(null);
+  const projectId = project === undefined ? undefined : (project?.id ?? null);
+  // The project of the board on screen, so a slow answer for the project before is ignored.
+  const boardProjectRef = useRef(projectId);
 
   async function loadBoard() {
+    const forProject = boardProjectRef.current;
+    if (forProject === undefined) return; // Wait for the projects.
     try {
-      const response = await fetch("/api/board");
+      const filter = forProject ? `?projectId=${encodeURIComponent(forProject)}` : "";
+      const response = await fetch(`/api/board${filter}`);
       const body = await response.json().catch(() => null);
+      if (forProject !== boardProjectRef.current) return;
       if (!body) setBoardError("Could not reach the backend. Make sure it is running, then refresh the page.");
       else if (!response.ok) setBoardError(body.error ?? "Could not load the board.");
       else {
@@ -73,16 +88,24 @@ export default function Board({ onOpenInGenerate }: { onOpenInGenerate: (values:
     }
   }
 
-  // Load the presets once, and the board now and every 1.5 seconds.
+  // Load the presets once.
   useEffect(() => {
     fetch("/api/presets")
       .then((response) => response.json())
       .then((body) => setPresets(body.presets ?? []))
       .catch(() => {});
+  }, []);
+
+  // Load the board now and every 1.5 seconds. Start again when the project changes (FRG-42).
+  useEffect(() => {
+    boardProjectRef.current = projectId;
+    if (projectId === undefined) return;
+    setCards(null);
+    setForm(null);
     loadBoard();
     const timer = setInterval(loadBoard, REFRESH_MS);
     return () => clearInterval(timer);
-  }, []);
+  }, [projectId]);
 
   // Send one change to the backend. Returns true if it worked. The board reloads after it.
   async function send(url: string, init: RequestInit): Promise<boolean> {
@@ -267,6 +290,7 @@ export default function Board({ onOpenInGenerate }: { onOpenInGenerate: (values:
         <CardForm
           presets={presets}
           state={form}
+          projectId={project?.id}
           onClose={() => setForm(null)}
           onSaved={(text) => {
             setForm(null);
@@ -363,12 +387,13 @@ function CardView(props: CardViewProps) {
 type CardFormProps = {
   presets: Preset[];
   state: FormState;
+  projectId?: string; // A new card goes into this project (FRG-42). Missing: "Unsorted".
   onClose: () => void;
   onSaved: (message: string) => void;
 };
 
 // Add a card, edit one, or copy a finished one. The backend checks the values like a real job.
-export function CardForm({ presets, state, onClose, onSaved }: CardFormProps) {
+export function CardForm({ presets, state, projectId, onClose, onSaved }: CardFormProps) {
   const [presetId, setPresetId] = useState(state.presetId);
   const [title, setTitle] = useState(state.title);
   const [values, setValues] = useState<FormValues>(state.values);
@@ -394,7 +419,7 @@ export function CardForm({ presets, state, onClose, onSaved }: CardFormProps) {
       const response = await fetch(editing ? `/api/drafts/${state.cardId}` : "/api/drafts", {
         method: editing ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(editing ? { title, inputs } : { presetId, title, inputs }),
+        body: JSON.stringify(editing ? { title, inputs } : { presetId, title, inputs, ...(projectId ? { projectId } : {}) }),
       });
       const body = await response.json().catch(() => null);
       if (!body) setError("Could not reach the backend. Make sure it is running, then try again.");
