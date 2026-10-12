@@ -1506,55 +1506,12 @@ a {
 
 /* ---------- Chat (FRG-23) ---------- */
 
+/* One column: the list of chats is in the sidebar (FRG-47). */
 .chat-page {
   display: grid;
-  grid-template-columns: 280px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 16px;
   height: calc(100vh - var(--header-h));
-}
-
-.chat-list {
-  padding: 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  overflow-y: auto;
-}
-
-.chat-list > .button {
-  margin-bottom: 8px;
-}
-
-.chat-item {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  border-radius: var(--radius-sm);
-}
-
-.chat-item a {
-  flex: 1;
-  min-width: 0;
-  padding: 8px 10px;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  color: var(--text-dim);
-}
-
-.chat-item.active,
-.chat-item:hover {
-  background: var(--panel-2);
-}
-
-.chat-item.active a {
-  color: var(--text);
-}
-
-.chat-item .icon-button {
-  width: 30px;
-  height: 30px;
-  opacity: 0.6;
 }
 
 .chat-main {
@@ -1819,9 +1776,6 @@ a {
   .chat-page {
     grid-template-columns: 1fr;
     height: auto;
-  }
-  .chat-list {
-    max-height: 220px;
   }
   .chat-main {
     height: 70vh;

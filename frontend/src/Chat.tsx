@@ -1,14 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import type { ClipboardEvent, DragEvent, FormEvent, KeyboardEvent, ReactNode } from "react";
-import { CloseIcon, FolderIcon, PaperclipIcon, PencilIcon, SparklesIcon } from "./Icons";
-import { MoveToProject } from "./ProjectDialogs";
+import { CloseIcon, PaperclipIcon } from "./Icons";
 import ChatCard from "./ChatCard";
 import type { ChatCardRef } from "./ChatCard";
 import type { Preset, StartValues } from "./Generate";
 import type { Project } from "./App";
+import type { ConversationSummary } from "./RecentChats";
 
 // The chat page (FRG-23): talk with Claude about scenes and prompts. Text only.
-// Left: my conversations. Right: the messages and a box to type in.
+// The messages and a box to type in. The list of chats is in the sidebar (RecentChats.tsx, FRG-47).
 // The reply streams in piece by piece (SSE, see backend/src/chat.ts). Stop ends it early.
 // Claude can make board cards (FRG-24). They show under its reply, with a Generate button.
 // Pictures can be attached (FRG-25): Attach button, paste, or drag and drop. Claude sees them, and
@@ -42,7 +42,6 @@ type Message = {
   cards?: ChatCardRef[];
   images?: { id: string; path: string }[];
 };
-type ConversationSummary = { id: string; title: string; updatedAt: string; projectId?: string };
 type Conversation = ConversationSummary & { messages: Message[] };
 
 const NO_BACKEND = "Could not reach the backend. Make sure it is running, then try again.";
@@ -55,10 +54,11 @@ type ChatProps = {
   onPendingAttachmentUsed?: () => void;
   // "Send to -> Open in Generate" on a finished card (FRG-26).
   onOpenInGenerate: (values: StartValues) => void;
-  // The project chosen in the header (FRG-42): the list shows its chats, and new chats go into it.
-  // undefined while the projects load. null if they could not be loaded: then all chats are shown.
+  // The project chosen in the sidebar (FRG-42): new chats go into it.
+  // undefined while the projects load. null if they could not be loaded.
   project: Project | null | undefined;
-  projects: Project[]; // For "Move to project" (FRG-43).
+  // The sidebar's chat list must load again: a chat was made by sending, or got its title (FRG-47).
+  onListChanged: () => void;
   // A chat opened from a link is in another project: switch the picker to it.
   onShowProject: (projectId: string | undefined) => void;
 };
@@ -69,15 +69,10 @@ export default function Chat({
   onPendingAttachmentUsed,
   onOpenInGenerate,
   project,
-  projects,
+  onListChanged,
   onShowProject,
 }: ChatProps) {
   const [setupError, setSetupError] = useState<string | null>(null);
-  const [list, setList] = useState<ConversationSummary[]>([]);
-  const [listError, setListError] = useState<string | null>(null);
-  // "Move to project" (FRG-43): the chat being moved, and a note when it worked.
-  const [moving, setMoving] = useState<ConversationSummary | null>(null);
-  const [moveNotice, setMoveNotice] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [text, setText] = useState("");
   const [streaming, setStreaming] = useState(false);
@@ -96,33 +91,12 @@ export default function Chat({
   const projectId = project === undefined ? undefined : (project?.id ?? null);
   // The project of the open chat (FRG-42). When another project is chosen, the chat closes.
   const [openProjectId, setOpenProjectId] = useState<string | null>(null);
-  // The project of the list on screen, so a slow answer for the project before is ignored.
-  const listProjectRef = useRef(projectId);
 
   function open(id: string | null) {
     window.location.hash = id ? `#/chat/${id}` : "#/chat";
   }
 
-  async function loadList() {
-    const forProject = listProjectRef.current;
-    if (forProject === undefined) return; // Wait for the projects.
-    try {
-      const filter = forProject ? `?projectId=${encodeURIComponent(forProject)}` : "";
-      const response = await fetch(`/api/chat/conversations${filter}`);
-      const body = await response.json().catch(() => null);
-      if (forProject !== listProjectRef.current) return;
-      if (!body) setListError(NO_BACKEND);
-      else if (!response.ok) setListError(body.error ?? "Could not load your conversations.");
-      else {
-        setList(body.conversations);
-        setListError(null);
-      }
-    } catch {
-      setListError(NO_BACKEND);
-    }
-  }
-
-  // Is chat set up? And my conversations. Once, when the page opens.
+  // Is chat set up? And the presets for the cards. Once, when the page opens.
   useEffect(() => {
     fetch("/api/chat/status")
       .then((response) => response.json())
@@ -134,13 +108,8 @@ export default function Chat({
       .catch(() => {});
   }, []);
 
-  // My chats in the current project: when the page opens, and again when the project changes (FRG-42).
+  // Another project was chosen while a chat of the project before is open: close that chat (FRG-42).
   useEffect(() => {
-    listProjectRef.current = projectId;
-    if (projectId === undefined) return;
-    setList([]);
-    loadList();
-    // Another project was chosen while a chat of the project before is open: close that chat.
     if (projectId && openProjectId && openProjectId !== projectId) open(null);
   }, [projectId]);
 
@@ -269,7 +238,7 @@ export default function Chat({
       else if (!response.ok) setError(body.error ?? "Could not start a new chat.");
       else {
         setOpenProjectId(body.projectId ?? null);
-        await loadList();
+        onListChanged();
         open(body.id);
         return body.id;
       }
@@ -277,48 +246,6 @@ export default function Chat({
       setError(NO_BACKEND);
     }
     return null;
-  }
-
-  async function rename(conversation: ConversationSummary) {
-    const title = window.prompt("New name for this chat:", conversation.title);
-    if (title === null || title.trim() === "" || title === conversation.title) return;
-    const response = await fetch(`/api/chat/conversations/${conversation.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title }),
-    }).catch(() => null);
-    const body = await response?.json().catch(() => null);
-    if (!response?.ok) setError(body?.error ?? NO_BACKEND);
-    loadList();
-  }
-
-  async function remove(conversation: ConversationSummary) {
-    if (!window.confirm(`Delete the chat "${conversation.title}"? This cannot be undone.`)) return;
-    const response = await fetch(`/api/chat/conversations/${conversation.id}`, { method: "DELETE" }).catch(() => null);
-    const body = await response?.json().catch(() => null);
-    if (!response?.ok) setError(body?.error ?? NO_BACKEND);
-    else if (conversation.id === conversationId) open(null);
-    loadList();
-  }
-
-  // Move a chat to another project (FRG-43). It leaves this project's list. If it was open, it closes.
-  async function moveTo(conversation: ConversationSummary, target: Project): Promise<string | null> {
-    try {
-      const response = await fetch(`/api/chat/conversations/${conversation.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ projectId: target.id }),
-      });
-      const body = await response.json().catch(() => null);
-      if (!body) return NO_BACKEND;
-      if (!response.ok) return body.error ?? "Could not move this chat.";
-      setMoveNotice(`"${conversation.title}" moved to the project "${target.name}".`);
-      if (conversation.id === conversationId && projectId && target.id !== projectId) open(null);
-      loadList();
-      return null;
-    } catch {
-      return NO_BACKEND;
-    }
   }
 
   // Send the message, then read the reply as it streams in.
@@ -414,7 +341,7 @@ export default function Chat({
       setReplyCards([]);
       setStreaming(false);
       stopRef.current = null;
-      loadList(); // The title and the order may have changed.
+      onListChanged(); // The title and the order may have changed.
     }
   }
 
@@ -430,49 +357,6 @@ export default function Chat({
 
   return (
     <main className="page chat-page">
-      <aside className="chat-list panel">
-        <button className="button primary" onClick={() => newChat()} disabled={streaming}>
-          <SparklesIcon size={18} /> New chat
-        </button>
-        {listError && <p className="message error">{listError}</p>}
-        {moveNotice && <p className="message info">{moveNotice}</p>}
-        {list.length === 0 && !listError && (
-          <p className="board-hint">{project ? `No chats in the project "${project.name}" yet.` : "No chats yet."}</p>
-        )}
-        {list.map((conversation) => (
-          <div key={conversation.id} className={`chat-item ${conversation.id === conversationId ? "active" : ""}`}>
-            <a href={`#/chat/${conversation.id}`} title={conversation.title}>
-              {conversation.title}
-            </a>
-            <button className="icon-button" onClick={() => rename(conversation)} title="Rename" disabled={streaming}>
-              <PencilIcon size={15} />
-            </button>
-            {projects.length > 0 && (
-              <button
-                className="icon-button"
-                onClick={() => setMoving(conversation)}
-                title="Move to project..."
-                disabled={streaming}
-              >
-                <FolderIcon size={15} />
-              </button>
-            )}
-            <button className="icon-button" onClick={() => remove(conversation)} title="Delete" disabled={streaming}>
-              <CloseIcon size={15} />
-            </button>
-          </div>
-        ))}
-      </aside>
-      {moving && (
-        <MoveToProject
-          what={`the chat "${moving.title}"`}
-          projects={projects}
-          currentProjectId={moving.projectId}
-          onMove={(target) => moveTo(moving, target)}
-          onClose={() => setMoving(null)}
-        />
-      )}
-
       <section
         className={`chat-main panel ${dragOver ? "drop-target" : ""}`}
         onDragOver={(event) => {
