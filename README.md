@@ -78,7 +78,7 @@ Backend (Express, 127.0.0.1:4000) ──► ComfyUI (127.0.0.1:8188)   HTTP + on
 | `chatImages.ts` | Pictures in chat (FRG-25). Checks each picture against the Claude API limits (PNG/JPEG/WebP, at most 10 MB base64, at most 8000 x 8000 px, at most 20 per message) before any API call. Sends at most the newest 20 pictures and 24 MB of pictures per request; older ones are named in the text. |
 | `inputs.ts` | Start images (FRG-25). Keeps every upload in `data/inputs`, reads image type and size from the first bytes, and before a job is queued uploads a start image again if ComfyUI's input folder lost it. |
 | `sendTo.ts` | "Send to" (FRG-26). Copies a finished picture into `data/inputs` and ComfyUI's input folder, then fills the Generate form or makes a Ready card for any preset with an image input. Saves `sourceJobId`. Also lists the jobs made from a job ("Used in"). |
-| `presets.ts` | List and load presets, check the optional v2 fields (FRG-32), check user inputs (text / seed / number / image, with `min` / `max` / `step` / `options`), put values into the workflow |
+| `presets.ts` | List and load presets, check the optional v2 fields (FRG-32), check user inputs (text / seed / number / image, with `min` / `max` / `step` / `options`), put values into the workflow. Known preset types: image, video, audio (Music), 3d, edit, upscale; another type loads with a warning and shows under Other (FRG-30) |
 | `comfyui.ts` | ComfyUI client: queue, history polling, upload, view, error parsing. Reads every list in the output node (`images`, `audio`, `gifs`, `3d`, ...): any item with `filename`, `subfolder` and `type` is a file (FRG-29) |
 | `outputKinds.ts` | Accepted output file endings, each with a kind (`image`, `video`, `audio`, `3d`) and a content type. Picks the one file a job keeps (an audio or 3d preset prefers a non-picture file). An unknown ending fails the job with a message that names it (FRG-29) |
 | `progress.ts` | One WebSocket to ComfyUI (fixed client id, so it also works after a restart). Step x of y per ComfyUI prompt id |
@@ -131,7 +131,7 @@ Backend (Express, 127.0.0.1:4000) ──► ComfyUI (127.0.0.1:8188)   HTTP + on
 - `Board.tsx`: four columns (Idea, Ready, Generating, Done). Add / Edit / Delete / Generate on each card, drag and drop between Idea and Ready, **Generate all Ready**, progress on generating cards, Open and Copy as new card on done cards.
 - `Chat.tsx`: conversation list (New chat, rename, delete) and the messages with an input box. The reply shows while it streams; **Stop** ends it and keeps the text so far. Simple markdown (paragraphs, lists, bold, code) without a package. Pictures: **Attach** button, paste, or drag and drop; shown as thumbnails.
 - `ChatCard.tsx`: a card Claude made, inside the chat: title, preset, prompt, **Generate** (runs the draft, like the board), **Edit**, **Open board**. Shows progress while it runs and the image or video when done.
-- `Media.tsx`: `outputKind(job)` (one helper for every page) and `<Media>`: `<img>` for pictures, `<video>` for videos, and for audio and 3d a simple tile with an icon, the file name and Download (players come later). Send to and Use in chat are only for pictures.
+- `Media.tsx`: `outputKind(job)` (one helper for every page) and `<Media>`: `<img>` for pictures, `<video>` for videos, for audio the browser player (play, seek, volume, no autoplay) with file name, length and Download, or in grids a tile with a music icon and a small play button (FRG-30), and for 3d a simple tile with an icon, the file name and Download (viewer comes later). Only one sound plays at a time. Send to and Use in chat are only for pictures.
 - `Icons.tsx`, `Logo.tsx`, `Login.tsx`, `styles.css`: dark theme, inline SVG icons, no UI library.
 
 ---
@@ -228,6 +228,7 @@ Severity: 🔴 fix soon · 🟠 important before team or remote use · 🟡 impr
 | Where | Item | What it needs |
 |---|---|---|
 | Sidebar → Create | **Video** (text to video) | A preset with `"type": "video"` and no image input. Could be Wan 2.2 T2V. |
+| Sidebar → Create | **Music** | A preset with `"type": "audio"` (FRG-31). Audio results already play everywhere (FRG-30). |
 | Sidebar → Create | **3D** | A preset with `"type": "3d"` (for example Hunyuan3D / TRELLIS) and a 3D viewer for `.glb` files |
 | Sidebar → Create | **Edit / Inpaint** | A preset with `"type": "edit"` and a mask input (new input kind `mask` + a brush canvas) |
 | Sidebar → Create | **Upscale** | A preset with `"type": "upscale"` (for example an ESRGAN model or a tiled diffusion upscale) |
