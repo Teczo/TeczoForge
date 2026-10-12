@@ -23,7 +23,8 @@
   --gradient: linear-gradient(90deg, #1e9bff 0%, #14d1c6 55%, #6af07a 100%);
   --radius: 14px;
   --radius-sm: 10px;
-  --header-h: 72px;
+  /* Height of the status bar at the top of the main area (FRG-46). Pages use it for their sticky parts. */
+  --header-h: 56px;
   color-scheme: dark;
 }
 
@@ -67,21 +68,7 @@ a {
   outline-offset: 2px;
 }
 
-/* ---------- Header ---------- */
-
-.header {
-  position: sticky;
-  top: 0;
-  z-index: 20;
-  height: var(--header-h);
-  display: flex;
-  align-items: center;
-  gap: 24px;
-  padding: 0 24px;
-  background: rgba(6, 11, 17, 0.92);
-  backdrop-filter: blur(8px);
-  border-bottom: 1px solid var(--border);
-}
+/* ---------- Logo (sidebar and login page) ---------- */
 
 .logo {
   display: flex;
@@ -119,160 +106,6 @@ a {
 
 .logo-word-2 {
   color: var(--text);
-}
-
-.nav {
-  display: flex;
-  gap: 8px;
-  margin: 0 auto;
-  height: 100%;
-}
-
-.nav a {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 0 22px;
-  color: var(--text-dim);
-  border-bottom: 2px solid transparent;
-  font-weight: 500;
-}
-
-.nav a:hover {
-  color: var(--text);
-}
-
-.nav a.active {
-  color: var(--text);
-  border-bottom-color: var(--accent);
-  background: linear-gradient(180deg, transparent 40%, rgba(25, 211, 197, 0.09));
-}
-
-.nav a.active svg {
-  color: var(--accent);
-}
-
-/* The current project, next to the nav (FRG-41). Long names are cut with "...". */
-.project-picker {
-  flex: 0 1 220px;
-  min-width: 140px;
-}
-
-.project-picker .select {
-  width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.project-offline {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 14px;
-  color: var(--text-faint);
-  white-space: nowrap;
-}
-
-.status-list {
-  display: flex;
-  gap: 22px;
-  white-space: nowrap;
-}
-
-.status {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 14px;
-  font-weight: 500;
-}
-
-.status-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: var(--text-faint);
-}
-
-.status-online .status-dot {
-  background: var(--green);
-  box-shadow: 0 0 8px var(--green);
-}
-.status-online .status-word {
-  color: var(--green);
-}
-.status-offline .status-dot {
-  background: var(--red);
-  box-shadow: 0 0 8px var(--red);
-}
-.status-offline .status-word {
-  color: var(--red);
-}
-.status-checking .status-word,
-.status-unknown .status-word {
-  color: var(--text-faint);
-}
-
-.user-menu {
-  position: relative;
-  padding-left: 22px;
-  border-left: 1px solid var(--border);
-}
-
-.user-button {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  background: none;
-  border: none;
-  padding: 4px;
-  font-weight: 500;
-}
-
-.avatar {
-  width: 38px;
-  height: 38px;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  background: linear-gradient(135deg, #22a6f0, #19d3c5);
-  color: #fff;
-  font-weight: 600;
-}
-
-.user-dropdown {
-  position: absolute;
-  right: 0;
-  top: calc(100% + 10px);
-  min-width: 200px;
-  background: var(--panel-2);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-sm);
-  padding: 6px;
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
-}
-
-.user-dropdown p {
-  margin: 6px 10px 8px;
-  font-size: 13px;
-  color: var(--text-dim);
-}
-
-.user-dropdown button {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  padding: 9px 10px;
-  border: none;
-  border-radius: 8px;
-  background: none;
-  text-align: left;
-}
-
-.user-dropdown button:hover {
-  background: var(--accent-soft);
 }
 
 /* ---------- Page layout ---------- */
@@ -1980,19 +1813,6 @@ a {
     grid-column: 2;
     position: static;
   }
-  .status-list {
-    display: none;
-  }
-  /* Room for the project picker (FRG-41). */
-  .header {
-    gap: 16px;
-  }
-  .nav {
-    gap: 2px;
-  }
-  .nav a {
-    padding: 0 10px;
-  }
 }
 
 @media (max-width: 860px) {
@@ -2006,42 +1826,8 @@ a {
   .chat-main {
     height: 70vh;
   }
-  .header {
-    gap: 12px;
-    padding: 0 14px;
-  }
   .logo {
     font-size: 22px;
-  }
-  .nav {
-    gap: 0;
-  }
-  .nav a {
-    padding: 0 12px;
-  }
-  .nav a span {
-    display: none;
-  }
-  .user-button .user-name,
-  .user-button > svg {
-    display: none;
-  }
-  .user-menu {
-    padding-left: 0;
-    border-left: none;
-  }
-  .project-picker {
-    flex-basis: 150px;
-    min-width: 110px;
-  }
-  .project-picker .select {
-    padding: 0 30px 0 34px;
-  }
-  .project-picker > svg:first-child {
-    left: 10px;
-  }
-  .project-picker > svg:last-child {
-    right: 8px;
   }
   .logo {
     gap: 6px;
@@ -2086,21 +1872,6 @@ a {
   }
   .page {
     padding: 16px;
-  }
-}
-
-/* Phones: the project picker gets its own row under the header, so its name stays readable (FRG-41). */
-@media (max-width: 600px) {
-  .header {
-    height: auto;
-    min-height: var(--header-h);
-    flex-wrap: wrap;
-    row-gap: 0;
-    padding-bottom: 10px;
-  }
-  .project-picker {
-    order: 10;
-    flex-basis: 100%;
   }
 }
 
