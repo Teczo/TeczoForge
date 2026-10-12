@@ -3,6 +3,7 @@ import type { Preset, StartValues } from "./Generate";
 import PresetBadges from "./PresetBadges";
 import type { Attachment } from "./Chat";
 import type { Project } from "./App";
+import { MoveToProject } from "./ProjectDialogs";
 import Media, { outputKind } from "./Media";
 import SendToMenu from "./SendToMenu";
 import { ArrowLeftIcon, ArrowRightIcon, ChatIcon, DownloadIcon, FolderIcon, PlayIcon, RepeatIcon } from "./Icons";
@@ -51,13 +52,15 @@ type GalleryProps = {
   // The project chosen in the header (FRG-41): only its jobs are shown.
   // undefined while the projects load. null if they could not be loaded: then all jobs are shown.
   project: Project | null | undefined;
+  projects: Project[]; // For "Move to project" (FRG-43).
   // A job opened from a link is in another project: switch the picker to it (FRG-42).
   onShowProject: (projectId: string | undefined) => void;
 };
 
-export default function Gallery({ onUseAgain, onUseInChat, openJobId = null, project, onShowProject }: GalleryProps) {
+export default function Gallery({ onUseAgain, onUseInChat, openJobId = null, project, projects, onShowProject }: GalleryProps) {
   const [jobs, setJobs] = useState<Job[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null); // For example "Moved to Client X." (FRG-43)
   const [selected, setSelected] = useState<Job | null>(null);
   const projectId = project === undefined ? undefined : (project?.id ?? null);
 
@@ -71,6 +74,7 @@ export default function Gallery({ onUseAgain, onUseInChat, openJobId = null, pro
     let stale = false;
     setJobs(null);
     setError(null);
+    setNotice(null);
     async function loadJobs() {
       try {
         const filter = projectId ? `&projectId=${encodeURIComponent(projectId)}` : "";
@@ -116,6 +120,13 @@ export default function Gallery({ onUseAgain, onUseInChat, openJobId = null, pro
     loadOneJob();
   }, [openJobId]);
 
+  // "Move to project" worked (FRG-43): the job leaves this project's grid, and the grid shows again.
+  function handleMoved(moved: Job, target: Project) {
+    setJobs((current) => current?.filter((job) => job.id !== moved.id || !projectId || target.id === projectId) ?? null);
+    setNotice(`Moved to the project "${target.name}".`);
+    closeDetail();
+  }
+
   // Back to the grid. A job opened from a link also goes back to the plain #/gallery address.
   function closeDetail() {
     setSelected(null);
@@ -133,6 +144,8 @@ export default function Gallery({ onUseAgain, onUseInChat, openJobId = null, pro
         onUseAgain={() => onUseAgain({ presetId: selected.presetId, inputs: selected.inputs })}
         onUseInChat={onUseInChat}
         onSendToGenerate={onUseAgain}
+        projects={projects}
+        onMoved={handleMoved}
       />
     );
   } else if (jobs.length === 0) {
@@ -178,7 +191,12 @@ export default function Gallery({ onUseAgain, onUseInChat, openJobId = null, pro
     );
   }
 
-  return <main className="page">{content}</main>;
+  return (
+    <main className="page">
+      {notice && !selected && <p className="message info">{notice}</p>}
+      {content}
+    </main>
+  );
 }
 
 // The large image or video with its prompt and settings.
@@ -188,10 +206,31 @@ type DetailProps = {
   onUseAgain: () => void;
   onUseInChat: (a: Attachment) => void;
   onSendToGenerate: (values: StartValues) => void; // "Send to -> Open in Generate" (FRG-26).
+  projects: Project[];
+  onMoved: (job: Job, project: Project) => void; // "Move to project" worked (FRG-43).
 };
-function Detail({ job, onBack, onUseAgain, onUseInChat, onSendToGenerate }: DetailProps) {
+function Detail({ job, onBack, onUseAgain, onUseInChat, onSendToGenerate, projects, onMoved }: DetailProps) {
   const { prompt, seed, width, height } = job.inputs;
   const [chatError, setChatError] = useState<string | null>(null);
+  const [moving, setMoving] = useState(false);
+
+  // "Move to project" (FRG-43): only this job's project changes. Its file stays where it is.
+  async function moveTo(project: Project): Promise<string | null> {
+    try {
+      const response = await fetch(`/api/jobs/${job.id}/project`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId: project.id }),
+      });
+      const body = await response.json().catch(() => null);
+      if (!body) return "Could not reach the backend. Make sure it is running, then try again.";
+      if (!response.ok) return body.error ?? "Could not move this job.";
+      onMoved(job, project);
+      return null;
+    } catch {
+      return "Could not reach the backend. Make sure it is running, then try again.";
+    }
+  }
   const [usedIn, setUsedIn] = useState<UsedIn[]>([]);
   // The job's preset, for its name and licence badge (FRG-32). Missing if the folder is gone.
   const [preset, setPreset] = useState<Preset | null>(null);
@@ -334,8 +373,23 @@ function Detail({ job, onBack, onUseAgain, onUseInChat, onSendToGenerate }: Deta
             <a className="button" href={job.imageUrl!} download>
               <DownloadIcon size={18} /> Download
             </a>
+            {/* Jobs from before FRG-20 have no id, so they cannot be moved. */}
+            {job.id && projects.length > 0 && (
+              <button className="button" onClick={() => setMoving(true)}>
+                <FolderIcon size={18} /> Move to project...
+              </button>
+            )}
           </div>
           {chatError && <p className="message error">{chatError}</p>}
+          {moving && (
+            <MoveToProject
+              what="this job"
+              projects={projects}
+              currentProjectId={job.projectId}
+              onMove={moveTo}
+              onClose={() => setMoving(false)}
+            />
+          )}
         </div>
       </div>
     </>

@@ -7,6 +7,7 @@ import Chat from "./Chat";
 import type { Attachment } from "./Chat";
 import Login from "./Login";
 import Logo from "./Logo";
+import { ManageProjects } from "./ProjectDialogs";
 import { ChatIcon, ChevronDownIcon, FolderIcon, ImageIcon, LayersIcon, LogoutIcon, SparklesIcon } from "./Icons";
 
 // Which page to show comes from the address: #/board, #/chat (or #/chat/<conversation id>),
@@ -77,6 +78,8 @@ export default function App() {
   // and null if the projects could not be loaded (MongoDB offline): then pages work without a project.
   const [projects, setProjects] = useState<Project[]>([]);
   const [project, setProject] = useState<Project | null | undefined>(undefined);
+  // "Manage projects" is open (FRG-43).
+  const [managing, setManaging] = useState(false);
   // A project asked for by a link before the projects were loaded (FRG-42). It wins over the remembered one.
   const wantedProjectRef = useRef<string | null>(null);
   // Set by "Use again" in the gallery: the preset and values to fill into the Generate page.
@@ -207,6 +210,21 @@ export default function App() {
     if (found && found.id !== project?.id) chooseProject(found);
   }
 
+  // A project was renamed or archived in "Manage projects" (FRG-43): load the list again.
+  // The current project keeps its new name. If it was archived, "Unsorted" is chosen.
+  async function reloadProjects() {
+    try {
+      const response = await fetch("/api/projects");
+      if (!response.ok) return;
+      const list: Project[] = (await response.json()).projects;
+      setProjects(list);
+      const current = list.find((p) => p.id === project?.id) ?? list.find((p) => p.name === UNSORTED_NAME);
+      if (current) chooseProject(current);
+    } catch {
+      // The backend is not answering. The picker keeps the list it has.
+    }
+  }
+
   // "+ New project": add it to the list (sorted by name, like the backend) and choose it.
   function addProject(created: Project) {
     setProjects((list) => [...list, created].sort((a, b) => a.name.localeCompare(b.name, "en", { sensitivity: "base" })));
@@ -238,7 +256,13 @@ export default function App() {
             <ChatIcon size={22} /> <span>Chat</span>
           </a>
         </nav>
-        <ProjectPicker projects={projects} project={project} onChoose={chooseProject} onCreated={addProject} />
+        <ProjectPicker
+          projects={projects}
+          project={project}
+          onChoose={chooseProject}
+          onCreated={addProject}
+          onManage={() => setManaging(true)}
+        />
         <div className="status-list">
           <StatusLine label="Backend" status={backend} />
           <StatusLine label="ComfyUI" status={comfyui} />
@@ -254,6 +278,7 @@ export default function App() {
           onPendingAttachmentUsed={() => setChatAttachment(null)}
           onOpenInGenerate={handleUseAgain}
           project={project}
+          projects={projects}
           onShowProject={showProjectOf}
         />
       ) : page === "gallery" ? (
@@ -262,11 +287,13 @@ export default function App() {
           onUseInChat={handleUseInChat}
           openJobId={openJobId}
           project={project}
+          projects={projects}
           onShowProject={showProjectOf}
         />
       ) : (
         <Generate startValues={useAgain} onStartValuesUsed={() => setUseAgain(null)} project={project} />
       )}
+      {managing && <ManageProjects onClose={() => setManaging(false)} onChanged={reloadProjects} />}
     </>
   );
 }
@@ -291,17 +318,19 @@ function StatusLine({ label, status }: { label: string; status: Status }) {
 
 // Value of the last item in the picker. Not a project id, so it can never clash with one.
 const NEW_PROJECT = "new";
+const MANAGE_PROJECTS = "manage";
 
 type ProjectPickerProps = {
   projects: Project[];
   project: Project | null | undefined;
   onChoose: (project: Project) => void;
   onCreated: (project: Project) => void;
+  onManage: () => void; // "Manage projects..." (FRG-43).
 };
 
 // The current project, in the header (FRG-41). New files go into it, and the gallery shows only its files.
 // The last item, "+ New project", asks for a name and makes the project.
-function ProjectPicker({ projects, project, onChoose, onCreated }: ProjectPickerProps) {
+function ProjectPicker({ projects, project, onChoose, onCreated, onManage }: ProjectPickerProps) {
   const [creating, setCreating] = useState(false);
 
   async function createProject() {
@@ -328,6 +357,10 @@ function ProjectPicker({ projects, project, onChoose, onCreated }: ProjectPicker
   function onChange(value: string) {
     if (value === NEW_PROJECT) {
       createProject();
+      return;
+    }
+    if (value === MANAGE_PROJECTS) {
+      onManage();
       return;
     }
     const chosen = projects.find((p) => p.id === value);
@@ -359,6 +392,7 @@ function ProjectPicker({ projects, project, onChoose, onCreated }: ProjectPicker
           </option>
         ))}
         {project !== undefined && <option value={NEW_PROJECT}>+ New project</option>}
+        {project !== undefined && <option value={MANAGE_PROJECTS}>Manage projects...</option>}
       </select>
       <ChevronDownIcon size={18} />
     </label>

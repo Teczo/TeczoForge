@@ -103,6 +103,7 @@ Backend (Express, 127.0.0.1:4000) ──► ComfyUI (127.0.0.1:8188)   HTTP + on
 | POST | `/api/jobs` | yes | Start a job from a preset. Answers at once with `{ jobId }` (+ `warning` if MongoDB is offline). Optional `projectId` (default "Unsorted"; unknown or archived answers 400). With `sourceJobId` the job goes into the source job's project (FRG-40) |
 | POST | `/api/send-to` | yes | `{ jobId, presetId, target: "generate" \| "board" }`. `generate` answers `{ presetId, inputs, sourceJobId }` for the form; `board` makes a Ready card (prompt still to write) and answers `{ card }`. Pictures only |
 | GET | `/api/jobs/:id/used-in` | yes | Jobs and cards made from this job with "Send to" |
+| PATCH | `/api/jobs/:id/project` | yes | Move one job or card to another project: `{ projectId }`. Only `projectId` changes; files stay where they are. Unknown or archived project answers 400 (FRG-43) |
 | POST | `/api/jobs/:id/cancel` | yes | Cancel a waiting or running job (removed from ComfyUI's queue, or stopped). Only who started it. A finished job answers 409 |
 | GET | `/api/jobs/:id` | yes | One job: `status` (queued / running / done / failed), `progress` (waiting: jobs ahead / running: step x of y / finishing), `imageUrl` (the finished file, of any kind), `outputKind` (image / video / audio / 3d; worked out from the file ending for older jobs), `outputFile`, `error` |
 | GET | `/api/board` | yes | Board cards: all drafts, all waiting / running jobs (with `progress`), and the newest 30 finished jobs that started as a card. `?projectId=<id>`: only that project's cards (FRG-42) |
@@ -110,14 +111,14 @@ Backend (Express, 127.0.0.1:4000) ──► ComfyUI (127.0.0.1:8188)   HTTP + on
 | PATCH | `/api/drafts/:id` | yes | Change `title`, `inputs` or `column`. Only while it is a draft, and only by who made it (others get 403) |
 | DELETE | `/api/drafts/:id` | yes | Delete a card. Only while it is a draft, and only by who made it (others get 403) |
 | POST | `/api/drafts/:id/run` | yes | Check the inputs again, then queue the card like `/api/jobs`. Answers `{ jobId }` |
-| GET | `/api/projects` | yes | Projects that are not archived, sorted by name. "Unsorted" is always there |
+| GET | `/api/projects` | yes | Projects that are not archived, sorted by name. "Unsorted" is always there. `?counts=1` adds `jobCount` (jobs, not counting cards that have not run) (FRG-43) |
 | POST | `/api/projects` | yes | New project: `{ name }`. Empty, longer than 60 characters, or already used (any capital letters, also archived ones) answers 400 |
 | PATCH | `/api/projects/:id` | yes | Rename or archive: `{ name?, archived? }`. "Unsorted" answers 400 |
 | GET | `/api/chat/status` | yes | `{ ready: true }`, or `{ ready: false, error: "Chat is not set up..." }` |
 | GET | `/api/chat/conversations` | yes | My conversations (id, title, projectId, dates), newest first. `?projectId=<id>`: only that project's (FRG-42) |
 | POST | `/api/chat/conversations` | yes | New conversation. Optional `title` (default "New chat"; the first message becomes the title) and `projectId` (default "Unsorted"; unknown or archived answers 400) |
 | GET | `/api/chat/conversations/:id` | yes | One of my conversations with its messages. Someone else's answers 404 |
-| PATCH | `/api/chat/conversations/:id` | yes | Rename: `{ title }` |
+| PATCH | `/api/chat/conversations/:id` | yes | Rename: `{ title }`, and/or move to another project: `{ projectId }` (unknown or archived answers 400, FRG-43) |
 | DELETE | `/api/chat/conversations/:id` | yes | Delete one of my conversations |
 | POST | `/api/chat/:conversationId/messages` | yes | `{ text, images }` (max 8,000 characters; `images` are picture ids from `/api/upload`, checked against the Claude limits). Streams the reply as SSE: `text` events, `card` events (a board card Claude made), then `done` (the saved reply with token counts and cards) or `error` |
 | GET | `/api/jobs` | yes | Job history, newest first. `?limit=` (default 50, max 200), `?before=<createdAt>` (next page), `?status=done` or `?status=active` (queued + running), `?mine=1` (only my jobs), `?projectId=<id>` (only jobs in this project) |
@@ -132,6 +133,7 @@ Backend (Express, 127.0.0.1:4000) ──► ComfyUI (127.0.0.1:8188)   HTTP + on
   download, full screen, strip of the 10 latest results).
 - `Gallery.tsx`: grid of finished jobs → detail view (prompt, maker, preset, seed, size, time) with **Use again** and **Download**. Jobs with a start image show **Start image → Result**. Pictures have **Use in chat** (attach to the last open chat) and **Send to**. Shows **Made from** (link to the start picture's job) and **Used in** (links).
 - `SendToMenu.tsx`: the **Send to** menu (FRG-26) on picture results: result panel, gallery detail, Done board cards and chat cards. One item per preset with an image input (`sendToLabel` or the name), each with **Open in Generate** and **Add to board**.
+- `ProjectDialogs.tsx`: **Manage projects** (from the picker: rename, archive, number of jobs; "Unsorted" cannot be changed) and **Move to project** (used by the gallery job view and the chat list) (FRG-43).
 - `Board.tsx`: four columns (Idea, Ready, Generating, Done). Add / Edit / Delete / Generate on each card, drag and drop between Idea and Ready, **Generate all Ready**, progress on generating cards, Open and Copy as new card on done cards. Shows only the chosen project's cards; new cards go into it (FRG-42).
 - `Chat.tsx`: conversation list (New chat, rename, delete) and the messages with an input box. The reply shows while it streams; **Stop** ends it and keeps the text so far. Simple markdown (paragraphs, lists, bold, code) without a package. Pictures: **Attach** button, paste, or drag and drop; shown as thumbnails. The list shows only the chosen project's chats; new chats go into it. A link to a chat or job of another project switches the picker to that project (FRG-42).
 - `ChatCard.tsx`: a card Claude made, inside the chat: title, preset, prompt, **Generate** (runs the draft, like the board), **Edit**, **Open board**. Shows progress while it runs and the image or video when done.

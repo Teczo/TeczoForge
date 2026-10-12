@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { ClipboardEvent, DragEvent, FormEvent, KeyboardEvent, ReactNode } from "react";
-import { CloseIcon, PaperclipIcon, PencilIcon, SparklesIcon } from "./Icons";
+import { CloseIcon, FolderIcon, PaperclipIcon, PencilIcon, SparklesIcon } from "./Icons";
+import { MoveToProject } from "./ProjectDialogs";
 import ChatCard from "./ChatCard";
 import type { ChatCardRef } from "./ChatCard";
 import type { Preset, StartValues } from "./Generate";
@@ -57,6 +58,7 @@ type ChatProps = {
   // The project chosen in the header (FRG-42): the list shows its chats, and new chats go into it.
   // undefined while the projects load. null if they could not be loaded: then all chats are shown.
   project: Project | null | undefined;
+  projects: Project[]; // For "Move to project" (FRG-43).
   // A chat opened from a link is in another project: switch the picker to it.
   onShowProject: (projectId: string | undefined) => void;
 };
@@ -67,11 +69,15 @@ export default function Chat({
   onPendingAttachmentUsed,
   onOpenInGenerate,
   project,
+  projects,
   onShowProject,
 }: ChatProps) {
   const [setupError, setSetupError] = useState<string | null>(null);
   const [list, setList] = useState<ConversationSummary[]>([]);
   const [listError, setListError] = useState<string | null>(null);
+  // "Move to project" (FRG-43): the chat being moved, and a note when it worked.
+  const [moving, setMoving] = useState<ConversationSummary | null>(null);
+  const [moveNotice, setMoveNotice] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [text, setText] = useState("");
   const [streaming, setStreaming] = useState(false);
@@ -295,6 +301,26 @@ export default function Chat({
     loadList();
   }
 
+  // Move a chat to another project (FRG-43). It leaves this project's list. If it was open, it closes.
+  async function moveTo(conversation: ConversationSummary, target: Project): Promise<string | null> {
+    try {
+      const response = await fetch(`/api/chat/conversations/${conversation.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId: target.id }),
+      });
+      const body = await response.json().catch(() => null);
+      if (!body) return NO_BACKEND;
+      if (!response.ok) return body.error ?? "Could not move this chat.";
+      setMoveNotice(`"${conversation.title}" moved to the project "${target.name}".`);
+      if (conversation.id === conversationId && projectId && target.id !== projectId) open(null);
+      loadList();
+      return null;
+    } catch {
+      return NO_BACKEND;
+    }
+  }
+
   // Send the message, then read the reply as it streams in.
   async function send(event?: FormEvent) {
     event?.preventDefault();
@@ -409,6 +435,7 @@ export default function Chat({
           <SparklesIcon size={18} /> New chat
         </button>
         {listError && <p className="message error">{listError}</p>}
+        {moveNotice && <p className="message info">{moveNotice}</p>}
         {list.length === 0 && !listError && (
           <p className="board-hint">{project ? `No chats in the project "${project.name}" yet.` : "No chats yet."}</p>
         )}
@@ -420,12 +447,31 @@ export default function Chat({
             <button className="icon-button" onClick={() => rename(conversation)} title="Rename" disabled={streaming}>
               <PencilIcon size={15} />
             </button>
+            {projects.length > 0 && (
+              <button
+                className="icon-button"
+                onClick={() => setMoving(conversation)}
+                title="Move to project..."
+                disabled={streaming}
+              >
+                <FolderIcon size={15} />
+              </button>
+            )}
             <button className="icon-button" onClick={() => remove(conversation)} title="Delete" disabled={streaming}>
               <CloseIcon size={15} />
             </button>
           </div>
         ))}
       </aside>
+      {moving && (
+        <MoveToProject
+          what={`the chat "${moving.title}"`}
+          projects={projects}
+          currentProjectId={moving.projectId}
+          onMove={(target) => moveTo(moving, target)}
+          onClose={() => setMoving(null)}
+        />
+      )}
 
       <section
         className={`chat-main panel ${dragOver ? "drop-target" : ""}`}
