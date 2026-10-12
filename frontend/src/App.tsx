@@ -6,19 +6,21 @@ import Board from "./Board";
 import Chat from "./Chat";
 import type { Attachment } from "./Chat";
 import Login from "./Login";
-import Logo from "./Logo";
+import AppShell from "./AppShell";
+import type { Page, Status } from "./AppShell";
 import { ManageProjects } from "./ProjectDialogs";
-import { ChatIcon, ChevronDownIcon, FolderIcon, ImageIcon, LayersIcon, LogoutIcon, SparklesIcon } from "./Icons";
 
-// Which page to show comes from the address: #/board, #/chat (or #/chat/<conversation id>),
-// #/gallery (or #/gallery/<job id> to open one job), or the Generate page.
+// Which page to show comes from the address: #/generate, #/board, #/projects,
+// #/gallery (or #/gallery/<job id> to open one job), or the Chat page, which is the home page:
+// #/, #/chat, or #/chat/<conversation id> (FRG-46).
 // Using the # part means a refresh or bookmark keeps the same page.
-function currentPage() {
+function currentPage(): Page {
   const hash = window.location.hash;
+  if (hash === "#/generate") return "generate";
   if (hash === "#/board") return "board";
-  if (hash === "#/chat" || hash.startsWith("#/chat/")) return "chat";
+  if (hash === "#/projects") return "projects";
   if (hash === "#/gallery" || hash.startsWith("#/gallery/")) return "gallery";
-  return "generate";
+  return "chat";
 }
 
 // The conversation id in #/chat/<id>, or null.
@@ -56,9 +58,6 @@ function storeProject(id: string) {
   }
 }
 
-// What the page knows about each part.
-type Status = "checking" | "online" | "offline" | "unknown";
-
 // The shape of the answer from GET /api/health (see backend/src/server.ts).
 type HealthResponse = {
   backend: string;
@@ -87,7 +86,7 @@ export default function App() {
 
   function handleUseAgain(values: StartValues) {
     setUseAgain(values);
-    window.location.hash = "#/"; // Go to the Generate page.
+    window.location.hash = "#/generate"; // Go to the Generate page.
   }
 
   // Set by "Use in chat" in the gallery: a picture to attach in the chat (FRG-25).
@@ -239,36 +238,18 @@ export default function App() {
   }
 
   return (
-    <>
-      <header className="header">
-        <Logo />
-        <nav className="nav">
-          <a href="#/" className={page === "generate" ? "active" : ""}>
-            <SparklesIcon size={22} /> <span>Generate</span>
-          </a>
-          <a href="#/gallery" className={page === "gallery" ? "active" : ""}>
-            <ImageIcon size={22} /> <span>Gallery</span>
-          </a>
-          <a href="#/board" className={page === "board" ? "active" : ""}>
-            <LayersIcon size={22} /> <span>Board</span>
-          </a>
-          <a href="#/chat" className={page === "chat" ? "active" : ""}>
-            <ChatIcon size={22} /> <span>Chat</span>
-          </a>
-        </nav>
-        <ProjectPicker
-          projects={projects}
-          project={project}
-          onChoose={chooseProject}
-          onCreated={addProject}
-          onManage={() => setManaging(true)}
-        />
-        <div className="status-list">
-          <StatusLine label="Backend" status={backend} />
-          <StatusLine label="ComfyUI" status={comfyui} />
-        </div>
-        <UserMenu user={user} onLogOut={logOut} />
-      </header>
+    <AppShell
+      page={page}
+      user={user}
+      onLogOut={logOut}
+      backend={backend}
+      comfyui={comfyui}
+      projects={projects}
+      project={project}
+      onChooseProject={chooseProject}
+      onCreatedProject={addProject}
+      onManageProjects={() => setManaging(true)}
+    >
       {page === "board" ? (
         <Board onOpenInGenerate={handleUseAgain} project={project} />
       ) : page === "chat" ? (
@@ -290,151 +271,22 @@ export default function App() {
           projects={projects}
           onShowProject={showProjectOf}
         />
+      ) : page === "projects" ? (
+        <ProjectsPlaceholder />
       ) : (
         <Generate startValues={useAgain} onStartValuesUsed={() => setUseAgain(null)} project={project} />
       )}
       {managing && <ManageProjects onClose={() => setManaging(false)} onChanged={reloadProjects} />}
-    </>
+    </AppShell>
   );
 }
 
-const statusText: Record<Status, string> = {
-  checking: "Checking...",
-  online: "Online",
-  offline: "Offline",
-  unknown: "Unknown",
-};
-
-// A colored dot and a word, for example "Backend  Online". The color comes from styles.css.
-function StatusLine({ label, status }: { label: string; status: Status }) {
-  const title = status === "unknown" ? "Unknown, because the backend is offline" : undefined;
+// The Projects page is built in FRG-50. Until then, projects are managed from the picker in the sidebar.
+function ProjectsPlaceholder() {
   return (
-    <span className={`status status-${status}`} title={title}>
-      <span className="status-dot" />
-      {label} <span className="status-word">{statusText[status]}</span>
-    </span>
-  );
-}
-
-// Value of the last item in the picker. Not a project id, so it can never clash with one.
-const NEW_PROJECT = "new";
-const MANAGE_PROJECTS = "manage";
-
-type ProjectPickerProps = {
-  projects: Project[];
-  project: Project | null | undefined;
-  onChoose: (project: Project) => void;
-  onCreated: (project: Project) => void;
-  onManage: () => void; // "Manage projects..." (FRG-43).
-};
-
-// The current project, in the header (FRG-41). New files go into it, and the gallery shows only its files.
-// The last item, "+ New project", asks for a name and makes the project.
-function ProjectPicker({ projects, project, onChoose, onCreated, onManage }: ProjectPickerProps) {
-  const [creating, setCreating] = useState(false);
-
-  async function createProject() {
-    const name = window.prompt("Name of the new project (at most 60 characters):");
-    if (name === null || name.trim() === "") return;
-    setCreating(true);
-    try {
-      const response = await fetch("/api/projects", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name }),
-      });
-      const body = await response.json().catch(() => null);
-      if (!body) window.alert("Could not reach the backend. Make sure it is running, then try again.");
-      else if (!response.ok) window.alert(body.error ?? "Could not make the project.");
-      else onCreated(body);
-    } catch {
-      window.alert("Could not reach the backend. Make sure it is running, then try again.");
-    } finally {
-      setCreating(false);
-    }
-  }
-
-  function onChange(value: string) {
-    if (value === NEW_PROJECT) {
-      createProject();
-      return;
-    }
-    if (value === MANAGE_PROJECTS) {
-      onManage();
-      return;
-    }
-    const chosen = projects.find((p) => p.id === value);
-    if (chosen) onChoose(chosen);
-  }
-
-  if (project === null) {
-    return (
-      <span className="project-picker project-offline" title="Projects need MongoDB, which cannot be reached right now.">
-        <FolderIcon size={18} /> <span>No projects</span>
-      </span>
-    );
-  }
-
-  return (
-    <label className="project-picker select-wrap" title="Current project: new files go here, and the gallery shows its files">
-      <FolderIcon size={18} />
-      <select
-        className="select"
-        aria-label="Project"
-        value={project?.id ?? ""}
-        onChange={(event) => onChange(event.target.value)}
-        disabled={project === undefined || creating}
-      >
-        {project === undefined && <option value="">Loading...</option>}
-        {projects.map((p) => (
-          <option key={p.id} value={p.id}>
-            {p.name}
-          </option>
-        ))}
-        {project !== undefined && <option value={NEW_PROJECT}>+ New project</option>}
-        {project !== undefined && <option value={MANAGE_PROJECTS}>Manage projects...</option>}
-      </select>
-      <ChevronDownIcon size={18} />
-    </label>
-  );
-}
-
-// The round letter, the name, and a small menu with "Log out".
-function UserMenu({ user, onLogOut }: { user: string; onLogOut: () => void }) {
-  const [open, setOpen] = useState(false);
-
-  // Close the menu when the user clicks anywhere else.
-  useEffect(() => {
-    if (!open) return;
-    const close = () => setOpen(false);
-    window.addEventListener("click", close);
-    return () => window.removeEventListener("click", close);
-  }, [open]);
-
-  return (
-    <div className="user-menu">
-      <button
-        className="user-button"
-        onClick={(event) => {
-          event.stopPropagation();
-          setOpen(!open);
-        }}
-        aria-expanded={open}
-      >
-        <span className="avatar">{user.charAt(0).toUpperCase()}</span>
-        <span className="user-name">{user}</span>
-        <ChevronDownIcon size={18} />
-      </button>
-      {open && (
-        <div className="user-dropdown">
-          <p>
-            Logged in as <strong>{user}</strong>
-          </p>
-          <button onClick={onLogOut}>
-            <LogoutIcon size={18} /> Log out
-          </button>
-        </div>
-      )}
+    <div className="flex min-h-[calc(100vh-var(--header-h))] flex-col items-center justify-center px-6 pb-16 text-center text-slate-500">
+      <span className="text-lg font-medium text-slate-300">Projects</span>
+      <span className="mt-2 text-sm">This page is coming soon. For now, use "Manage projects..." in the project picker.</span>
     </div>
   );
 }
