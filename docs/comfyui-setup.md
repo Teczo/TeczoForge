@@ -54,6 +54,8 @@ All inside `C:\AI\ComfyUI_windows_portable\ComfyUI\models\`.
 | `wan_2.1_vae.safetensors` | `vae\` | 0.24 GB |
 | `wan2.2_i2v_lightx2v_4steps_lora_v1_high_noise.safetensors` | `loras\` | 1.14 GB |
 | `wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors` | `loras\` | 1.14 GB |
+| `flux-2-klein-4b-fp8.safetensors` | `diffusion_models\` | 4.07 GB |
+| `flux2-vae.safetensors` | `vae\` | 336.2 MB |
 
 Note: the Download button in ComfyUI saves files through the browser.
 Check that each file ends up in the folder listed above.
@@ -105,6 +107,30 @@ Date: 2026-10-11. Preset `presets/image-to-video-fast/`.
 | Check run by Claude Code through the preset (app's own input checks, then ComfyUI API), 2026-10-11 | 38.5 s | not measured |
 
 - About 7 times faster than the basic preset (about 266 s). `estimatedSeconds` in preset.json is 37.
+
+## Image edit preset: FLUX.2 klein 4B (FRG-34)
+
+Date: 2026-10-12. Preset `presets/image-edit-klein/` ("Edit Image").
+
+- Template: "Image Edit (Flux.2 Klein 4B Distilled)" (`image_flux2_klein_image_edit_4b_distilled`). No custom nodes needed.
+- Licence: Apache 2.0, so client work is OK. Use only the **4B** files. The 9B files have a non-commercial licence.
+  The text encoder `qwen_3_4b.safetensors` is the same file Z-Image uses.
+- Jaya ran it in ComfyUI and exported it with Workflow > Export (API). workflow.json is the unchanged export.
+  It still holds the template's unused second Load Image (node `81`). It is not connected to anything, so ComfyUI skips it.
+- Settings: 4 steps, cfg 1, start image scaled to about 1 megapixel. The result has the start image's shape.
+- Measured by Claude Code through the preset in the app. Start image: the red paper boat (1024 x 1024),
+  instruction "make the sky a sunset. Keep the paper boat, the water and the trees as they are."
+  VRAM is the whole GPU (`nvidia-smi`), sampled every 0.5 s.
+
+| Run | Time | GPU memory before | Peak GPU memory |
+|---|---|---|---|
+| Run 1 (models moved back onto the GPU) | 4.6 s | 4.0 GB | 15.4 GB |
+| Run 2 | 2.7 s | 14.2 GB | 16.9 GB |
+| Same picture with Z-Image "Image to Image", for comparison | 8.6 s | 2.4 GB | 22.6 GB |
+
+- Result: klein changed only the sky (and its reflection in the water). The boat, water and trees stayed the same.
+- Z-Image image to image redraws the whole picture from a full description. On the same picture the sky only turned
+  a little pink, and the boat was redrawn. For "change one thing" requests, klein is the better choice.
 
 ## Problems found during setup
 
