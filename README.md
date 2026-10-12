@@ -126,7 +126,8 @@ Backend (Express, 127.0.0.1:4000) ──► ComfyUI (127.0.0.1:8188)   HTTP + on
 
 ### Frontend (`frontend/src/`)
 
-- `App.tsx`: login gate, header with **project picker** (FRG-41: projects from `/api/projects`, "+ New project" at the end, choice kept in `localStorage` as `teczoforge.project`, "Unsorted" if none or gone; Generate sends its `projectId`, Gallery shows only its jobs), Backend/ComfyUI status, user menu, page switch by URL hash (`#/`, `#/gallery`, `#/gallery/<job id>`, `#/board`, `#/chat`, `#/chat/<conversation id>`).
+- `App.tsx`: login gate, projects state (FRG-41: projects from `/api/projects`, choice kept in `localStorage` as `teczoforge.project`, "Unsorted" if none or gone; Generate sends its `projectId`, Gallery shows only its jobs), health check, page switch by URL hash (FRG-46: Chat is the home page at `#/`, `#/chat`, `#/chat/<conversation id>`; `#/generate`, `#/gallery`, `#/gallery/<job id>`, `#/board`, `#/projects` placeholder).
+- `AppShell.tsx` (FRG-46, Tailwind + lucide-react): left sidebar with logo, New chat, page links, **project picker** ("+ New project" and "Manage projects..." at the end), an empty Recent area, and the user menu with Log out; Backend/ComfyUI status box at the top right.
 - `PresetBadges.tsx`: the licence badge and **Test** label of a preset, the Research only question, and the estimated time text (FRG-32).
 - `Generate.tsx`: three columns. **Sidebar** (categories + models from the `model` field of the presets), **Create panel** (image upload,
   prompt, preset picker, Quick Prompts, Advanced Settings, Generate), **Result panel** (large view,
@@ -138,7 +139,7 @@ Backend (Express, 127.0.0.1:4000) ──► ComfyUI (127.0.0.1:8188)   HTTP + on
 - `Chat.tsx`: conversation list (New chat, rename, delete) and the messages with an input box. The reply shows while it streams; **Stop** ends it and keeps the text so far. Simple markdown (paragraphs, lists, bold, code) without a package. Pictures: **Attach** button, paste, or drag and drop; shown as thumbnails. The list shows only the chosen project's chats; new chats go into it. A link to a chat or job of another project switches the picker to that project (FRG-42).
 - `ChatCard.tsx`: a card Claude made, inside the chat: title, preset, prompt, **Generate** (runs the draft, like the board), **Edit**, **Open board**. Shows progress while it runs and the image or video when done.
 - `Media.tsx`: `outputKind(job)` (one helper for every page) and `<Media>`: `<img>` for pictures, `<video>` for videos, for audio the browser player (play, seek, volume, no autoplay) with file name, length and Download, or in grids a tile with a music icon and a small play button (FRG-30), and for 3d a simple tile with an icon, the file name and Download (viewer comes later). Only one sound plays at a time. Send to and Use in chat are only for pictures.
-- `Icons.tsx`, `Logo.tsx`, `Login.tsx`, `styles.css`: dark theme, inline SVG icons, no UI library.
+- `Icons.tsx`, `Logo.tsx`, `Login.tsx`, `styles.css`: dark theme, inline SVG icons, no UI library. `tailwind.css` loads Tailwind and puts `styles.css` in a layer below Tailwind's utilities.
 
 ---
 
