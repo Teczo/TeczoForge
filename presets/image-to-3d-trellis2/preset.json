@@ -1,0 +1,18 @@
+{
+  "id": "image-to-3d-trellis2",
+  "name": "Image to 3D (TRELLIS.2)",
+  "description": "TRELLIS.2 from Microsoft. Upload a picture of one object and get a textured 3D model (.glb). The background is removed first.",
+  "promptGuide": "This preset has no prompt. It only needs a start image. Use a picture of one single object, whole and in the middle of the frame, on a plain background, with even light and no other objects in front of it. A product shot or a 3/4 view works best. Text, people in groups and full scenes (rooms, landscapes) do not work well.",
+  "sendToLabel": "Make 3D (TRELLIS.2)",
+  "model": "TRELLIS.2",
+  "licence": "MIT",
+  "clientWork": "conditions",
+  "licenceNote": "TRELLIS.2 is MIT. The DINOv3 image encoder it uses has its own licence (Meta). Check that licence before client work.",
+  "stages": 4,
+  "type": "3d",
+  "inputs": [
+    { "key": "image", "label": "Start image", "kind": "image", "node": "122", "field": "image" },
+    { "key": "seed", "label": "Seed", "kind": "seed", "node": "3", "field": "seed" }
+  ],
+  "output": { "node": "322" }
+}
