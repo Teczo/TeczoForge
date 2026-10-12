@@ -49,7 +49,7 @@ Wroom tickets say "do not add a dependency". The packages below are part of the
 locked stack, so they are allowed when a ticket needs them. Use the smallest set.
 
 - Backend: `express`, `cors`, `dotenv`, `ws`, `mongodb`, `typescript`, `tsx`, `@types/node`, `@types/express`, `@types/cors`, `@types/ws`
-- Frontend: `vite`, `react`, `react-dom`, `typescript`, `@vitejs/plugin-react`, `@types/react`, `@types/react-dom`
+- Frontend: `vite`, `react`, `react-dom`, `typescript`, `@vitejs/plugin-react`, `@types/react`, `@types/react-dom`, `tailwindcss`, `@tailwindcss/vite`, `lucide-react`
 
 Anything not on this list: say what and why, then stop and ask.
 
@@ -209,3 +209,17 @@ Decided:
 
 Still open (ask before assuming):
 1. Which video model to use. Jaya decides after the image-to-video test (FRG-13).
+
+## 14. Design reference
+
+`docs/design/teczoforge_redesign.tsx` shows the target look of the app: colours, the left sidebar,
+the chat input box, and spacing. It is a picture only.
+
+- Do not import it into the app. Do not copy code from it as-is.
+- Do not copy its fake data: the chat titles, "Free Plan", and the placeholder pages.
+- New UI uses Tailwind CSS classes and `lucide-react` icons.
+- Old pages keep using `frontend/src/styles.css` until a ticket changes them.
+- Tailwind is loaded in `frontend/src/tailwind.css`, which imports only the theme and utilities
+  layers. Tailwind's base reset (preflight) is left out on purpose, because it changes the old pages.
+- `docs/` is not part of any type check. `frontend/tsconfig.json` includes only `src` and
+  `vite.config.ts`, so `tsc` never tries to compile the design file. Keep it that way.
