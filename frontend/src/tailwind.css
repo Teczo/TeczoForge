@@ -1,8 +1,13 @@
-/* Tailwind CSS for the new design (FRG-45).
-   Only the theme and utilities layers. Tailwind's base reset (preflight) is left out,
-   because it changes how the existing pages look. Old pages keep using styles.css. */
+/* Tailwind CSS for the new design (FRG-45), and the old styles.css.
+   Only Tailwind's theme and utilities layers. Tailwind's base reset (preflight) is left out,
+   because it changes how the existing pages look.
 
-@layer theme, base, components, utilities;
+   styles.css is loaded here in its own "legacy" layer, below Tailwind's utilities (FRG-46).
+   Without a layer its rules (for example "button { color: inherit }") would win over every
+   Tailwind class. Old pages keep using styles.css and look the same. */
+
+@layer theme, base, legacy, components, utilities;
 
 @import "tailwindcss/theme.css" layer(theme);
+@import "./styles.css" layer(legacy);
 @import "tailwindcss/utilities.css" layer(utilities);
