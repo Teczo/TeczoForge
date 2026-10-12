@@ -221,5 +221,7 @@ the chat input box, and spacing. It is a picture only.
 - Old pages keep using `frontend/src/styles.css` until a ticket changes them.
 - Tailwind is loaded in `frontend/src/tailwind.css`, which imports only the theme and utilities
   layers. Tailwind's base reset (preflight) is left out on purpose, because it changes the old pages.
+- `tailwind.css` also loads `styles.css`, in a layer below Tailwind's utilities (FRG-46), so a
+  Tailwind class always wins over a `styles.css` rule. Do not import `styles.css` anywhere else.
 - `docs/` is not part of any type check. `frontend/tsconfig.json` includes only `src` and
   `vite.config.ts`, so `tsc` never tries to compile the design file. Keep it that way.

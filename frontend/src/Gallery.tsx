@@ -151,7 +151,7 @@ export default function Gallery({ onUseAgain, onUseInChat, openJobId = null, pro
   } else if (jobs.length === 0) {
     content = (
       <p className="empty">
-        No results {project ? `in the project "${project.name}" ` : ""}yet. Make one on the <a href="#/">Generate</a> page.
+        No results {project ? `in the project "${project.name}" ` : ""}yet. Make one on the <a href="#/generate">Generate</a> page.
       </p>
     );
   } else {

@@ -170,13 +170,6 @@ export const UploadIcon = (p: IconProps) => (
   </Svg>
 );
 
-export const LogoutIcon = (p: IconProps) => (
-  <Svg {...p}>
-    <path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3" />
-    <path d="M10 17l-5-5 5-5M5 12h11" />
-  </Svg>
-);
-
 export const ArrowLeftIcon = (p: IconProps) => (
   <Svg {...p}>
     <path d="M19 12H5M11 6l-6 6 6 6" />
