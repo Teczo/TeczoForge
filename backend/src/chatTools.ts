@@ -33,8 +33,18 @@ function choicesNote(input: PresetSummary["inputs"][number]): string {
 
 // The model and licence line of a tool description (FRG-32), or "" if preset.json has neither.
 const CLIENT_WORK_TEXT = { yes: "allowed", no: "not allowed (research only)", conditions: "only with conditions" };
+// What a preset makes, by its type (FRG-30), for the tool description.
+const RESULT_TEXT: Record<string, string> = {
+  image: "a picture",
+  video: "a video",
+  audio: "a sound or music file",
+  "3d": "a 3D model",
+  edit: "an edited picture",
+  upscale: "a larger picture",
+};
 function modelNote(preset: PresetSummary): string {
   const parts: string[] = [];
+  if (RESULT_TEXT[preset.type]) parts.push(`It makes ${RESULT_TEXT[preset.type]}.`);
   if (preset.model) parts.push(`Model: ${preset.model}.`);
   if (preset.clientWork) {
     const note = preset.licenceNote ? ` (${preset.licenceNote})` : "";

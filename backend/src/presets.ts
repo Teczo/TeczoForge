@@ -10,6 +10,9 @@ const MAX_TEXT_LENGTH = 2000;
 // A number input without "min" and "max" in preset.json must be in this range.
 const MIN_NUMBER = 1;
 const MAX_NUMBER = 4096;
+// The preset types the app knows (the sidebar groups on the Generate page). "audio" is the
+// Music group (FRG-30). Another type still loads, with a warning, and shows under "Other".
+export const PRESET_TYPES = ["image", "video", "audio", "3d", "edit", "upscale"];
 // "stages" in preset.json can be at most this.
 const MAX_STAGES = 10;
 // An image input is the file name from POST /api/upload, for example "teczoforge-1791361258118-a1b2c3.png".
@@ -126,6 +129,9 @@ function checkPreset(folder: string, raw: Preset): Preset {
   if (preset.estimatedSeconds !== undefined && (!Number.isInteger(preset.estimatedSeconds) || preset.estimatedSeconds < 1)) {
     warn(`"estimatedSeconds" must be a whole number above 0. It is ignored.`);
     delete preset.estimatedSeconds;
+  }
+  if (!PRESET_TYPES.includes(preset.type)) {
+    warn(`"type" is "${preset.type}". Known types: ${PRESET_TYPES.join(", ")}. It shows under "Other".`);
   }
   preset.inputs = (preset.inputs ?? []).map((input) => checkInput(folder, input));
   return preset;
