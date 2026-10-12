@@ -111,10 +111,12 @@ export async function getFinishedOutput(promptId: string, outputNode: string): P
 // Every file in one node's output, in order (FRG-29). Pictures and videos come in "images",
 // but other nodes use other lists ("audio", "gifs", "3d", ...). So every list is read, and
 // any item with a filename, a subfolder and a type is a file. Other values are skipped.
+// The 3D save node (Save3DAdvanced, FRG-27) is different: it gives the file as text in
+// "result", for example "3d/ComfyUI_00001.glb", or "name.glb [temp]" for a preview.
 export function outputFilesOf(nodeOutput: unknown): OutputFile[] {
   if (typeof nodeOutput !== "object" || nodeOutput === null) return [];
   const files: OutputFile[] = [];
-  for (const list of Object.values(nodeOutput)) {
+  for (const [listName, list] of Object.entries(nodeOutput)) {
     if (!Array.isArray(list)) continue;
     for (const item of list) {
       if (
@@ -123,10 +125,24 @@ export function outputFilesOf(nodeOutput: unknown): OutputFile[] {
         typeof item?.type === "string"
       ) {
         files.push({ filename: item.filename, subfolder: item.subfolder, type: item.type });
+      } else if (listName === "result" && typeof item === "string") {
+        const file = fileFromText(item);
+        if (file) files.push(file);
       }
     }
   }
   return files;
+}
+
+// "3d/ComfyUI_00001.glb" -> { filename: "ComfyUI_00001.glb", subfolder: "3d", type: "output" }.
+// A " [temp]" or " [input]" at the end sets the type. Returns null for text that is not a file
+// name with an ending (the 3D node's "result" also holds other values).
+function fileFromText(text: string): OutputFile | null {
+  const match = /^(.+?)(?: \[(output|temp|input)\])?$/.exec(text.trim());
+  if (!match || !/\.[A-Za-z0-9]+$/.test(match[1])) return null;
+  const parts = match[1].split("/");
+  const filename = parts.pop()!;
+  return { filename, subfolder: parts.join("/"), type: match[2] ?? "output" };
 }
 
 // A picture from ComfyUI's input folder, or null if it is not there (FRG-25).

@@ -719,7 +719,15 @@ export default function Generate({ startValues = null, onStartValuesUsed }: Gene
 
       <section className="result panel">
         <div className="section-head">
-          {shownKind === "video" ? <VideoIcon size={22} /> : shownKind === "audio" ? <MusicIcon size={22} /> : <ImageIcon size={22} />}
+          {shownKind === "video" ? (
+            <VideoIcon size={22} />
+          ) : shownKind === "audio" ? (
+            <MusicIcon size={22} />
+          ) : shownKind === "3d" ? (
+            <CubeIcon size={22} />
+          ) : (
+            <ImageIcon size={22} />
+          )}
           <h2>{RESULT_TITLES[shownKind]}</h2>
           <div className="right">
             {shown?.jobId && shown.kind === "image" && (
