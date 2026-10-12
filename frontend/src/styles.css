@@ -1140,7 +1140,9 @@ a {
 }
 
 .detail-media .model-viewer {
-  height: min(70vh, 640px);
+  height: auto;
+  aspect-ratio: 1 / 1;
+  max-height: min(70vh, 640px);
 }
 
 .chat-card-result .model-viewer {
@@ -1183,6 +1185,7 @@ a {
   right: 0;
   bottom: 0;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
