@@ -1,6 +1,10 @@
-import { useRef, useState } from "react";
+import { lazy, Suspense, useRef, useState } from "react";
 import type { CSSProperties, KeyboardEvent, MouseEvent } from "react";
 import { CubeIcon, DownloadIcon, MusicIcon, PauseIcon, PlayIcon } from "./Icons";
+
+// The 3D viewer (FRG-27) uses the large "three" package. It is loaded only the first time a
+// model is shown in full, so pages without a 3D result stay small.
+const ModelViewer = lazy(() => import("./ModelViewer"));
 
 // A result can be a picture, a video, a sound or a 3D model (FRG-29).
 export type OutputKind = "image" | "video" | "audio" | "3d";
@@ -42,7 +46,8 @@ type MediaProps = {
 };
 
 // Shows a picture with <img>, a video with <video>, a sound with the browser's audio player
-// (FRG-30), and a 3D model as a simple tile with an icon and the file name (viewer: FRG-27).
+// (FRG-30), and a 3D model in the 3D viewer (FRG-27). In grids a 3D model is a tile with an
+// icon and the file name.
 export default function Media({ url, kind, alt, style, mode }: MediaProps) {
   const fileName = url.split("/").pop() ?? url;
   if (kind === "audio") {
@@ -53,16 +58,24 @@ export default function Media({ url, kind, alt, style, mode }: MediaProps) {
     );
   }
   if (kind === "3d") {
+    if (mode === "full") {
+      const loading = (
+        <div className="file-tile" style={style} title={alt}>
+          <CubeIcon size={56} />
+          <span>Loading 3D viewer...</span>
+        </div>
+      );
+      return (
+        <Suspense fallback={loading}>
+          <ModelViewer url={url} alt={alt} style={style} />
+        </Suspense>
+      );
+    }
+    // A thumbnail sits inside a button, so it cannot hold a link. Its detail view has Download.
     return (
       <div className="file-tile" style={style} title={alt}>
-        <CubeIcon size={mode === "full" ? 56 : 36} />
+        <CubeIcon size={36} />
         <span className="file-tile-name">{fileName}</span>
-        {/* A thumbnail sits inside a button, so it cannot hold a link. Its detail view has Download. */}
-        {mode === "full" && (
-          <a className="button" href={url} download>
-            <DownloadIcon size={18} /> Download
-          </a>
-        )}
       </div>
     );
   }

@@ -1128,6 +1128,73 @@ a {
   font-size: 13px;
 }
 
+/* 3D viewer (FRG-27): the model fills the box, with the buttons in a bar at the bottom. */
+.model-viewer {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-height: 320px;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: radial-gradient(circle at 50% 40%, #16293a, #070d14 75%);
+}
+
+.detail-media .model-viewer {
+  height: min(70vh, 640px);
+}
+
+.chat-card-result .model-viewer {
+  height: 360px;
+  margin-top: 10px;
+}
+
+.model-viewer-canvas {
+  position: absolute;
+  inset: 0;
+  cursor: grab;
+}
+
+.model-viewer-canvas:active {
+  cursor: grabbing;
+}
+
+.model-viewer-canvas canvas {
+  display: block;
+  touch-action: none;
+}
+
+.model-viewer-note {
+  position: absolute;
+  inset: 0 0 56px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 16px;
+  text-align: center;
+  color: var(--text-dim);
+  pointer-events: none;
+}
+
+.model-viewer-bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 10px;
+}
+
+.model-viewer-hint {
+  margin-right: auto;
+  font-size: 12.5px;
+  color: var(--text-faint);
+}
+
 /* ---------- Gallery ---------- */
 
 .gallery-head {
