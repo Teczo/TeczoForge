@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import type { Preset, StartValues } from "./Generate";
 import PresetBadges from "./PresetBadges";
 import type { Attachment } from "./Chat";
@@ -25,6 +25,7 @@ type Job = {
   createdBy?: string | null; // Missing on jobs from before team logins (FRG-16).
   inputFiles?: string[]; // Kept start images, for example "data/inputs/<name>" (FRG-25).
   sourceJobId?: string; // "Send to": the job whose result is the start image (FRG-26).
+  projectId?: string; // The project of the job (FRG-40).
 };
 
 // A job made from this one with "Send to" (GET /api/jobs/<id>/used-in).
@@ -50,22 +51,22 @@ type GalleryProps = {
   // The project chosen in the header (FRG-41): only its jobs are shown.
   // undefined while the projects load. null if they could not be loaded: then all jobs are shown.
   project: Project | null | undefined;
+  // A job opened from a link is in another project: switch the picker to it (FRG-42).
+  onShowProject: (projectId: string | undefined) => void;
 };
 
-export default function Gallery({ onUseAgain, onUseInChat, openJobId = null, project }: GalleryProps) {
+export default function Gallery({ onUseAgain, onUseInChat, openJobId = null, project, onShowProject }: GalleryProps) {
   const [jobs, setJobs] = useState<Job[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Job | null>(null);
   const projectId = project === undefined ? undefined : (project?.id ?? null);
-  // The project of the list on screen, so a change of project can close the large view.
-  const shownProjectId = useRef(projectId);
 
   // Load the job history when the page opens, and again when the project changes (FRG-41).
   useEffect(() => {
     if (projectId === undefined) return; // Wait for the projects, so the list loads only once.
-    // Another project was chosen: go back to its grid.
-    if (shownProjectId.current !== undefined && shownProjectId.current !== projectId) closeDetail();
-    shownProjectId.current = projectId;
+    // Another project was chosen: go back to its grid. Not for a job that is in the new project:
+    // the picker switched to show it (a link to a job, FRG-42).
+    if (projectId && selected && selected.projectId !== projectId) closeDetail();
     // A slower answer for the project chosen before must not replace the new list.
     let stale = false;
     setJobs(null);
@@ -104,7 +105,10 @@ export default function Gallery({ onUseAgain, onUseInChat, openJobId = null, pro
         if (!body) setError("Could not reach the backend. Make sure it is running, then refresh the page.");
         else if (!response.ok) setError(body.error ?? "Could not load this result.");
         else if (body.status !== "done" || !body.imageUrl) setError("This job has no finished result to show.");
-        else setSelected(body);
+        else {
+          setSelected(body);
+          onShowProject(body.projectId); // A job of another project: switch the picker to it (FRG-42).
+        }
       } catch {
         setError("Could not reach the backend. Make sure it is running, then refresh the page.");
       }

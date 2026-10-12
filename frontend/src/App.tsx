@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Generate from "./Generate";
 import type { StartValues } from "./Generate";
 import Gallery from "./Gallery";
@@ -77,6 +77,8 @@ export default function App() {
   // and null if the projects could not be loaded (MongoDB offline): then pages work without a project.
   const [projects, setProjects] = useState<Project[]>([]);
   const [project, setProject] = useState<Project | null | undefined>(undefined);
+  // A project asked for by a link before the projects were loaded (FRG-42). It wins over the remembered one.
+  const wantedProjectRef = useRef<string | null>(null);
   // Set by "Use again" in the gallery: the preset and values to fill into the Generate page.
   const [useAgain, setUseAgain] = useState<StartValues | null>(null);
 
@@ -173,7 +175,11 @@ export default function App() {
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const list: Project[] = (await response.json()).projects;
         const stored = readStoredProject();
-        const chosen = list.find((p) => p.id === stored) ?? list.find((p) => p.name === UNSORTED_NAME) ?? null;
+        const chosen =
+          list.find((p) => p.id === wantedProjectRef.current) ??
+          list.find((p) => p.id === stored) ??
+          list.find((p) => p.name === UNSORTED_NAME) ??
+          null;
         setProjects(list);
         setProject(chosen);
         if (chosen) storeProject(chosen.id);
@@ -187,6 +193,18 @@ export default function App() {
   function chooseProject(chosen: Project) {
     setProject(chosen);
     storeProject(chosen.id);
+  }
+
+  // A link opened a chat or a job of another project (FRG-42): switch the picker to that project.
+  // An archived project is not in the picker: then the item still opens, and the picker stays.
+  function showProjectOf(projectId: string | undefined) {
+    if (!projectId) return;
+    if (project === undefined) {
+      wantedProjectRef.current = projectId; // The projects are still loading.
+      return;
+    }
+    const found = projects.find((p) => p.id === projectId);
+    if (found && found.id !== project?.id) chooseProject(found);
   }
 
   // "+ New project": add it to the list (sorted by name, like the backend) and choose it.
@@ -228,16 +246,24 @@ export default function App() {
         <UserMenu user={user} onLogOut={logOut} />
       </header>
       {page === "board" ? (
-        <Board onOpenInGenerate={handleUseAgain} />
+        <Board onOpenInGenerate={handleUseAgain} project={project} />
       ) : page === "chat" ? (
         <Chat
           conversationId={conversationId}
           pendingAttachment={chatAttachment}
           onPendingAttachmentUsed={() => setChatAttachment(null)}
           onOpenInGenerate={handleUseAgain}
+          project={project}
+          onShowProject={showProjectOf}
         />
       ) : page === "gallery" ? (
-        <Gallery onUseAgain={handleUseAgain} onUseInChat={handleUseInChat} openJobId={openJobId} project={project} />
+        <Gallery
+          onUseAgain={handleUseAgain}
+          onUseInChat={handleUseInChat}
+          openJobId={openJobId}
+          project={project}
+          onShowProject={showProjectOf}
+        />
       ) : (
         <Generate startValues={useAgain} onStartValuesUsed={() => setUseAgain(null)} project={project} />
       )}

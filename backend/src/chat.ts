@@ -7,6 +7,7 @@ import type { ChatMessage, ChatUsage, Conversation } from "./db.js";
 import { CHAT_SYSTEM_PROMPT } from "./chatPrompt.js";
 import { checkMessageImages, picturesToSend } from "./chatImages.js";
 import { buildChatTools, runChatTool } from "./chatTools.js";
+import { checkProjectId } from "./projects.js";
 import type { ChatCard, ChatTools } from "./chatTools.js";
 
 // Chat with Claude (FRG-23). Text only.
@@ -191,12 +192,18 @@ export function chatStatusHandler(_req: Request, res: Response) {
 }
 
 // GET /api/chat/conversations  My conversations, newest first, without their messages.
-export async function listConversationsHandler(_req: Request, res: Response) {
+//   ?projectId=<id>  only conversations in this project (FRG-42)
+export async function listConversationsHandler(req: Request, res: Response) {
   try {
     const owner: string = res.locals.username;
+    const projectId = typeof req.query.projectId === "string" ? req.query.projectId : null;
+    if (projectId !== null && !ID_PATTERN.test(projectId)) throw new HttpError(400, "projectId must be a project id.");
     const conversations = await withConversations((c) =>
       c
-        .find({ owner }, { projection: { _id: 0, id: 1, title: 1, createdAt: 1, updatedAt: 1 } })
+        .find(
+          { owner, ...(projectId ? { projectId } : {}) },
+          { projection: { _id: 0, id: 1, title: 1, projectId: 1, createdAt: 1, updatedAt: 1 } },
+        )
         .sort({ updatedAt: -1 })
         .limit(LIST_LIMIT)
         .toArray(),
@@ -207,14 +214,18 @@ export async function listConversationsHandler(_req: Request, res: Response) {
   }
 }
 
-// POST /api/chat/conversations  Body: { "title": "..." } (optional). Answer: the new conversation.
+// POST /api/chat/conversations  Body: { "title": "...", "projectId": "..." } (both optional).
+// No projectId: "Unsorted". An unknown or archived project answers 400 (FRG-42).
+// Answer: the new conversation.
 export async function createConversationHandler(req: Request, res: Response) {
   try {
     const title = req.body?.title === undefined ? DEFAULT_TITLE : checkTitle(req.body.title);
+    const projectId = await checkProjectId(req.body?.projectId);
     const now = new Date();
     const conversation: Conversation = {
       id: crypto.randomUUID(),
       owner: res.locals.username,
+      projectId,
       title,
       messages: [],
       createdAt: now,
@@ -434,7 +445,13 @@ export async function sendMessageHandler(req: Request, res: Response) {
           });
           continue;
         }
-        const outcome = await runChatTool(block, { tools, username, conversationId: conversation.id, imageIds });
+        const outcome = await runChatTool(block, {
+          tools,
+          username,
+          conversationId: conversation.id,
+          projectId: conversation.projectId,
+          imageIds,
+        });
         results.push(outcome.result);
         if (outcome.card) {
           cards.push(outcome.card);
