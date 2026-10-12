@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { ClipboardEvent, DragEvent, FormEvent, KeyboardEvent, ReactNode } from "react";
-import { CloseIcon, PaperclipIcon } from "./Icons";
+import { Paperclip, Send, Square, X } from "lucide-react";
 import ChatCard from "./ChatCard";
 import type { ChatCardRef } from "./ChatCard";
 import type { Preset, StartValues } from "./Generate";
@@ -8,7 +8,8 @@ import type { Project } from "./App";
 import type { ConversationSummary } from "./RecentChats";
 
 // The chat page (FRG-23): talk with Claude about scenes and prompts. Text only.
-// The messages and a box to type in. The list of chats is in the sidebar (RecentChats.tsx, FRG-47).
+// The messages in a centred column, and a box to type in that floats at the bottom (FRG-48).
+// The list of chats is in the sidebar (RecentChats.tsx, FRG-47).
 // The reply streams in piece by piece (SSE, see backend/src/chat.ts). Stop ends it early.
 // Claude can make board cards (FRG-24). They show under its reply, with a Generate button.
 // Pictures can be attached (FRG-25): Attach button, paste, or drag and drop. Claude sees them, and
@@ -16,6 +17,9 @@ import type { ConversationSummary } from "./RecentChats";
 
 // Same limit as the backend.
 const MAX_MESSAGE_LENGTH = 8000;
+
+// The message box grows with its text up to this height, then it scrolls.
+const MAX_BOX_HEIGHT = 250;
 
 // Pictures: the same checks as the upload route (backend/src/upload.ts), plus the Claude API
 // limits (backend/src/chatImages.ts). A picture Claude cannot take is refused before it is uploaded.
@@ -86,6 +90,13 @@ export default function Chat({
   const [error, setError] = useState<string | null>(null);
   const stopRef = useRef<AbortController | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
+  const boxRef = useRef<HTMLTextAreaElement>(null);
+  // The floating input box and its height, so the last message can always be scrolled above it.
+  const formRef = useRef<HTMLFormElement>(null);
+  const [formHeight, setFormHeight] = useState(0);
+  // The scrolling message area, and the column of messages in it.
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const columnRef = useRef<HTMLDivElement>(null);
   // A chat that send() just made: its messages are already on screen, so do not load it again.
   const justCreatedRef = useRef<string | null>(null);
   const projectId = project === undefined ? undefined : (project?.id ?? null);
@@ -219,10 +230,43 @@ export default function Chat({
     attachFiles([...event.dataTransfer.files]);
   }
 
-  // Keep the newest message in view.
+  // Keep the newest message in view (also when the input box grows over it).
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: "end" });
-  }, [messages, replyText]);
+  }, [messages, replyText, formHeight]);
+
+  // The message box grows with its text, up to MAX_BOX_HEIGHT.
+  useEffect(() => {
+    const box = boxRef.current;
+    if (!box) return;
+    box.style.height = "auto";
+    box.style.height = `${Math.min(box.scrollHeight, MAX_BOX_HEIGHT)}px`;
+  }, [text]);
+
+  // Measure the floating input box. It gets taller with more lines and with attached pictures.
+  useEffect(() => {
+    const form = formRef.current;
+    if (!form) return;
+    const observer = new ResizeObserver(() => setFormHeight(form.offsetHeight));
+    observer.observe(form);
+    return () => observer.disconnect();
+  }, []);
+
+  // Pictures and cards finish loading after the messages are shown, and make them taller.
+  // If the user was at the bottom, stay at the bottom, so the last message is not hidden.
+  useEffect(() => {
+    const scroller = scrollRef.current;
+    const column = columnRef.current;
+    if (!scroller || !column) return;
+    // The height before the change: the user was at the bottom if the view reached (almost) its end.
+    let lastHeight = scroller.scrollHeight;
+    const observer = new ResizeObserver(() => {
+      if (lastHeight - scroller.scrollTop - scroller.clientHeight < 40) scroller.scrollTop = scroller.scrollHeight;
+      lastHeight = scroller.scrollHeight;
+    });
+    observer.observe(column);
+    return () => observer.disconnect();
+  }, []);
 
   async function newChat(): Promise<string | null> {
     setError(null);
@@ -354,29 +398,31 @@ export default function Chat({
   }
 
   const tooLong = text.length > MAX_MESSAGE_LENGTH;
+  const canSend = !setupError && !tooLong && !attaching && (text.trim() !== "" || attached.length > 0);
 
   return (
-    <main className="page chat-page">
-      <section
-        className={`chat-main panel ${dragOver ? "drop-target" : ""}`}
-        onDragOver={(event) => {
-          if (!event.dataTransfer.types.includes("Files")) return;
-          event.preventDefault(); // Allows the drop.
-          setDragOver(true);
-        }}
-        onDragLeave={() => setDragOver(false)}
-        onDrop={handleDrop}
-      >
-        <div className="chat-messages">
+    <main
+      className={`relative h-[calc(100vh-var(--header-h))] ${dragOver ? "outline-2 -outline-offset-8 outline-teal-500/60 outline-dashed" : ""}`}
+      onDragOver={(event) => {
+        if (!event.dataTransfer.types.includes("Files")) return;
+        event.preventDefault(); // Allows the drop.
+        setDragOver(true);
+      }}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={handleDrop}
+    >
+      {/* The messages scroll here, in a centred column. */}
+      <div ref={scrollRef} className="h-full overflow-y-auto px-8">
+        <div ref={columnRef} className="mx-auto flex w-full max-w-4xl flex-col gap-4 pt-2">
           {setupError && <p className="message error">{setupError}</p>}
           {!setupError && messages.length === 0 && !streaming && (
-            <p className="board-hint">
+            <p className="mt-4 text-sm font-medium text-slate-500">
               Plan a scene or ask for a prompt. Claude answers short. The chat text is sent to the Claude API on the
               internet; images and videos are still made on this PC.
             </p>
           )}
           {messages.map((message, index) => (
-            <div key={index} className={`chat-bubble ${message.role}`}>
+            <Bubble key={index} role={message.role}>
               {message.images && message.images.length > 0 && (
                 <div className="chat-images">
                   {message.images.map((image) => (
@@ -391,23 +437,31 @@ export default function Chat({
               {message.cards?.map((card) => (
                 <ChatCard key={card.id} card={card} presets={presets} onOpenInGenerate={onOpenInGenerate} />
               ))}
-            </div>
+            </Bubble>
           ))}
           {streaming && (
-            <div className="chat-bubble assistant">
+            <Bubble role="assistant">
               {replyText ? <Markdown text={replyText} /> : <p className="chat-note">Claude is thinking...</p>}
               {replyCards.map((card) => (
                 <ChatCard key={card.id} card={card} presets={presets} onOpenInGenerate={onOpenInGenerate} />
               ))}
-            </div>
+            </Bubble>
           )}
           {error && <p className="message error">{error}</p>}
-          <div ref={endRef} />
+          {/* Empty space as tall as the input box, so the last message can scroll above it. */}
+          <div ref={endRef} className="shrink-0" style={{ height: formHeight + 40 }} />
         </div>
+      </div>
 
-        <form className="chat-input" onSubmit={send}>
+      {/* The floating input box. */}
+      <div className="pointer-events-none absolute right-0 bottom-6 left-0 flex justify-center px-8">
+        <form
+          ref={formRef}
+          onSubmit={send}
+          className="pointer-events-auto flex w-full max-w-4xl flex-col gap-1 rounded-2xl border border-slate-700 bg-slate-800/90 p-2.5 shadow-2xl shadow-black/50 backdrop-blur-xl transition-all focus-within:border-teal-500/50 focus-within:ring-4 focus-within:ring-teal-500/10"
+        >
           {(attached.length > 0 || attaching) && (
-            <div className="chat-attached">
+            <div className="chat-attached mx-2 mt-2">
               {attached.map((a) => (
                 <span key={a.id} className="chat-attached-item" title={`${a.id} (${a.width} x ${a.height})`}>
                   <img src={inputUrl(a.id)} alt={`Picture ${a.id}`} />
@@ -417,7 +471,7 @@ export default function Chat({
                     title="Remove"
                     disabled={streaming}
                   >
-                    <CloseIcon size={12} />
+                    <X size={12} />
                   </button>
                 </span>
               ))}
@@ -425,15 +479,18 @@ export default function Chat({
             </div>
           )}
           <textarea
-            className="prompt-box"
+            ref={boxRef}
+            rows={1}
             value={text}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={handleKey}
             onPaste={handlePaste}
             placeholder="Type a message. Enter sends, Shift+Enter makes a new line."
             disabled={!!setupError}
+            className="min-h-[50px] w-full resize-none overflow-y-auto border-0 bg-transparent px-3 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-500 disabled:cursor-not-allowed"
+            style={{ maxHeight: MAX_BOX_HEIGHT }}
           />
-          <div className="chat-input-row">
+          <div className="flex items-center justify-between px-1">
             <input
               ref={fileRef}
               type="file"
@@ -447,33 +504,64 @@ export default function Chat({
             />
             <button
               type="button"
-              className="button"
               onClick={() => fileRef.current?.click()}
               disabled={!!setupError || attaching}
               title="Attach a picture (or paste it, or drop it here)"
+              className="flex cursor-pointer items-center gap-2 rounded-lg border-0 bg-transparent px-3 py-1.5 text-sm font-medium text-slate-400 transition-colors hover:bg-slate-700/80 hover:text-slate-200 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              <PaperclipIcon size={16} /> Attach
+              <Paperclip size={16} />
+              Attach
             </button>
-            <span className={`char-count ${tooLong ? "over" : ""}`}>
-              {text.length} / {MAX_MESSAGE_LENGTH}
-            </span>
-            {streaming ? (
-              <button type="button" className="button" onClick={() => stopRef.current?.abort()}>
-                Stop
-              </button>
-            ) : (
-              <button
-                type="submit"
-                className="button primary"
-                disabled={!!setupError || tooLong || attaching || (text.trim() === "" && attached.length === 0)}
-              >
-                Send
-              </button>
-            )}
+            <div className="flex items-center gap-4">
+              <span className={`text-xs font-medium ${tooLong ? "text-red-400" : "text-slate-500"}`}>
+                {text.length} / {MAX_MESSAGE_LENGTH}
+              </span>
+              {streaming ? (
+                <button
+                  type="button"
+                  onClick={() => stopRef.current?.abort()}
+                  title="Stop the reply"
+                  className="flex h-9 cursor-pointer items-center gap-2 rounded-xl border border-slate-600 bg-slate-700 px-3 text-sm font-medium text-slate-200 transition-colors hover:bg-slate-600"
+                >
+                  <Square size={12} className="fill-current" />
+                  Stop
+                </button>
+              ) : (
+                <button
+                  type="submit"
+                  disabled={!canSend}
+                  title="Send"
+                  aria-label="Send"
+                  className={`flex h-9 w-9 items-center justify-center rounded-xl border-0 transition-all duration-200 ${
+                    canSend
+                      ? "cursor-pointer bg-teal-600 text-white shadow-lg shadow-teal-900/40 hover:bg-teal-500"
+                      : "cursor-not-allowed bg-slate-700 text-slate-500"
+                  }`}
+                >
+                  <Send size={16} className={canSend ? "ml-0.5" : ""} />
+                </button>
+              )}
+            </div>
           </div>
         </form>
-      </section>
+      </div>
     </main>
+  );
+}
+
+// One message. Mine on the right, Claude's on the left. The "chat-bubble" class in styles.css
+// styles the text inside (paragraphs, lists, code, pictures).
+function Bubble({ role, children }: { role: "user" | "assistant"; children: ReactNode }) {
+  return (
+    <div
+      className={`chat-bubble rounded-2xl border px-4 py-2.5 text-sm ${
+        role === "user"
+          ? "self-end whitespace-pre-wrap border-teal-500/25 bg-teal-600/15 text-slate-100"
+          : "self-start border-slate-700/60 bg-slate-800/80 text-slate-200"
+      }`}
+    >
+      {children}
+    </div>
   );
 }
 
