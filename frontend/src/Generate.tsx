@@ -17,6 +17,7 @@ import {
   ImageToVideoIcon,
   LayersIcon,
   MonitorIcon,
+  MusicIcon,
   PaperclipIcon,
   PencilIcon,
   PlayIcon,
@@ -134,6 +135,7 @@ const CATEGORIES: Category[] = [
   { id: "image", label: "Image", Icon: ImageIcon, matches: (p) => p.type === "image" },
   { id: "video", label: "Video", Icon: VideoIcon, matches: (p) => p.type === "video" && !hasImageInput(p) },
   { id: "image-to-video", label: "Image to Video", Icon: ImageToVideoIcon, matches: (p) => p.type === "video" && hasImageInput(p) },
+  { id: "music", label: "Music", Icon: MusicIcon, matches: (p) => p.type === "audio" }, // FRG-30
   { id: "3d", label: "3D", Icon: CubeIcon, matches: (p) => p.type === "3d" },
   { id: "edit", label: "Edit / Inpaint", Icon: PencilIcon, matches: (p) => p.type === "edit" },
   { id: "upscale", label: "Upscale", Icon: UpscaleIcon, matches: (p) => p.type === "upscale" },
@@ -570,7 +572,9 @@ export default function Generate({ startValues = null, onStartValuesUsed }: Gene
                   ? input.label
                   : preset.type === "video"
                     ? "Describe the motion, for example: the camera slowly zooms in while leaves blow past"
-                    : "Describe the image, for example: a red car by the sea at sunset"
+                    : preset.type === "audio"
+                      ? "Describe the music, for example: calm lo-fi piano with soft rain, 80 bpm"
+                      : "Describe the image, for example: a red car by the sea at sunset"
               }
               disabled={running}
               style={index > 0 ? { marginTop: 12, minHeight: 80 } : undefined}
@@ -598,7 +602,7 @@ export default function Generate({ startValues = null, onStartValuesUsed }: Gene
               <PaperclipIcon size={19} />
             </button>
             <div className="select-wrap">
-              {preset.type === "video" ? <VideoIcon size={18} /> : <ImageIcon size={18} />}
+              {preset.type === "video" ? <VideoIcon size={18} /> : preset.type === "audio" ? <MusicIcon size={18} /> : <ImageIcon size={18} />}
               <select
                 className="select"
                 value={presetId}
@@ -715,7 +719,7 @@ export default function Generate({ startValues = null, onStartValuesUsed }: Gene
 
       <section className="result panel">
         <div className="section-head">
-          {shownKind === "video" ? <VideoIcon size={22} /> : <ImageIcon size={22} />}
+          {shownKind === "video" ? <VideoIcon size={22} /> : shownKind === "audio" ? <MusicIcon size={22} /> : <ImageIcon size={22} />}
           <h2>{RESULT_TITLES[shownKind]}</h2>
           <div className="right">
             {shown?.jobId && shown.kind === "image" && (

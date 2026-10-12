@@ -197,6 +197,13 @@ export const PlayIcon = (p: IconProps) => (
   </Svg>
 );
 
+export const PauseIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <rect x="6" y="4.5" width="4" height="15" rx="1" fill="currentColor" />
+    <rect x="14" y="4.5" width="4" height="15" rx="1" fill="currentColor" />
+  </Svg>
+);
+
 export const ChatIcon = (p: IconProps) => (
   <Svg {...p}>
     <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v8a2.5 2.5 0 0 1-2.5 2.5H10l-4.5 4v-4h0A1.5 1.5 0 0 1 4 14.5z" />
