@@ -56,7 +56,7 @@ export async function sendToHandler(req: Request, res: Response) {
       title: `${label}: ${from}`.slice(0, MAX_TITLE_LENGTH),
       column: "ready",
       createdBy: res.locals.username ?? null, // Set by requireLogin in auth.ts.
-      sourceJobId,
+      sourceJobId, // The card goes into the same project as this job (FRG-40, see createDraft).
       allowEmptyText: true,
       ...(toWrite.length > 0
         ? { error: `Write the ${toWrite.map((input) => input.label.toLowerCase()).join(" and ")} with Edit, then press Generate.` }

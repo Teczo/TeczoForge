@@ -160,6 +160,7 @@ export async function runChatTool(
       column: "ready",
       createdBy: context.username,
       conversationId: context.conversationId,
+      // No projectId: cards from chat go to "Unsorted" for now (FRG-40). FRG-42 changes this.
     });
     return {
       result: {
