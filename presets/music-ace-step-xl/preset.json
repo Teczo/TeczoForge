@@ -1,0 +1,15 @@
+{
+  "name": "Music (ACE-Step XL)",
+  "description": "ACE-Step 1.5 XL Turbo. Text to music, 30 seconds, 8 steps.",
+  "promptGuide": "Write the style as short comma-separated tags: genre, mood, instruments, vocal type, tempo feel. Example: calm lo-fi piano, soft rain, warm, instrumental. For songs with singing, put the words in Lyrics with section tags like [verse] and [chorus]. For music with no singing, leave Lyrics as [instrumental].",
+  "model": "ACE-Step 1.5 XL",
+  "type": "audio",
+  "experimental": true,
+  "inputs": [
+    { "key": "prompt", "label": "Style / tags", "kind": "text", "node": "94", "field": "tags" },
+    { "key": "lyrics", "label": "Lyrics", "kind": "text", "node": "94", "field": "lyrics", "default": "[instrumental]" },
+    { "key": "seed", "label": "Seed", "kind": "seed", "node": "109", "field": "value" },
+    { "key": "bpm", "label": "BPM", "kind": "number", "node": "94", "field": "bpm", "default": 95, "min": 40, "max": 200, "step": 1 }
+  ],
+  "output": { "node": "111" }
+}
