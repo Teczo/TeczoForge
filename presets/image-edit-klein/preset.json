@@ -1,0 +1,17 @@
+{
+  "id": "image-edit-klein",
+  "name": "Edit Image",
+  "description": "FLUX.2 klein 4B. Upload a picture and say what to change. The rest of the picture stays the same (4 steps, about 1 megapixel).",
+  "promptGuide": "Write the change as one short instruction, for example \"make the sky a sunset\" or \"remove the car\". Then say what must stay the same, for example \"keep the people, the road and the light as they are\". Do not describe the whole picture: the start image already shows it.",
+  "sendToLabel": "Edit",
+  "model": "FLUX.2 klein 4B",
+  "licence": "Apache 2.0",
+  "clientWork": "yes",
+  "type": "edit",
+  "inputs": [
+    { "key": "image", "label": "Start image", "kind": "image", "node": "76", "field": "image" },
+    { "key": "prompt", "label": "Instruction", "kind": "text", "node": "75:74", "field": "text" },
+    { "key": "seed", "label": "Seed", "kind": "seed", "node": "75:73", "field": "noise_seed" }
+  ],
+  "output": { "node": "9" }
+}
