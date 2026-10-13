@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { Project } from "./App";
-import { CloseIcon, FolderIcon } from "./Icons";
+import { Folder, X } from "lucide-react";
 
 // Small tools to tidy up projects (FRG-43).
 // - changeProject: rename or archive a project. Used by the Projects page (FRG-50), which replaced
@@ -60,7 +60,7 @@ export function MoveToProject({ what, projects, currentProjectId, onMove, onClos
         <div className="modal-head">
           <h2>Move {what} to project</h2>
           <button type="button" className="icon-button" onClick={onClose} title="Close">
-            <CloseIcon size={18} />
+            <X size={18} />
           </button>
         </div>
         {error && <p className="message error">{error}</p>}
@@ -70,7 +70,7 @@ export function MoveToProject({ what, projects, currentProjectId, onMove, onClos
           <div className="project-targets">
             {targets.map((project) => (
               <button key={project.id} type="button" className="button" onClick={() => move(project)} disabled={busy}>
-                <FolderIcon size={18} /> {project.name}
+                <Folder size={18} /> {project.name}
               </button>
             ))}
           </div>

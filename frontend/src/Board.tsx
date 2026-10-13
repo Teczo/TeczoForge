@@ -5,7 +5,7 @@ import SendToMenu from "./SendToMenu";
 import { defaultValues, Field, ImageBox, ProgressView, startFormValues, toInputs } from "./Generate";
 import PresetBadges, { confirmResearchOnly } from "./PresetBadges";
 import type { FormValues, Preset, Progress, StartValues } from "./Generate";
-import { CloseIcon, PlayIcon, SparklesIcon } from "./Icons";
+import { Play, Sparkles, X } from "lucide-react";
 import type { Project } from "./App";
 
 // The board (FRG-22): cards are prompts that are saved but not run yet.
@@ -239,10 +239,10 @@ export default function Board({ onOpenInGenerate, project }: BoardProps) {
         </div>
         <div className="button-row">
           <button className="button" onClick={generateAllReady} disabled={busy || readyCount === 0}>
-            <PlayIcon size={16} /> Generate all Ready ({readyCount})
+            <Play size={16} className="fill-current" /> Generate all Ready ({readyCount})
           </button>
           <button className="button primary" onClick={openAddForm} disabled={presets.length === 0}>
-            <SparklesIcon size={18} /> Add card
+            <Sparkles size={18} /> Add card
           </button>
         </div>
       </div>
@@ -337,7 +337,7 @@ function CardView(props: CardViewProps) {
           <Media url={card.imageUrl} kind={outputKind(card)} mode="thumbnail" alt={prompt} />
           {outputKind(card) === "video" && (
             <span className="video-tag">
-              <PlayIcon size={10} /> Video
+              <Play size={10} className="fill-current" /> Video
             </span>
           )}
         </div>
@@ -354,7 +354,7 @@ function CardView(props: CardViewProps) {
       {isDraft && (
         <div className="board-actions">
           <button className="button primary" onClick={props.onRun} disabled={busy}>
-            <SparklesIcon size={16} /> Generate
+            <Sparkles size={16} /> Generate
           </button>
           <button className="button" onClick={props.onEdit} disabled={busy}>
             Edit
@@ -438,7 +438,7 @@ export function CardForm({ presets, state, projectId, onClose, onSaved }: CardFo
         <div className="modal-head">
           <h2>{editing ? "Edit card" : "Add card"}</h2>
           <button type="button" className="icon-button" onClick={onClose} title="Close">
-            <CloseIcon size={18} />
+            <X size={18} />
           </button>
         </div>
 

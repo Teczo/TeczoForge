@@ -1,6 +1,6 @@
 import { lazy, Suspense, useRef, useState } from "react";
 import type { CSSProperties, KeyboardEvent, MouseEvent } from "react";
-import { CubeIcon, DownloadIcon, MusicIcon, PauseIcon, PlayIcon } from "./Icons";
+import { Box, Download, Music, Pause, Play } from "lucide-react";
 
 // The 3D viewer (FRG-27) uses the large "three" package. It is loaded only the first time a
 // model is shown in full, so pages without a 3D result stay small.
@@ -61,7 +61,7 @@ export default function Media({ url, kind, alt, style, mode }: MediaProps) {
     if (mode === "full") {
       const loading = (
         <div className="file-tile" style={style} title={alt}>
-          <CubeIcon size={56} />
+          <Box size={56} />
           <span>Loading 3D viewer...</span>
         </div>
       );
@@ -74,7 +74,7 @@ export default function Media({ url, kind, alt, style, mode }: MediaProps) {
     // A thumbnail sits inside a button, so it cannot hold a link. Its detail view has Download.
     return (
       <div className="file-tile" style={style} title={alt}>
-        <CubeIcon size={36} />
+        <Box size={36} />
         <span className="file-tile-name">{fileName}</span>
       </div>
     );
@@ -95,7 +95,7 @@ function AudioPlayer({ url, fileName, alt, style }: { url: string; fileName: str
   const [seconds, setSeconds] = useState<number | null>(null);
   return (
     <div className="file-tile audio-player" style={style} title={alt}>
-      <MusicIcon size={56} />
+      <Music size={56} />
       <span className="file-tile-name">{fileName}</span>
       {seconds !== null && <span className="audio-length">{seconds.toFixed(1)} seconds</span>}
       <audio
@@ -108,7 +108,7 @@ function AudioPlayer({ url, fileName, alt, style }: { url: string; fileName: str
         }}
       />
       <a className="button" href={url} download>
-        <DownloadIcon size={18} /> Download
+        <Download size={18} /> Download
       </a>
     </div>
   );
@@ -132,7 +132,7 @@ function AudioTile({ url, fileName, alt, style }: { url: string; fileName: strin
 
   return (
     <div className="file-tile audio-tile" style={style} title={alt}>
-      <MusicIcon size={36} />
+      <Music size={36} />
       <span className="file-tile-name">{fileName}</span>
       <span
         role="button"
@@ -144,7 +144,7 @@ function AudioTile({ url, fileName, alt, style }: { url: string; fileName: strin
           if (event.key === "Enter" || event.key === " ") toggle(event);
         }}
       >
-        {playing ? <PauseIcon size={16} /> : <PlayIcon size={16} />}
+        {playing ? <Pause size={16} className="fill-current" /> : <Play size={16} className="fill-current" />}
       </span>
       <audio
         ref={audio}

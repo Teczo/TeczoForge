@@ -107,7 +107,7 @@ export default function AppShell(props: AppShellProps) {
       <div className="min-w-0 flex-1">
         {/* Top right: is the backend and ComfyUI running? Same height as the old header, so the
             pages' sticky parts (they use --header-h in styles.css) still line up. */}
-        <header className="sticky top-0 z-20 flex h-(--header-h) shrink-0 items-center justify-end bg-[#060b11]/90 px-6 backdrop-blur-sm">
+        <header className="sticky top-0 z-20 flex h-(--header-h) shrink-0 items-center justify-end bg-slate-900/90 px-6 backdrop-blur-sm">
           <div className="flex items-center gap-4 rounded-full border border-slate-700/50 bg-slate-800/50 px-4 py-1.5">
             <StatusLine label="Backend" status={props.backend} />
             <div className="h-3 w-px bg-slate-700" />
