@@ -32,7 +32,6 @@ type AppShellProps = {
   project: Project | null | undefined;
   onChooseProject: (project: Project) => void;
   onCreatedProject: (project: Project) => void;
-  onManageProjects: () => void;
   conversationId: string | null; // The chat open on the Chat page (FRG-47).
   chatListVersion: number; // Goes up when the Chat page changed the chat list.
   children: ReactNode;
@@ -91,7 +90,6 @@ export default function AppShell(props: AppShellProps) {
             project={props.project}
             onChoose={props.onChooseProject}
             onCreated={props.onCreatedProject}
-            onManage={props.onManageProjects}
           />
         </div>
 
@@ -156,21 +154,19 @@ function StatusLine({ label, status }: { label: string; status: Status }) {
   );
 }
 
-// Value of the last items in the picker. Not project ids, so they can never clash with one.
+// Value of the last item in the picker. Not a project id, so it can never clash with one.
 const NEW_PROJECT = "new";
-const MANAGE_PROJECTS = "manage";
 
 type ProjectPickerProps = {
   projects: Project[];
   project: Project | null | undefined;
   onChoose: (project: Project) => void;
   onCreated: (project: Project) => void;
-  onManage: () => void; // "Manage projects..." (FRG-43).
 };
 
 // The current project (FRG-41). New files go into it, and the gallery shows only its files.
-// "+ New project" asks for a name and makes the project. "Manage projects..." opens the dialog.
-function ProjectPicker({ projects, project, onChoose, onCreated, onManage }: ProjectPickerProps) {
+// "+ New project" asks for a name and makes the project. Rename and archive are on the Projects page (FRG-50).
+function ProjectPicker({ projects, project, onChoose, onCreated }: ProjectPickerProps) {
   const [creating, setCreating] = useState(false);
 
   async function createProject() {
@@ -197,10 +193,6 @@ function ProjectPicker({ projects, project, onChoose, onCreated, onManage }: Pro
   function onChange(value: string) {
     if (value === NEW_PROJECT) {
       createProject();
-      return;
-    }
-    if (value === MANAGE_PROJECTS) {
-      onManage();
       return;
     }
     const chosen = projects.find((p) => p.id === value);
@@ -242,7 +234,6 @@ function ProjectPicker({ projects, project, onChoose, onCreated, onManage }: Pro
             </option>
           ))}
           {project !== undefined && <option value={NEW_PROJECT}>+ New project</option>}
-          {project !== undefined && <option value={MANAGE_PROJECTS}>Manage projects...</option>}
         </select>
         <ChevronDown size={16} className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-slate-500" />
       </div>

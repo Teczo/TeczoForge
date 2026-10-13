@@ -8,7 +8,7 @@ import type { Attachment } from "./Chat";
 import Login from "./Login";
 import AppShell from "./AppShell";
 import type { Page, Status } from "./AppShell";
-import { ManageProjects } from "./ProjectDialogs";
+import ProjectsPage from "./ProjectsPage";
 
 // Which page to show comes from the address: #/generate, #/board, #/projects,
 // #/gallery (or #/gallery/<job id> to open one job), or the Chat page, which is the home page:
@@ -77,8 +77,6 @@ export default function App() {
   // and null if the projects could not be loaded (MongoDB offline): then pages work without a project.
   const [projects, setProjects] = useState<Project[]>([]);
   const [project, setProject] = useState<Project | null | undefined>(undefined);
-  // "Manage projects" is open (FRG-43).
-  const [managing, setManaging] = useState(false);
   // A project asked for by a link before the projects were loaded (FRG-42). It wins over the remembered one.
   const wantedProjectRef = useRef<string | null>(null);
   // Set by "Use again" in the gallery: the preset and values to fill into the Generate page.
@@ -212,7 +210,7 @@ export default function App() {
     if (found && found.id !== project?.id) chooseProject(found);
   }
 
-  // A project was renamed or archived in "Manage projects" (FRG-43): load the list again.
+  // A project was made, renamed or archived on the Projects page (FRG-50): load the list again.
   // The current project keeps its new name. If it was archived, "Unsorted" is chosen.
   async function reloadProjects() {
     try {
@@ -251,7 +249,6 @@ export default function App() {
       project={project}
       onChooseProject={chooseProject}
       onCreatedProject={addProject}
-      onManageProjects={() => setManaging(true)}
       conversationId={page === "chat" ? conversationId : null}
       chatListVersion={chatListVersion}
     >
@@ -277,21 +274,17 @@ export default function App() {
           onShowProject={showProjectOf}
         />
       ) : page === "projects" ? (
-        <ProjectsPlaceholder />
+        <ProjectsPage
+          currentProjectId={project?.id}
+          onOpen={(chosen) => {
+            chooseProject(chosen);
+            window.location.hash = "#/chat"; // A tile opens the Chat page of that project.
+          }}
+          onChanged={reloadProjects}
+        />
       ) : (
         <Generate startValues={useAgain} onStartValuesUsed={() => setUseAgain(null)} project={project} />
       )}
-      {managing && <ManageProjects onClose={() => setManaging(false)} onChanged={reloadProjects} />}
     </AppShell>
-  );
-}
-
-// The Projects page is built in FRG-50. Until then, projects are managed from the picker in the sidebar.
-function ProjectsPlaceholder() {
-  return (
-    <div className="flex min-h-[calc(100vh-var(--header-h))] flex-col items-center justify-center px-6 pb-16 text-center text-slate-500">
-      <span className="text-lg font-medium text-slate-300">Projects</span>
-      <span className="mt-2 text-sm">This page is coming soon. For now, use "Manage projects..." in the project picker.</span>
-    </div>
   );
 }
