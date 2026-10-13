@@ -1,7 +1,7 @@
 import { MongoClient } from "mongodb";
 import type { CollationOptions, Collection, Db, Filter } from "mongodb";
 import { HttpError } from "./httpError.js";
-import { kindOfFile } from "./outputKinds.js";
+import { IMAGE_ENDINGS, kindOfFile } from "./outputKinds.js";
 import type { OutputKind } from "./outputKinds.js";
 
 // The connection string is a secret. Never print it.
@@ -302,6 +302,86 @@ export async function countJobsByProject(): Promise<Map<string, number>> {
     return new Map(rows.map((row) => [row._id, row.count]));
   } catch (error) {
     console.warn(`Warning: could not count the jobs. ${safeMessage(error)}`);
+    throw new HttpError(503, "Projects are not available because MongoDB cannot be reached.");
+  }
+}
+
+// What a project tile shows (FRG-49). See summarizeProjects.
+export type ProjectSummary = {
+  jobCount: number; // Jobs, not counting board cards that have not run (same as countJobsByProject).
+  chatCount: number; // Conversations, of all users.
+  cardCount: number; // Board cards that have not run yet (drafts).
+  lastActivity: Date | null; // The newest createdAt of its jobs and cards, or updatedAt of its chats.
+  cover: string | null; // The address of the newest finished picture, for example "/api/outputs/....png".
+};
+
+// A picture job: outputKind "image", or (older jobs, before FRG-29) a file with a picture ending.
+const IMAGE_URL_PATTERN = new RegExp(`\\.(${IMAGE_ENDINGS.join("|")})$`, "i");
+
+// The tile details of every project, in three aggregations (not one query per project). Key: project id.
+// A project with nothing in it is not in the map.
+export async function summarizeProjects(): Promise<Map<string, ProjectSummary>> {
+  try {
+    const jobs = await getJobsCollection();
+    const conversations = await getConversationsCollection();
+    const [jobRows, coverRows, chatRows] = await Promise.all([
+      jobs
+        .aggregate<{ _id: string; jobCount: number; cardCount: number; last: Date }>([
+          {
+            $group: {
+              _id: "$projectId",
+              jobCount: { $sum: { $cond: [{ $eq: ["$status", "draft"] }, 0, 1] } },
+              cardCount: { $sum: { $cond: [{ $eq: ["$status", "draft"] }, 1, 0] } },
+              last: { $max: "$createdAt" },
+            },
+          },
+        ])
+        .toArray(),
+      jobs
+        .aggregate<{ _id: string; cover: string }>([
+          {
+            $match: {
+              status: "done",
+              imageUrl: { $type: "string" },
+              $or: [{ outputKind: "image" }, { outputKind: { $exists: false }, imageUrl: IMAGE_URL_PATTERN }],
+            },
+          },
+          { $sort: { createdAt: -1 } },
+          { $group: { _id: "$projectId", cover: { $first: "$imageUrl" } } },
+        ])
+        .toArray(),
+      conversations
+        .aggregate<{ _id: string; chatCount: number; last: Date }>([
+          { $group: { _id: "$projectId", chatCount: { $sum: 1 }, last: { $max: "$updatedAt" } } },
+        ])
+        .toArray(),
+    ]);
+
+    const summaries = new Map<string, ProjectSummary>();
+    const get = (id: string) => {
+      let summary = summaries.get(id);
+      if (!summary) {
+        summary = { jobCount: 0, chatCount: 0, cardCount: 0, lastActivity: null, cover: null };
+        summaries.set(id, summary);
+      }
+      return summary;
+    };
+    const newest = (a: Date | null, b: Date | null) => (a && b ? (a > b ? a : b) : (a ?? b));
+    for (const row of jobRows) {
+      const summary = get(row._id);
+      summary.jobCount = row.jobCount;
+      summary.cardCount = row.cardCount;
+      summary.lastActivity = newest(summary.lastActivity, row.last ?? null);
+    }
+    for (const row of coverRows) get(row._id).cover = row.cover;
+    for (const row of chatRows) {
+      const summary = get(row._id);
+      summary.chatCount = row.chatCount;
+      summary.lastActivity = newest(summary.lastActivity, row.last ?? null);
+    }
+    return summaries;
+  } catch (error) {
+    console.warn(`Warning: could not read the project details. ${safeMessage(error)}`);
     throw new HttpError(503, "Projects are not available because MongoDB cannot be reached.");
   }
 }
