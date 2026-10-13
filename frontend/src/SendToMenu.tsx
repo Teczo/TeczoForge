@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { Preset, StartValues } from "./Generate";
-import { ChevronDownIcon } from "./Icons";
+import { ChevronDown } from "lucide-react";
 
 // "Send to" (FRG-26): use a finished picture as the start image of another preset.
 // The menu lists every preset with an image input, so a new preset folder shows up here with no
@@ -72,7 +72,7 @@ export default function SendToMenu({ jobId, onOpenInGenerate, align = "left" }: 
   return (
     <div className="send-to" onClick={(event) => event.stopPropagation()}>
       <button type="button" className="button" onClick={() => setOpen(!open)} disabled={busy} aria-expanded={open}>
-        {busy ? "Sending..." : "Send to"} <ChevronDownIcon size={16} />
+        {busy ? "Sending..." : "Send to"} <ChevronDown size={16} />
       </button>
       {open && (
         <div className={`send-to-menu ${align}`}>

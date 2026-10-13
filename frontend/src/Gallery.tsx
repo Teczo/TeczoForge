@@ -6,7 +6,7 @@ import type { Project } from "./App";
 import { MoveToProject } from "./ProjectDialogs";
 import Media, { outputKind } from "./Media";
 import SendToMenu from "./SendToMenu";
-import { ArrowLeftIcon, ArrowRightIcon, ChatIcon, DownloadIcon, FolderIcon, PlayIcon, RepeatIcon } from "./Icons";
+import { ArrowLeft, ArrowRight, Download, Folder, MessageSquare, Play, Repeat } from "lucide-react";
 
 // How many results the gallery shows: the newest ones.
 const GALLERY_LIMIT = 100;
@@ -161,7 +161,7 @@ export default function Gallery({ onUseAgain, onUseInChat, openJobId = null, pro
           <h1>Gallery</h1>
           {project && (
             <span className="project-name" title="The project chosen in the header">
-              <FolderIcon size={16} /> {project.name}
+              <Folder size={16} /> {project.name}
             </span>
           )}
           <p>
@@ -175,7 +175,7 @@ export default function Gallery({ onUseAgain, onUseInChat, openJobId = null, pro
               <Media url={job.imageUrl!} kind={outputKind(job)} mode="thumbnail" alt={String(job.inputs.prompt ?? "")} />
               {outputKind(job) === "video" && (
                 <span className="video-tag">
-                  <PlayIcon size={10} /> Video
+                  <Play size={10} className="fill-current" /> Video
                 </span>
               )}
               <span className="tile-info">
@@ -275,7 +275,7 @@ function Detail({ job, onBack, onUseAgain, onUseInChat, onSendToGenerate, projec
     <>
       <div className="gallery-head">
         <button className="button" onClick={onBack}>
-          <ArrowLeftIcon size={18} /> Back to gallery
+          <ArrowLeft size={18} /> Back to gallery
         </button>
       </div>
       <div className="detail">
@@ -289,7 +289,7 @@ function Detail({ job, onBack, onUseAgain, onUseInChat, onSendToGenerate, projec
                 ))}
                 <figcaption>Start image</figcaption>
               </figure>
-              <ArrowRightIcon size={26} />
+              <ArrowRight size={26} />
               <figure>
                 <Media url={job.imageUrl!} kind={outputKind(job)} mode="full" alt={String(prompt ?? "")} />
                 <figcaption>Result</figcaption>
@@ -362,21 +362,21 @@ function Detail({ job, onBack, onUseAgain, onUseInChat, onSendToGenerate, projec
           </dl>
           <div className="button-row">
             <button className="button primary" onClick={onUseAgain}>
-              <RepeatIcon size={18} /> Use again
+              <Repeat size={18} /> Use again
             </button>
             {outputKind(job) === "image" && job.id && <SendToMenu jobId={job.id} onOpenInGenerate={onSendToGenerate} />}
             {outputKind(job) === "image" && (
               <button className="button" onClick={useInChat}>
-                <ChatIcon size={18} /> Use in chat
+                <MessageSquare size={18} /> Use in chat
               </button>
             )}
             <a className="button" href={job.imageUrl!} download>
-              <DownloadIcon size={18} /> Download
+              <Download size={18} /> Download
             </a>
             {/* Jobs from before FRG-20 have no id, so they cannot be moved. */}
             {job.id && projects.length > 0 && (
               <button className="button" onClick={() => setMoving(true)}>
-                <FolderIcon size={18} /> Move to project...
+                <Folder size={18} /> Move to project...
               </button>
             )}
           </div>

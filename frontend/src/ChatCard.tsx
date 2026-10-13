@@ -6,7 +6,7 @@ import { CardForm } from "./Board";
 import type { FormState } from "./Board";
 import { ProgressView, startFormValues } from "./Generate";
 import type { Preset, Progress, StartValues } from "./Generate";
-import { SparklesIcon } from "./Icons";
+import { Sparkles } from "lucide-react";
 
 // A board card that Claude made in the chat (FRG-24). It is the same card as on the board.
 // Generate here runs it, the same as on the board. While it runs it shows progress,
@@ -140,7 +140,7 @@ export default function ChatCard({ card: ref, presets, onOpenInGenerate }: ChatC
         {card?.status === "draft" && (
           <>
             <button className="button primary" onClick={generate} disabled={busy}>
-              <SparklesIcon size={16} /> Generate
+              <Sparkles size={16} /> Generate
             </button>
             <button className="button" onClick={openEdit} disabled={busy || !preset}>
               Edit

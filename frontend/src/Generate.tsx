@@ -5,31 +5,7 @@ import type { OutputKind } from "./Media";
 import SendToMenu from "./SendToMenu";
 import PresetBadges, { confirmResearchOnly, formatSeconds } from "./PresetBadges";
 import type { Project } from "./App";
-import {
-  ArrowRightIcon,
-  BoltIcon,
-  ChevronDownIcon,
-  ChevronUpIcon,
-  CubeIcon,
-  DownloadIcon,
-  ExpandIcon,
-  FolderIcon,
-  GearIcon,
-  ImageIcon,
-  ImageToVideoIcon,
-  LayersIcon,
-  MonitorIcon,
-  MusicIcon,
-  PaperclipIcon,
-  PencilIcon,
-  PlayIcon,
-  PresetsIcon,
-  ShuffleIcon,
-  SparklesIcon,
-  UploadIcon,
-  UpscaleIcon,
-  VideoIcon,
-} from "./Icons";
+import { ArrowRight, Box, ChevronDown, ChevronUp, Download, Film, Folder, Image, Layers, Maximize, Monitor, Music, Paperclip, Pencil, Play, Scaling, Settings, Shuffle, Sparkles, Tag, Upload, Video, Zap } from "lucide-react";
 
 // How often to ask the backend where the job is.
 const PROGRESS_INTERVAL_MS = 1500;
@@ -134,16 +110,16 @@ function hasImageInput(preset: Preset): boolean {
 // "type": "upscale" turns on the Upscale item by itself, with no code change.
 type Category = { id: string; label: string; Icon: (p: { size?: number }) => ReactNode; matches: (p: Preset) => boolean };
 const CATEGORIES: Category[] = [
-  { id: "image", label: "Image", Icon: ImageIcon, matches: (p) => p.type === "image" },
-  { id: "video", label: "Video", Icon: VideoIcon, matches: (p) => p.type === "video" && !hasImageInput(p) },
-  { id: "image-to-video", label: "Image to Video", Icon: ImageToVideoIcon, matches: (p) => p.type === "video" && hasImageInput(p) },
-  { id: "music", label: "Music", Icon: MusicIcon, matches: (p) => p.type === "audio" }, // FRG-30
-  { id: "3d", label: "3D", Icon: CubeIcon, matches: (p) => p.type === "3d" },
-  { id: "edit", label: "Edit / Inpaint", Icon: PencilIcon, matches: (p) => p.type === "edit" },
-  { id: "upscale", label: "Upscale", Icon: UpscaleIcon, matches: (p) => p.type === "upscale" },
+  { id: "image", label: "Image", Icon: Image, matches: (p) => p.type === "image" },
+  { id: "video", label: "Video", Icon: Video, matches: (p) => p.type === "video" && !hasImageInput(p) },
+  { id: "image-to-video", label: "Image to Video", Icon: Film, matches: (p) => p.type === "video" && hasImageInput(p) },
+  { id: "music", label: "Music", Icon: Music, matches: (p) => p.type === "audio" }, // FRG-30
+  { id: "3d", label: "3D", Icon: Box, matches: (p) => p.type === "3d" },
+  { id: "edit", label: "Edit / Inpaint", Icon: Pencil, matches: (p) => p.type === "edit" },
+  { id: "upscale", label: "Upscale", Icon: Scaling, matches: (p) => p.type === "upscale" },
 ];
 // Presets with a type none of the groups above know. Only shown when there are some.
-const OTHER: Category = { id: "other", label: "Other", Icon: SparklesIcon, matches: () => true };
+const OTHER: Category = { id: "other", label: "Other", Icon: Sparkles, matches: () => true };
 
 function categoryOf(preset: Preset): Category {
   return CATEGORIES.find((c) => c.matches(preset)) ?? OTHER;
@@ -529,7 +505,7 @@ export default function Generate({ startValues = null, onStartValuesUsed, projec
             return (
               <div key={model.name} className={`model ${active ? "active" : ""}`}>
                 <div className="model-thumb" style={{ background: `linear-gradient(135deg, ${model.colors})` }}>
-                  <SparklesIcon size={22} />
+                  <Sparkles size={22} />
                 </div>
                 <div className="model-text">
                   <div className="model-name">{model.name}</div>
@@ -545,11 +521,11 @@ export default function Generate({ startValues = null, onStartValuesUsed, projec
       <form className="create panel" onSubmit={handleSubmit}>
         <div className="create-section">
           <div className="section-head">
-            <SparklesIcon size={24} />
+            <Sparkles size={24} />
             <h2>Describe your imagination...</h2>
             <div className="right">
               <button type="button" className="ghost-button" disabled title="Coming soon">
-                <PresetsIcon size={18} /> Presets <span className="soon">Soon</span>
+                <Tag size={18} /> Presets <span className="soon">Soon</span>
               </button>
             </div>
           </div>
@@ -605,10 +581,10 @@ export default function Generate({ startValues = null, onStartValuesUsed, projec
               disabled={running || (!imageInput && !presetWithImage)}
               title={imageInput || presetWithImage ? "Add a picture" : "No preset in this group takes a picture"}
             >
-              <PaperclipIcon size={19} />
+              <Paperclip size={19} />
             </button>
             <div className="select-wrap">
-              {preset.type === "video" ? <VideoIcon size={18} /> : preset.type === "audio" ? <MusicIcon size={18} /> : <ImageIcon size={18} />}
+              {preset.type === "video" ? <Video size={18} /> : preset.type === "audio" ? <Music size={18} /> : <Image size={18} />}
               <select
                 className="select"
                 value={presetId}
@@ -622,7 +598,7 @@ export default function Generate({ startValues = null, onStartValuesUsed, projec
                   </option>
                 ))}
               </select>
-              <ChevronDownIcon size={18} />
+              <ChevronDown size={18} />
             </div>
             {prompt && (
               <span className={`char-count ${promptLength > MAX_TEXT_LENGTH ? "over" : ""}`}>
@@ -641,14 +617,14 @@ export default function Generate({ startValues = null, onStartValuesUsed, projec
 
         <div className="create-section">
           <div className="section-head">
-            <BoltIcon size={22} />
+            <Zap size={22} />
             <h3>Quick Prompts</h3>
             <span className="soon" style={{ marginLeft: 0 }}>
               Soon
             </span>
             <div className="right">
               <button type="button" className="ghost-button" disabled title="Coming soon">
-                View more <ArrowRightIcon size={16} />
+                View more <ArrowRight size={16} />
               </button>
             </div>
           </div>
@@ -656,7 +632,7 @@ export default function Generate({ startValues = null, onStartValuesUsed, projec
             {QUICK_PROMPTS.map((q) => (
               <button key={q.label} type="button" className="quick-card" disabled title="Coming soon">
                 <div className="quick-art" style={{ background: `linear-gradient(135deg, ${q.colors})` }}>
-                  <ImageIcon size={22} />
+                  <Image size={22} />
                 </div>
                 <span>{q.label}</span>
               </button>
@@ -671,9 +647,9 @@ export default function Generate({ startValues = null, onStartValuesUsed, projec
             onClick={() => setShowSettings(!showSettings)}
             aria-expanded={showSettings}
           >
-            <GearIcon size={22} />
+            <Settings size={22} />
             <h3>Advanced Settings</h3>
-            {showSettings ? <ChevronUpIcon size={20} /> : <ChevronDownIcon size={20} />}
+            {showSettings ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
           </button>
           {showSettings && (
             <div className="settings-grid">
@@ -691,12 +667,12 @@ export default function Generate({ startValues = null, onStartValuesUsed, projec
                   Steps <span className="soon">Soon</span>
                 </span>
                 <div className="field-row">
-                  <LayersIcon size={22} />
+                  <Layers size={22} />
                   <div className="select-wrap" style={{ flex: 1 }}>
                     <select className="select" disabled style={{ width: "100%", paddingLeft: 12 }} title="Coming soon">
                       <option>Set by the preset</option>
                     </select>
-                    <ChevronDownIcon size={18} />
+                    <ChevronDown size={18} />
                   </div>
                 </div>
               </div>
@@ -717,12 +693,12 @@ export default function Generate({ startValues = null, onStartValuesUsed, projec
           {error && <p className="message error">{error}</p>}
           {warning && <p className="message warning">Warning: {warning}</p>}
           <button type="submit" className="generate-button" disabled={running || missingRequired || tooLong}>
-            <SparklesIcon size={26} />
+            <Sparkles size={26} />
             {running ? "Generating..." : "Generate"}
           </button>
           {project && (
             <p className="project-note">
-              <FolderIcon size={16} /> New files go to the project <strong>{project.name}</strong>
+              <Folder size={16} /> New files go to the project <strong>{project.name}</strong>
             </p>
           )}
         </div>
@@ -731,13 +707,13 @@ export default function Generate({ startValues = null, onStartValuesUsed, projec
       <section className="result panel">
         <div className="section-head">
           {shownKind === "video" ? (
-            <VideoIcon size={22} />
+            <Video size={22} />
           ) : shownKind === "audio" ? (
-            <MusicIcon size={22} />
+            <Music size={22} />
           ) : shownKind === "3d" ? (
-            <CubeIcon size={22} />
+            <Box size={22} />
           ) : (
-            <ImageIcon size={22} />
+            <Image size={22} />
           )}
           <h2>{RESULT_TITLES[shownKind]}</h2>
           <div className="right">
@@ -746,7 +722,7 @@ export default function Generate({ startValues = null, onStartValuesUsed, projec
             )}
             {shown && (
               <a className="icon-button" href={shown.url} download title="Download">
-                <DownloadIcon size={19} />
+                <Download size={19} />
               </a>
             )}
             <button
@@ -756,7 +732,7 @@ export default function Generate({ startValues = null, onStartValuesUsed, projec
               disabled={!shown}
               title="Full screen"
             >
-              <ExpandIcon size={19} />
+              <Maximize size={19} />
             </button>
           </div>
         </div>
@@ -766,7 +742,7 @@ export default function Generate({ startValues = null, onStartValuesUsed, projec
             <Media key={shown.url} url={shown.url} kind={shown.kind} mode="full" alt={shown.alt} />
           ) : (
             <div className="stage-empty">
-              <ImageIcon size={56} />
+              <Image size={56} />
               <div>Your result will show up here.</div>
             </div>
           )}
@@ -793,7 +769,7 @@ export default function Generate({ startValues = null, onStartValuesUsed, projec
                 <Media url={result.url} kind={result.kind} mode="thumbnail" alt={result.alt} />
                 {result.kind === "video" && (
                   <span className="video-tag">
-                    <PlayIcon size={10} /> Video
+                    <Play size={10} className="fill-current" /> Video
                   </span>
                 )}
               </button>
@@ -845,7 +821,7 @@ export function Field(props: { input: PresetInput; value: string; disabled: bool
               </option>
             ))}
           </select>
-          <ChevronDownIcon size={18} />
+          <ChevronDown size={18} />
         </div>
       );
     }
@@ -859,7 +835,7 @@ export function Field(props: { input: PresetInput; value: string; disabled: bool
   } else if (input.kind === "seed") {
     box = (
       <div className="field-row">
-        <CubeIcon size={22} />
+        <Box size={22} />
         <div className="input-with-button">
           <input
             className="input"
@@ -873,7 +849,7 @@ export function Field(props: { input: PresetInput; value: string; disabled: bool
           />
           {/* Empty the box: the backend then picks a random seed. */}
           <button type="button" onClick={() => onChange("")} disabled={disabled} title="Use a random seed">
-            <ShuffleIcon size={18} />
+            <Shuffle size={18} />
           </button>
         </div>
       </div>
@@ -881,7 +857,7 @@ export function Field(props: { input: PresetInput; value: string; disabled: bool
   } else if (input.kind === "number") {
     box = (
       <div className="field-row">
-        <MonitorIcon size={22} />
+        <Monitor size={22} />
         <input
           className="input"
           type="number"
@@ -973,7 +949,7 @@ export function ImageBox(props: { input: PresetInput; value: string; disabled: b
         <img className="upload-thumb" src={preview} alt="Chosen picture" />
       ) : (
         <span className="upload-thumb">
-          <UploadIcon size={24} />
+          <Upload size={24} />
         </span>
       )}
       <span>

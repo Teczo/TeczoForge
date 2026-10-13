@@ -5,7 +5,7 @@ import type { Mesh, Object3D } from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
-import { CubeIcon, DownloadIcon } from "./Icons";
+import { Box, Download } from "lucide-react";
 
 // The 3D viewer (FRG-27). Shows a .glb model: drag to rotate, scroll or pinch to zoom,
 // right-drag to move. "Reset view" goes back to the first view.
@@ -111,7 +111,7 @@ export default function ModelViewer({ url, alt, style }: ModelViewerProps) {
       <div className="model-viewer-canvas" ref={box} />
       {state !== "ready" && (
         <div className="model-viewer-note">
-          <CubeIcon size={48} />
+          <Box size={48} />
           <span>{state === "loading" ? "Loading 3D model..." : "This 3D model could not be shown. Download it to open it in another program."}</span>
           <span className="file-tile-name">{fileName}</span>
         </div>
@@ -124,7 +124,7 @@ export default function ModelViewer({ url, alt, style }: ModelViewerProps) {
           </button>
         )}
         <a className="button" href={url} download>
-          <DownloadIcon size={18} /> Download
+          <Download size={18} /> Download
         </a>
       </div>
     </div>
