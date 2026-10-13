@@ -26,6 +26,9 @@ const FILE_TYPES: Record<string, { kind: OutputKind; contentType: string }> = {
   glb: { kind: "3d", contentType: "model/gltf-binary" },
 };
 
+// The endings of picture files, for example "png" (FRG-49: the cover of a project tile).
+export const IMAGE_ENDINGS = Object.keys(FILE_TYPES).filter((ending) => FILE_TYPES[ending].kind === "image");
+
 // The file ending without the dot, in lowercase, for example "png". Empty if there is none.
 function endingOf(fileName: string): string {
   return path.extname(fileName).slice(1).toLowerCase();

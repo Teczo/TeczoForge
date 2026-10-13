@@ -111,7 +111,7 @@ Backend (Express, 127.0.0.1:4000) ──► ComfyUI (127.0.0.1:8188)   HTTP + on
 | PATCH | `/api/drafts/:id` | yes | Change `title`, `inputs` or `column`. Only while it is a draft, and only by who made it (others get 403) |
 | DELETE | `/api/drafts/:id` | yes | Delete a card. Only while it is a draft, and only by who made it (others get 403) |
 | POST | `/api/drafts/:id/run` | yes | Check the inputs again, then queue the card like `/api/jobs`. Answers `{ jobId }` |
-| GET | `/api/projects` | yes | Projects that are not archived, sorted by name. "Unsorted" is always there. `?counts=1` adds `jobCount` (jobs, not counting cards that have not run) (FRG-43) |
+| GET | `/api/projects` | yes | Projects that are not archived, sorted by name. "Unsorted" is always there. `?counts=1` adds `jobCount` (jobs, not counting cards that have not run) (FRG-43). `?summary=1` adds the tile details: `jobCount`, `chatCount` (all users), `cardCount` (cards not run yet), `lastActivityAt` (newest job, card or chat, else the project's `createdAt`) and `cover` (address of the newest finished picture, or `null`) (FRG-49) |
 | POST | `/api/projects` | yes | New project: `{ name }`. Empty, longer than 60 characters, or already used (any capital letters, also archived ones) answers 400 |
 | PATCH | `/api/projects/:id` | yes | Rename or archive: `{ name?, archived? }`. "Unsorted" answers 400 |
 | GET | `/api/chat/status` | yes | `{ ready: true }`, or `{ ready: false, error: "Chat is not set up..." }` |

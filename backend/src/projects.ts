@@ -8,6 +8,7 @@ import {
   getUnsortedProjectId,
   PROJECT_NAME_COLLATION,
   safeMessage,
+  summarizeProjects,
   UNSORTED_PROJECT_NAME,
 } from "./db.js";
 import type { Project } from "./db.js";
@@ -100,7 +101,11 @@ export async function projectForNewItem(projectId: unknown, sourceJobId?: string
 }
 
 // GET /api/projects
-//   ?counts=1  also "jobCount" on each project: its jobs, not counting board cards that have not run (FRG-43)
+//   ?counts=1   also "jobCount" on each project: its jobs, not counting board cards that have not run (FRG-43)
+//   ?summary=1  the details for a project tile (FRG-49): "jobCount" (as above), "chatCount" (chats of
+//               all users), "cardCount" (board cards that have not run), "lastActivityAt" (the newest
+//               time of its jobs, cards or chats, or the project's createdAt), and "cover" (the address
+//               of its newest finished picture, or null)
 // Answer: { "projects": [...] }: every project that is not archived, sorted by name
 // (capital letters do not matter). "Unsorted" is never archived, so it is always in the list.
 export async function listProjectsHandler(req: Request, res: Response) {
@@ -111,6 +116,23 @@ export async function listProjectsHandler(req: Request, res: Response) {
         .sort({ name: 1 })
         .toArray(),
     );
+    if (req.query.summary === "1") {
+      const summaries = await summarizeProjects();
+      res.json({
+        projects: projects.map((project) => {
+          const summary = summaries.get(project.id);
+          return {
+            ...project,
+            jobCount: summary?.jobCount ?? 0,
+            chatCount: summary?.chatCount ?? 0,
+            cardCount: summary?.cardCount ?? 0,
+            lastActivityAt: summary?.lastActivity ?? project.createdAt, // An empty project: when it was made.
+            cover: summary?.cover ?? null,
+          };
+        }),
+      });
+      return;
+    }
     if (req.query.counts === "1") {
       const counts = await countJobsByProject();
       res.json({ projects: projects.map((project) => ({ ...project, jobCount: counts.get(project.id) ?? 0 })) });
