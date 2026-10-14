@@ -152,8 +152,13 @@ export default function ChatCard({ card: ref, presets, onOpenInGenerate }: ChatC
             Open in gallery
           </a>
         )}
-        {card?.status === "done" && card.imageUrl && outputKind(card) === "image" && (
-          <SendToMenu jobId={ref.id} onOpenInGenerate={onOpenInGenerate} />
+        {card?.status === "done" && card.imageUrl && (outputKind(card) === "image" || outputKind(card) === "video") && (
+          <SendToMenu
+            jobId={ref.id}
+            onOpenInGenerate={onOpenInGenerate}
+            kind={outputKind(card) === "video" ? "video" : "image"}
+            presetId={card.presetId}
+          />
         )}
         <a className="button" href="#/board">
           Open board

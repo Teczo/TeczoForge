@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import Media, { outputKind } from "./Media";
 import type { OutputKind } from "./Media";
-import SendToMenu from "./SendToMenu";
+import SendToMenu, { ExtendButton } from "./SendToMenu";
 import PresetBadges, { confirmResearchOnly, formatSeconds } from "./PresetBadges";
 import type { Project } from "./App";
 import { ArrowRight, Box, ChevronDown, ChevronUp, Download, Film, Folder, Image, Layers, Maximize, Monitor, Music, Paperclip, Pencil, Play, Scaling, Settings, Shuffle, Sparkles, Tag, Upload, Video, Zap } from "lucide-react";
@@ -22,6 +22,7 @@ export type Progress =
 
 // The answer from GET /api/jobs/<id>. Only the parts this page uses.
 type JobAnswer = {
+  presetId: string | null;
   status: "draft" | "queued" | "running" | "done" | "failed" | "cancelled";
   inputs: Record<string, unknown>;
   imageUrl: string | null;
@@ -88,10 +89,24 @@ export function toInputs(preset: Preset, values: FormValues): Record<string, str
 
 // Values to start the form with, from "Use again" in the gallery.
 // From "Send to" (FRG-26) it also has the job whose result is the start image.
-export type StartValues = { presetId: string | null; inputs: Record<string, unknown>; sourceJobId?: string };
+// From "Extend" (FRG-54) it has the clip that the new clip continues.
+export type StartValues = { presetId: string | null; inputs: Record<string, unknown>; sourceJobId?: string; parentJobId?: string };
 
 // The note shown when the form was filled in by "Send to".
 const SEND_TO_NOTICE = "Filled in from Send to, with the picture as the start image. Write the prompt, then press Generate.";
+// The note shown when the form was filled in by "Extend" (FRG-54).
+const EXTEND_NOTICE =
+  "Filled in from Extend: the last frame of the clip is the start image, with the same prompt and a new seed. Change the prompt if you like, then press Generate.";
+
+// "Extend" (FRG-54): the clip to continue, the preset, and the last frame in the image input.
+// The new job remembers the clip only while that last frame is still the start image.
+type Parent = { jobId: string; presetId: string; imageKey: string; image: string };
+function parentOf(preset: Preset, start: StartValues): Parent | null {
+  const imageInput = preset.inputs.find((input) => input.kind === "image");
+  const image = imageInput && start.inputs[imageInput.key];
+  if (!start.parentJobId || !imageInput || typeof image !== "string") return null;
+  return { jobId: start.parentJobId, presetId: preset.id, imageKey: imageInput.key, image };
+}
 
 // The form for a preset, filled with the given values where the preset has that input.
 export function startFormValues(preset: Preset, start: StartValues): FormValues {
@@ -169,7 +184,7 @@ const QUICK_PROMPTS = [
 
 // A finished result shown on the right: made just now, or from the job history.
 // jobId: for "Send to" (FRG-26). kind: image, video, audio or 3d (FRG-29).
-type Result = { url: string; kind: OutputKind; alt: string; jobId?: string };
+type Result = { url: string; kind: OutputKind; alt: string; jobId?: string; presetId?: string | null };
 
 // The result panel's title for each kind of result.
 const RESULT_TITLES: Record<OutputKind, string> = {
@@ -197,6 +212,7 @@ export default function Generate({ startValues = null, onStartValuesUsed, projec
   // "Send to" (FRG-26): the job the start image came from, and the values it filled in.
   // The new job remembers it only while those values are still in the form.
   const [source, setSource] = useState<{ jobId: string; presetId: string; inputs: Record<string, unknown> } | null>(null);
+  const [parent, setParent] = useState<Parent | null>(null);
   const [presetId, setPresetId] = useState("");
   const [values, setValues] = useState<FormValues>({});
   const [submitting, setSubmitting] = useState(false);
@@ -231,7 +247,10 @@ export default function Generate({ startValues = null, onStartValuesUsed, projec
           if (startValues && startPreset) {
             setPresetId(startPreset.id);
             setValues(startFormValues(startPreset, startValues));
-            if (startValues.sourceJobId) {
+            setParent(parentOf(startPreset, startValues));
+            if (startValues.parentJobId) {
+              setNotice(EXTEND_NOTICE);
+            } else if (startValues.sourceJobId) {
               setSource({ jobId: startValues.sourceJobId, presetId: startPreset.id, inputs: startValues.inputs });
               setNotice(SEND_TO_NOTICE);
             } else {
@@ -261,11 +280,11 @@ export default function Generate({ startValues = null, onStartValuesUsed, projec
         const response = await fetch(`/api/jobs?status=done&limit=${RECENT_COUNT}`);
         if (!response.ok) return;
         const body: {
-          jobs: { id?: string; imageUrl: string | null; outputKind?: string; inputs: Record<string, unknown> }[];
+          jobs: { id?: string; presetId: string | null; imageUrl: string | null; outputKind?: string; inputs: Record<string, unknown> }[];
         } = await response.json();
         const results: Result[] = body.jobs
           .filter((job) => job.imageUrl)
-          .map((job) => ({ url: job.imageUrl!, kind: outputKind(job), alt: String(job.inputs.prompt ?? ""), jobId: job.id }));
+          .map((job) => ({ url: job.imageUrl!, kind: outputKind(job), alt: String(job.inputs.prompt ?? ""), jobId: job.id, presetId: job.presetId }));
         setRecent(results);
         setShown((current) => current ?? results[0] ?? null);
       } catch {
@@ -326,6 +345,7 @@ export default function Generate({ startValues = null, onStartValuesUsed, projec
             kind: outputKind(body),
             alt: String(body.inputs.prompt ?? ""),
             jobId: currentJobId,
+            presetId: body.presetId,
           };
           setShown(result);
           setRecent((current) => [result, ...current.filter((r) => r.url !== result.url)].slice(0, RECENT_COUNT));
@@ -372,14 +392,15 @@ export default function Generate({ startValues = null, onStartValuesUsed, projec
 
   const preset = presets?.find((p) => p.id === presetId) ?? null;
 
-  // "Send to -> Open in Generate" from the result panel: fill the form with the picture.
+  // "Send to -> Open in Generate" or "Extend" from the result panel: fill the form.
   function openFromSendTo(start: StartValues) {
     const target = presets?.find((p) => p.id === start.presetId);
     if (!target) return;
     setPresetId(target.id);
     setValues(startFormValues(target, start));
     if (start.sourceJobId) setSource({ jobId: start.sourceJobId, presetId: target.id, inputs: start.inputs });
-    setNotice(SEND_TO_NOTICE);
+    setParent(parentOf(target, start));
+    setNotice(start.parentJobId ? EXTEND_NOTICE : SEND_TO_NOTICE);
     setError(null);
     window.scrollTo({ top: 0 });
   }
@@ -406,6 +427,8 @@ export default function Generate({ startValues = null, onStartValuesUsed, projec
       source !== null &&
       source.presetId === preset.id &&
       Object.entries(source.inputs).every(([key, value]) => values[key] === String(value));
+    // Made with "Extend" (FRG-54): remember the clip while its last frame is still the start image.
+    const fromParent = parent !== null && parent.presetId === preset.id && values[parent.imageKey] === parent.image;
 
     try {
       const response = await fetch("/api/jobs", {
@@ -415,6 +438,7 @@ export default function Generate({ startValues = null, onStartValuesUsed, projec
           presetId: preset.id,
           inputs: toInputs(preset, values),
           ...(fromSource ? { sourceJobId: source!.jobId } : {}),
+          ...(fromParent ? { parentJobId: parent!.jobId } : {}),
           ...(project ? { projectId: project.id } : {}),
         }),
       });
@@ -733,6 +757,9 @@ export default function Generate({ startValues = null, onStartValuesUsed, projec
           <div className="right">
             {shown?.jobId && shown.kind === "image" && (
               <SendToMenu jobId={shown.jobId} onOpenInGenerate={openFromSendTo} align="right" />
+            )}
+            {shown?.jobId && shown.kind === "video" && (
+              <ExtendButton jobId={shown.jobId} presetId={shown.presetId} onOpenInGenerate={openFromSendTo} />
             )}
             {shown && (
               <a className="icon-button" href={shown.url} download title="Download">

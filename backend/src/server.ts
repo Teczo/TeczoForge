@@ -26,7 +26,7 @@ import { boardHandler, createDraftHandler, deleteDraftHandler, runDraftHandler, 
 import { startProgressListener } from "./progress.js";
 import { INPUTS_DIR } from "./inputs.js";
 import { lastFrameHandler } from "./lastFrame.js";
-import { sendToHandler, usedInHandler } from "./sendTo.js";
+import { extendHandler, sendToHandler, usedInHandler } from "./sendTo.js";
 import { listPresets } from "./presets.js";
 import { createProjectHandler, listProjectsHandler, updateProjectHandler } from "./projects.js";
 import { IMAGE_TYPES, MAX_UPLOAD_BYTES, uploadHandler, useOutputHandler } from "./upload.js";
@@ -100,6 +100,8 @@ app.get("/api/jobs/:id/used-in", usedInHandler);
 app.post("/api/jobs/:id/cancel", cancelJobHandler);
 // Save the last frame of a finished video as a new start image (FRG-53).
 app.post("/api/jobs/:id/last-frame", lastFrameHandler);
+// "Extend video" (FRG-54): the Generate form values to continue a clip from its last frame.
+app.post("/api/jobs/:id/extend", extendHandler);
 // Move one job to another project (FRG-43).
 app.patch("/api/jobs/:id/project", express.json(), moveJobHandler);
 

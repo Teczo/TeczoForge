@@ -5,6 +5,7 @@ import { findJob, findUsedIn } from "./db.js";
 import { JOB_ID_PATTERN, sendError } from "./jobs.js";
 import { createDraft } from "./drafts.js";
 import { copyOutputToInputs } from "./upload.js";
+import { extractLastFrame, findVideoJob } from "./lastFrame.js";
 
 // "Send to" (FRG-26): use a finished picture as the start image of another preset.
 // Any preset with an image input can receive a picture, so a new preset folder shows up in the
@@ -63,6 +64,34 @@ export async function sendToHandler(req: Request, res: Response) {
         : {}),
     });
     res.status(201).json({ card });
+  } catch (error) {
+    sendError(res, error);
+  }
+}
+
+// POST /api/jobs/<id>/extend  ("Extend video", FRG-54)
+// Continue a finished video from its last frame. Nothing starts: the answer fills the Generate form.
+// Answer: { presetId, inputs, parentJobId }: the same preset and values as the clip (prompt,
+// duration, ...), with its last frame as the start image and no seed, so a new random seed is used.
+export async function extendHandler(req: Request, res: Response) {
+  try {
+    const parent = await findVideoJob(String(req.params.id));
+    // Check the preset before the frame is saved, so a refused clip leaves no file behind.
+    const { preset } = await loadPreset(parent.presetId);
+    const imageInput = preset.inputs.find((input) => input.kind === "image");
+    if (!imageInput) {
+      throw new HttpError(400, `This video was made with "${preset.name}", which has no start image, so it cannot be extended.`);
+    }
+
+    const frame = await extractLastFrame(parent.id);
+    // Keep only the values the preset still has, and leave out the seed.
+    const old = (parent.inputs ?? {}) as Record<string, unknown>;
+    const inputs: Record<string, unknown> = {};
+    for (const input of preset.inputs) {
+      if (input.kind !== "seed" && old[input.key] !== undefined) inputs[input.key] = old[input.key];
+    }
+    inputs[imageInput.key] = frame.name;
+    res.json({ presetId: preset.id, inputs, parentJobId: parent.id });
   } catch (error) {
     sendError(res, error);
   }

@@ -39,6 +39,10 @@ export type Job = {
   conversationId?: string; // Only on cards Claude made in a chat (FRG-24).
   inputFiles?: string[]; // Kept start images, for example "data/inputs/teczoforge-1-a1b2c3.png" (FRG-25).
   sourceJobId?: string; // "Send to": the job whose result is this job's start image (FRG-26).
+  // "Extend video" (FRG-54): the clip this one continues from its last frame, and the first clip
+  // of the chain. The first clip gets chainRootId = its own id when it is first extended.
+  parentJobId?: string;
+  chainRootId?: string;
   // The project this job or card belongs to (FRG-40). Older jobs get "Unsorted" when the backend
   // starts (see moveOldJobsToUnsorted). Empty only if MongoDB was never reached since the start.
   projectId: string;
@@ -396,6 +400,20 @@ export async function moveJobToProject(id: string, projectId: string): Promise<J
   } catch (error) {
     console.warn(`Warning: could not move the job. ${safeMessage(error)}`);
     throw new HttpError(503, "This job cannot be moved because MongoDB cannot be reached.");
+  }
+}
+
+// "Extend video" (FRG-54): mark a first clip as the start of its chain (chainRootId = its own id).
+// A clip that already has a chainRootId keeps it. Returns false (with a warning in the log) if
+// MongoDB cannot be reached. Never throws, so the new clip still starts.
+export async function markChainRoot(id: string): Promise<boolean> {
+  try {
+    const jobs = await getJobsCollection();
+    await jobs.updateOne({ id, chainRootId: { $exists: false } }, { $set: { chainRootId: id } });
+    return true;
+  } catch (error) {
+    console.warn(`Warning: could not mark job ${id} as the first clip of its chain. ${safeMessage(error)}`);
+    return false;
   }
 }
 

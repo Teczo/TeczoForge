@@ -6,6 +6,7 @@ import type { Request, Response } from "express";
 import { HttpError } from "./httpError.js";
 import { imageInfo, INPUTS_DIR, inputFilePath } from "./inputs.js";
 import { findAnyJob, JOB_ID_PATTERN, OUTPUTS_DIR, sendError } from "./jobs.js";
+import type { Job } from "./db.js";
 
 // Last frame of a video job (FRG-53). The base for "Extend video" (FRG-54).
 // ffmpeg takes the last frame of the finished video in data/outputs and saves it as a PNG in
@@ -48,9 +49,9 @@ function videoPathOf(imageUrl: string | null): string {
   return path.join(OUTPUTS_DIR, fileName);
 }
 
-// Save the last frame of a finished video job as a new start image.
-// Returns { name, width, height }, like POST /api/upload. Use the name as an "image" input.
-export async function extractLastFrame(jobId: string): Promise<{ name: string; width: number; height: number }> {
+// A finished video job, or a plain-English error: bad id, no such job, not finished, not a video.
+// "Extend video" (FRG-54) uses it too.
+export async function findVideoJob(jobId: string): Promise<Job> {
   if (!JOB_ID_PATTERN.test(jobId)) throw new HttpError(400, "This is not a job id.");
 
   const job = await findAnyJob(jobId);
@@ -62,7 +63,13 @@ export async function extractLastFrame(jobId: string): Promise<{ name: string; w
   if (job.outputKind !== "video") {
     throw new HttpError(400, `Only a video has a last frame. This job made ${job.outputKind === "image" ? "an image" : `a ${job.outputKind ?? "file of an unknown kind"}`}.`);
   }
+  return job;
+}
 
+// Save the last frame of a finished video job as a new start image.
+// Returns { name, width, height }, like POST /api/upload. Use the name as an "image" input.
+export async function extractLastFrame(jobId: string): Promise<{ name: string; width: number; height: number }> {
+  const job = await findVideoJob(jobId);
   const videoPath = videoPathOf(job.imageUrl);
   try {
     await access(videoPath);
