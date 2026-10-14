@@ -7,7 +7,7 @@ import { buildWorkflow, loadPreset } from "./presets.js";
 import { ensureStartImages, inputFilesFor } from "./inputs.js";
 import type { Workflow } from "./presets.js";
 import { downloadOutput, getFinishedOutput, getQueue, interruptJob, queueWorkflow, removeFromQueue } from "./comfyui.js";
-import { findActiveJobs, findJob, knownUnsortedProjectId, listJobs, moveJobToProject, safeMessage, saveJob } from "./db.js";
+import { findActiveJobs, findJob, knownUnsortedProjectId, listJobs, markChainRoot, moveJobToProject, safeMessage, saveJob } from "./db.js";
 import type { Job, JobStatus } from "./db.js";
 import { forgetSteps, getSteps } from "./progress.js";
 import { pickOutputFile } from "./outputKinds.js";
@@ -327,14 +327,20 @@ async function jobProjectId(projectId: unknown, sourceJobId: string | undefined)
 
 // POST /api/jobs
 // Body: { "presetId": "text-to-image-basic", "inputs": { "prompt": "a red car" }, "sourceJobId": "<optional>",
-//         "projectId": "<optional, default Unsorted>" }
+//         "parentJobId": "<optional>", "projectId": "<optional, default Unsorted>" }
+// parentJobId (FRG-54 "Extend video"): the finished clip this job continues. The job saves it,
+// with the chain's first clip as chainRootId, and goes into the parent's project.
 // Answer: { "jobId": "<uuid>" }, plus "warning" if the job could not be saved in MongoDB.
 // If ComfyUI does not accept the job, the answer is an error, with the jobId of the failed job.
 export async function createJobHandler(req: Request, res: Response) {
-  const { presetId, inputs, sourceJobId, projectId } = req.body ?? {};
+  const { presetId, inputs, sourceJobId, parentJobId, projectId } = req.body ?? {};
   // "Send to -> Open in Generate" (FRG-26): the job whose result is the start image.
   if (sourceJobId !== undefined && (typeof sourceJobId !== "string" || !JOB_ID_PATTERN.test(sourceJobId))) {
     res.status(400).json({ error: "sourceJobId must be a job id." });
+    return;
+  }
+  if (parentJobId !== undefined && (typeof parentJobId !== "string" || !JOB_ID_PATTERN.test(parentJobId))) {
+    res.status(400).json({ error: "parentJobId must be a job id." });
     return;
   }
 
@@ -344,11 +350,19 @@ export async function createJobHandler(req: Request, res: Response) {
   let built;
   let inputFiles: string[];
   let project: string;
+  let parent: Job | undefined;
   try {
     const { preset, workflow } = await loadPreset(presetId);
     built = await ensureStartImages(preset, workflow, buildWorkflow(preset, workflow, inputs ?? {}));
     inputFiles = await inputFilesFor(preset, built.usedValues);
-    project = await jobProjectId(projectId, sourceJobId);
+    if (parentJobId) {
+      parent = (await findAnyJob(parentJobId)) ?? undefined;
+      if (!parent || parent.status !== "done" || parent.outputKind !== "video") {
+        throw new HttpError(400, "The clip to extend is not a finished video. Open it in the gallery and press Extend again.");
+      }
+    }
+    // A job made from another job's result goes into that job's project (FRG-26, FRG-54).
+    project = await jobProjectId(projectId, sourceJobId ?? parentJobId);
   } catch (error) {
     sendError(res, error);
     return;
@@ -370,8 +384,12 @@ export async function createJobHandler(req: Request, res: Response) {
     projectId: project,
     ...(inputFiles.length > 0 ? { inputFiles } : {}),
     ...(sourceJobId ? { sourceJobId } : {}),
+    // The first clip of a chain is its own chain root (FRG-54).
+    ...(parent ? { parentJobId: parent.id, chainRootId: parent.chainRootId ?? parent.id } : {}),
   });
   await save(live);
+  // The parent was the first clip: mark it, also in the copy in memory if it is still there.
+  if (parent && !parent.chainRootId && (await markChainRoot(parent.id))) parent.chainRootId = parent.id;
 
   // 3. and 4.
   await sendToComfyUI(live, built.workflow, res);
