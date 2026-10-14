@@ -51,10 +51,11 @@ export type Progress =
   // steps is 0 until sampling starts. stage of stages: the sampler pass (FRG-32, "stages" in
   // preset.json). percent: the whole job from 0 to 100, over all passes. It never goes down.
   | { state: "running"; step: number; steps: number; stage: number; stages: number; percent: number }
-  | { state: "finishing" }; // ComfyUI is done; the backend is saving the file.
+  | { state: "finishing" } // ComfyUI is done; the backend is saving the file.
+  | { state: "joining"; frame: number; frames: number; percent: number }; // ffmpeg joins clips (FRG-55).
 
 // A job the backend is following, with what it knows besides the saved record.
-type LiveJob = {
+export type LiveJob = {
   job: Job;
   jobsAhead: number; // Jobs before this one in ComfyUI's queue.
   runningSince: number | null; // When we first saw ComfyUI working on it.
@@ -64,6 +65,7 @@ type LiveJob = {
   saving: Promise<void>; // Saves run one after the other, so the last save has the newest status.
   stages: number; // Sampler passes, from preset.json (FRG-32). 1 until the preset is read.
   percent: number; // The highest percent shown so far, so the bar never goes back.
+  joinProgress?: Progress; // A join (FRG-55) runs in the backend, not in ComfyUI: its own progress.
 };
 
 // Unfinished jobs, and jobs that finished in the last hour. Key: job id.
@@ -94,7 +96,7 @@ export function follow(job: Job): LiveJob {
 }
 
 // Save the job as it is when the save runs. Never throws (see saveJob in db.ts).
-function save(live: LiveJob): Promise<void> {
+export function save(live: LiveJob): Promise<void> {
   live.saving = live.saving.then(async () => {
     live.warning = await saveJob(live.job);
   });
@@ -102,7 +104,7 @@ function save(live: LiveJob): Promise<void> {
 }
 
 // The job is done, failed or cancelled: save it, and forget it after a while.
-async function finish(live: LiveJob, status: "done" | "failed" | "cancelled", fields: Partial<Job>) {
+export async function finish(live: LiveJob, status: "done" | "failed" | "cancelled", fields: Partial<Job>) {
   const { job } = live;
   Object.assign(job, fields, { status, durationMs: Date.now() - job.createdAt.getTime() });
   live.finishing = false;
@@ -140,6 +142,7 @@ export function sendError(res: Response, error: unknown) {
 function progressOf(live: LiveJob): Progress | null {
   const { status, promptId } = live.job;
   if (!isActive(status)) return null;
+  if (live.joinProgress) return live.joinProgress;
   if (live.finishing) return { state: "finishing" };
   if (status === "running" && promptId) {
     const { step, steps, pass } = getSteps(promptId);
@@ -302,7 +305,10 @@ export async function recoverJobs() {
   console.log(`Recovery: found ${jobs.length} unfinished job(s) from before the restart. Checking them with ComfyUI.`);
   for (const job of jobs) {
     const live = follow(job);
-    if (!job.promptId) {
+    if (job.sourceJobIds) {
+      // A join (FRG-55) runs in the backend itself, so it stopped with the backend.
+      await finish(live, "failed", { error: "The backend stopped while joining the clips. Press Join all again." });
+    } else if (!job.promptId) {
       await finish(live, "failed", {
         error: "The backend stopped before this job was sent to ComfyUI. Please start it again.",
       });
@@ -315,7 +321,7 @@ export async function recoverJobs() {
 // The project of a new job (FRG-40). Like a card (see projectForNewItem), but a job must still
 // start when MongoDB is offline. Then the project cannot be checked: a projectId that looks like
 // an id is kept, otherwise "Unsorted" (empty if it was never known; fixed at the next start).
-async function jobProjectId(projectId: unknown, sourceJobId: string | undefined): Promise<string> {
+export async function jobProjectId(projectId: unknown, sourceJobId: string | undefined): Promise<string> {
   try {
     return await projectForNewItem(projectId, sourceJobId);
   } catch (error) {
@@ -423,6 +429,7 @@ function finishedMessage(status: JobStatus): string {
 async function cancelJob(live: LiveJob, username: string | null): Promise<string | null> {
   const { job } = live;
   if (!isActive(job.status)) return finishedMessage(job.status);
+  if (job.sourceJobIds) return "Joining clips cannot be cancelled. It only takes a short time."; // FRG-55
   if (!job.promptId) return "The job is still being sent to ComfyUI. Try again in a moment.";
   const promptId = job.promptId;
 

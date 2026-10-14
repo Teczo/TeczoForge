@@ -18,7 +18,8 @@ export type Progress =
   | { state: "waiting"; jobsAhead: number }
   // stage of stages: the sampler pass (FRG-32). percent: the whole job, never goes down.
   | { state: "running"; step: number; steps: number; stage: number; stages: number; percent: number }
-  | { state: "finishing" };
+  | { state: "finishing" }
+  | { state: "joining"; frame: number; frames: number; percent: number }; // "Join all" (FRG-55)
 
 // The answer from GET /api/jobs/<id>. Only the parts this page uses.
 type JobAnswer = {
@@ -1027,6 +1028,9 @@ export function ProgressView({ progress, onCancel, cancelling }: ProgressViewPro
   } else if (progress?.state === "finishing") {
     text = "Saving the result...";
     percent = 100;
+  } else if (progress?.state === "joining") {
+    text = `Joining the clips: frame ${progress.frame} of ${progress.frames}`;
+    percent = progress.percent;
   }
 
   return (

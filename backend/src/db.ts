@@ -43,6 +43,8 @@ export type Job = {
   // of the chain. The first clip gets chainRootId = its own id when it is first extended.
   parentJobId?: string;
   chainRootId?: string;
+  // "Join all" (FRG-55): the clips joined into this video, in order. Only on joined videos.
+  sourceJobIds?: string[];
   // The project this job or card belongs to (FRG-40). Older jobs get "Unsorted" when the backend
   // starts (see moveOldJobsToUnsorted). Empty only if MongoDB was never reached since the start.
   projectId: string;
@@ -414,6 +416,20 @@ export async function markChainRoot(id: string): Promise<boolean> {
   } catch (error) {
     console.warn(`Warning: could not mark job ${id} as the first clip of its chain. ${safeMessage(error)}`);
     return false;
+  }
+}
+
+// The finished clips that extend this clip (FRG-55, chain view), newest first.
+export async function findExtensions(id: string): Promise<Job[]> {
+  try {
+    const jobs = await getJobsCollection();
+    return await jobs
+      .find({ parentJobId: id, status: "done" }, { projection: { _id: 0 } })
+      .sort({ createdAt: -1 })
+      .toArray();
+  } catch (error) {
+    console.warn(`Warning: could not read the jobs. ${safeMessage(error)}`);
+    throw new HttpError(503, "This is not available because MongoDB cannot be reached.");
   }
 }
 
