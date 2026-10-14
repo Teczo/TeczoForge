@@ -43,6 +43,8 @@ export type PresetInput = {
   max?: number;
   step?: number;
   options?: InputOption[]; // The allowed values, on number or text inputs (FRG-32).
+  unit?: "seconds"; // A video length in seconds; the backend turns it into frames (FRG-52).
+  note?: string; // One short line shown under the input (FRG-52).
 };
 export type Preset = {
   id: string;
@@ -103,6 +105,16 @@ export function startFormValues(preset: Preset, start: StartValues): FormValues 
 
 function hasImageInput(preset: Preset): boolean {
   return preset.inputs.some((input) => input.kind === "image");
+}
+
+// The usual run time, scaled by the chosen video length (FRG-52). estimatedSeconds is for the
+// default length, so 7 s on a preset that takes 37 s for 5 s shows about 52 s.
+function estimatedTime(preset: Preset, values: FormValues): number | null {
+  if (!preset.estimatedSeconds) return null;
+  const duration = preset.inputs.find((input) => input.unit === "seconds");
+  const chosen = Number(values[duration?.key ?? ""]);
+  if (!duration || typeof duration.default !== "number" || !chosen) return preset.estimatedSeconds;
+  return Math.round((preset.estimatedSeconds * chosen) / duration.default);
 }
 
 // The groups in the left menu. A preset goes into the first group it matches.
@@ -455,11 +467,13 @@ export default function Generate({ startValues = null, onStartValuesUsed, projec
 
   // Text inputs with a list of choices show as buttons or a dropdown, not as a text box (FRG-32).
   const textInputs = preset.inputs.filter((input) => input.kind === "text" && !input.options);
-  const choiceInputs = preset.inputs.filter((input) => input.kind === "text" && input.options);
+  // A video length (FRG-52) shows with these too, not in Advanced Settings.
+  const choiceInputs = preset.inputs.filter((input) => (input.kind === "text" && input.options) || input.unit === "seconds");
   const imageInputs = preset.inputs.filter((input) => input.kind === "image");
   // Advanced Settings, in the mockup's order: size (and other numbers), then Steps, then the seed.
   const seedInputs = preset.inputs.filter((input) => input.kind === "seed");
-  const numberInputs = preset.inputs.filter((input) => !["text", "image", "seed"].includes(input.kind));
+  const numberInputs = preset.inputs.filter((input) => !["text", "image", "seed"].includes(input.kind) && input.unit !== "seconds");
+  const estimate = estimatedTime(preset, values);
   const prompt = textInputs[0];
   const promptLength = prompt ? (values[prompt.key] ?? "").length : 0;
 
@@ -607,10 +621,10 @@ export default function Generate({ startValues = null, onStartValuesUsed, projec
             )}
           </div>
           {preset.description && <p className="preset-note">{preset.description}</p>}
-          {(preset.clientWork || preset.experimental || preset.estimatedSeconds) && (
+          {(preset.clientWork || preset.experimental || estimate) && (
             <div className="preset-facts">
               <PresetBadges preset={preset} />
-              {preset.estimatedSeconds && <span>Usually takes {formatSeconds(preset.estimatedSeconds)}.</span>}
+              {estimate && <span>Usually takes {formatSeconds(estimate)}.</span>}
             </div>
           )}
         </div>
@@ -830,6 +844,7 @@ export function Field(props: { input: PresetInput; value: string; disabled: bool
       <div>
         <span className="field-label">{input.label}</span>
         {box}
+        {input.note && <p className="preset-note">{input.note}</p>}
       </div>
     );
   } else if (input.kind === "seed") {
