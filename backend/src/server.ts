@@ -27,6 +27,7 @@ import { startProgressListener } from "./progress.js";
 import { INPUTS_DIR } from "./inputs.js";
 import { lastFrameHandler } from "./lastFrame.js";
 import { chainHandler, joinHandler } from "./join.js";
+import { createChainHandler } from "./chain.js";
 import { extendHandler, sendToHandler, usedInHandler } from "./sendTo.js";
 import { listPresets } from "./presets.js";
 import { createProjectHandler, listProjectsHandler, updateProjectHandler } from "./projects.js";
@@ -106,6 +107,8 @@ app.post("/api/jobs/:id/extend", extendHandler);
 // Chains of extended clips (FRG-55): the clips in order, and joining them into one video.
 app.get("/api/jobs/:id/chain", chainHandler);
 app.post("/api/jobs/:id/join", joinHandler);
+// "Make a longer video" (FRG-56): make all clips one after the other, then join them.
+app.post("/api/chains", express.json(), createChainHandler);
 // Move one job to another project (FRG-43).
 app.patch("/api/jobs/:id/project", express.json(), moveJobHandler);
 

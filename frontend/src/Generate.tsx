@@ -19,7 +19,9 @@ export type Progress =
   // stage of stages: the sampler pass (FRG-32). percent: the whole job, never goes down.
   | { state: "running"; step: number; steps: number; stage: number; stages: number; percent: number }
   | { state: "finishing" }
-  | { state: "joining"; frame: number; frames: number; percent: number }; // "Join all" (FRG-55)
+  | { state: "joining"; frame: number; frames: number; percent: number } // "Join all" (FRG-55)
+  // "Make a longer video" (FRG-56): which clip is being made, with that clip's own progress (or the join).
+  | { state: "chain"; clip: number; clips: number; inner: Progress | null };
 
 // The answer from GET /api/jobs/<id>. Only the parts this page uses.
 type JobAnswer = {
@@ -63,6 +65,7 @@ export type Preset = {
   experimental: boolean;
   stages: number;
   estimatedSeconds: number | null;
+  totalLengths: number[]; // "Make a longer video" (FRG-56): total lengths in seconds. Empty: single clips only.
 };
 
 // The form keeps every value as text, the way the input boxes give it.
@@ -131,6 +134,20 @@ function estimatedTime(preset: Preset, values: FormValues): number | null {
   const chosen = Number(values[duration?.key ?? ""]);
   if (!duration || typeof duration.default !== "number" || !chosen) return preset.estimatedSeconds;
   return Math.round((preset.estimatedSeconds * chosen) / duration.default);
+}
+
+// "Make a longer video" (FRG-56): how many clips a total length needs with the chosen clip length.
+function clipCount(preset: Preset, values: FormValues, totalSeconds: number): number {
+  const duration = preset.inputs.find((input) => input.unit === "seconds");
+  const clipSeconds = Number(values[duration?.key ?? ""]) || Number(duration?.default) || 0;
+  return clipSeconds > 0 ? Math.ceil(totalSeconds / clipSeconds) : 0;
+}
+
+// The lines of the "Prompt per clip" box. Empty lines at the end are left out.
+function promptLines(text: string): string[] {
+  const lines = text.split("\n");
+  while (lines.length > 0 && lines.at(-1)!.trim() === "") lines.pop();
+  return lines;
 }
 
 // The groups in the left menu. A preset goes into the first group it matches.
@@ -214,6 +231,10 @@ export default function Generate({ startValues = null, onStartValuesUsed, projec
   // The new job remembers it only while those values are still in the form.
   const [source, setSource] = useState<{ jobId: string; presetId: string; inputs: Record<string, unknown> } | null>(null);
   const [parent, setParent] = useState<Parent | null>(null);
+  // "Make a longer video" (FRG-56): the chosen total length in seconds (0: a single clip), and
+  // the optional prompts, one line per clip.
+  const [totalLength, setTotalLength] = useState(0);
+  const [clipPrompts, setClipPrompts] = useState("");
   const [presetId, setPresetId] = useState("");
   const [values, setValues] = useState<FormValues>({});
   const [submitting, setSubmitting] = useState(false);
@@ -412,6 +433,8 @@ export default function Generate({ startValues = null, onStartValuesUsed, projec
     setPresetId(id);
     setValues(defaultValues(chosen));
     setNotice(null);
+    setTotalLength(0);
+    setClipPrompts("");
   }
 
   // Start the job. The backend answers at once with its id; the effect above follows it.
@@ -430,16 +453,19 @@ export default function Generate({ startValues = null, onStartValuesUsed, projec
       Object.entries(source.inputs).every(([key, value]) => values[key] === String(value));
     // Made with "Extend" (FRG-54): remember the clip while its last frame is still the start image.
     const fromParent = parent !== null && parent.presetId === preset.id && values[parent.imageKey] === parent.image;
+    // "Make a longer video" (FRG-56): the backend makes all clips and joins them.
+    const longer = totalLength > 0 && preset.totalLengths.includes(totalLength);
 
     try {
-      const response = await fetch("/api/jobs", {
+      const response = await fetch(longer ? "/api/chains" : "/api/jobs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           presetId: preset.id,
           inputs: toInputs(preset, values),
-          ...(fromSource ? { sourceJobId: source!.jobId } : {}),
-          ...(fromParent ? { parentJobId: parent!.jobId } : {}),
+          ...(longer ? { totalSeconds: totalLength, prompts: promptLines(clipPrompts) } : {}),
+          ...(fromSource && !longer ? { sourceJobId: source!.jobId } : {}),
+          ...(fromParent && !longer ? { parentJobId: parent!.jobId } : {}),
           ...(project ? { projectId: project.id } : {}),
         }),
       });
@@ -499,6 +525,11 @@ export default function Generate({ startValues = null, onStartValuesUsed, projec
   const seedInputs = preset.inputs.filter((input) => input.kind === "seed");
   const numberInputs = preset.inputs.filter((input) => !["text", "image", "seed"].includes(input.kind) && input.unit !== "seconds");
   const estimate = estimatedTime(preset, values);
+  // "Make a longer video" (FRG-56): the clips it makes, and the time for all of them.
+  const longer = totalLength > 0 && preset.totalLengths.includes(totalLength);
+  const clips = longer ? clipCount(preset, values, totalLength) : 1;
+  const totalEstimate = estimate ? estimate * clips : null;
+  const promptLineCount = promptLines(clipPrompts).length;
   const prompt = textInputs[0];
   const promptLength = prompt ? (values[prompt.key] ?? "").length : 0;
 
@@ -612,6 +643,50 @@ export default function Generate({ startValues = null, onStartValuesUsed, projec
             />
           ))}
 
+          {preset.totalLengths.length > 0 && (
+            <div>
+              <span className="field-label">Total length</span>
+              <div className="choice-buttons" role="group" aria-label="Total length">
+                {[0, ...preset.totalLengths].map((seconds) => (
+                  <button
+                    key={seconds}
+                    type="button"
+                    className={`button ${totalLength === seconds ? "active" : ""}`}
+                    aria-pressed={totalLength === seconds}
+                    onClick={() => setTotalLength(seconds)}
+                    disabled={running}
+                  >
+                    {seconds === 0 ? "Single clip" : `${seconds} s`}
+                  </button>
+                ))}
+              </div>
+              {longer && (
+                <>
+                  <p className="preset-note">
+                    Makes {clips} clips one after the other, each starting from the last frame of the one before, then joins
+                    them into one video. Each clip uses the prompt above, unless you write one line per clip below.
+                  </p>
+                  <label>
+                    <span className="field-label">Prompt per clip (optional)</span>
+                    <textarea
+                      className="prompt-box"
+                      style={{ minHeight: 80 }}
+                      value={clipPrompts}
+                      onChange={(event) => setClipPrompts(event.target.value)}
+                      placeholder={`One line per clip, up to ${clips} lines. An empty line uses the prompt above.`}
+                      disabled={running}
+                    />
+                  </label>
+                  {promptLineCount > clips && (
+                    <p className="message error">
+                      There are {promptLineCount} lines, but this video has {clips} clips. Remove the extra lines.
+                    </p>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
           <div className="prompt-tools">
             <button
               type="button"
@@ -646,10 +721,15 @@ export default function Generate({ startValues = null, onStartValuesUsed, projec
             )}
           </div>
           {preset.description && <p className="preset-note">{preset.description}</p>}
-          {(preset.clientWork || preset.experimental || estimate) && (
+          {(preset.clientWork || preset.experimental || totalEstimate) && (
             <div className="preset-facts">
               <PresetBadges preset={preset} />
-              {estimate && <span>Usually takes {formatSeconds(estimate)}.</span>}
+              {totalEstimate && !longer && <span>Usually takes {formatSeconds(totalEstimate)}.</span>}
+              {totalEstimate && longer && (
+                <span>
+                  {clips} clips: usually takes {formatSeconds(totalEstimate)} in total.
+                </span>
+              )}
             </div>
           )}
         </div>
@@ -731,7 +811,7 @@ export default function Generate({ startValues = null, onStartValuesUsed, projec
         <div className="generate-wrap">
           {error && <p className="message error">{error}</p>}
           {warning && <p className="message warning">Warning: {warning}</p>}
-          <button type="submit" className="generate-button" disabled={running || missingRequired || tooLong}>
+          <button type="submit" className="generate-button" disabled={running || missingRequired || tooLong || (longer && promptLineCount > clips)}>
             <Sparkles size={26} />
             {running ? "Generating..." : "Generate"}
           </button>
@@ -1008,6 +1088,33 @@ export function ImageBox(props: { input: PresetInput; value: string; disabled: b
 // Cancel is shown once the job has an id, and not while the result is being saved.
 type ProgressViewProps = { progress: Progress | null; onCancel: (() => void) | null; cancelling: boolean };
 export function ProgressView({ progress, onCancel, cancelling }: ProgressViewProps) {
+  const { text, percent } = describeProgress(progress);
+  return (
+    <div className="progress-card">
+      {percent === null ? (
+        <div className="spinner" />
+      ) : (
+        <div className="progress-bar">
+          <div style={{ width: `${percent}%` }} />
+        </div>
+      )}
+      <p>{text}</p>
+      {onCancel && progress?.state !== "finishing" && (
+        <button type="button" className="button" onClick={onCancel} disabled={cancelling}>
+          {cancelling ? "Cancelling..." : "Cancel"}
+        </button>
+      )}
+    </div>
+  );
+}
+
+// The text and bar (null: a spinner) for where a job is.
+function describeProgress(progress: Progress | null): { text: string; percent: number | null } {
+  // "Make a longer video" (FRG-56): "Clip 2 of 3", then that clip's own progress.
+  if (progress?.state === "chain") {
+    const inner = progress.inner ? describeProgress(progress.inner) : { text: "Starting...", percent: null };
+    return { text: `Clip ${progress.clip} of ${progress.clips} · ${inner.text}`, percent: inner.percent };
+  }
   let text = "Sending your job to ComfyUI...";
   let percent: number | null = null;
   if (progress?.state === "waiting") {
@@ -1032,22 +1139,5 @@ export function ProgressView({ progress, onCancel, cancelling }: ProgressViewPro
     text = `Joining the clips: frame ${progress.frame} of ${progress.frames}`;
     percent = progress.percent;
   }
-
-  return (
-    <div className="progress-card">
-      {percent === null ? (
-        <div className="spinner" />
-      ) : (
-        <div className="progress-bar">
-          <div style={{ width: `${percent}%` }} />
-        </div>
-      )}
-      <p>{text}</p>
-      {onCancel && progress?.state !== "finishing" && (
-        <button type="button" className="button" onClick={onCancel} disabled={cancelling}>
-          {cancelling ? "Cancelling..." : "Cancel"}
-        </button>
-      )}
-    </div>
-  );
+  return { text, percent };
 }

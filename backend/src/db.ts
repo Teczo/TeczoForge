@@ -45,9 +45,19 @@ export type Job = {
   chainRootId?: string;
   // "Join all" (FRG-55): the clips joined into this video, in order. Only on joined videos.
   sourceJobIds?: string[];
+  // "Make a longer video" (FRG-56): only on the chain job. When it is done, it is the joined video.
+  chain?: ChainState;
   // The project this job or card belongs to (FRG-40). Older jobs get "Unsorted" when the backend
   // starts (see moveOldJobsToUnsorted). Empty only if MongoDB was never reached since the start.
   projectId: string;
+};
+
+// The saved state of a "Make a longer video" chain (FRG-56). With it, a backend restart carries on.
+export type ChainState = {
+  totalSeconds: number; // The length the user chose, for example 15.
+  clips: number; // How many clips to make.
+  prompts: string[]; // One prompt per clip (the same prompt for each, unless the user wrote one per clip).
+  clipJobIds: string[]; // The clip jobs started so far, in order.
 };
 
 // Which jobs GET /api/jobs returns. See listJobs.

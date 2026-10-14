@@ -52,7 +52,9 @@ export type Progress =
   // preset.json). percent: the whole job from 0 to 100, over all passes. It never goes down.
   | { state: "running"; step: number; steps: number; stage: number; stages: number; percent: number }
   | { state: "finishing" } // ComfyUI is done; the backend is saving the file.
-  | { state: "joining"; frame: number; frames: number; percent: number }; // ffmpeg joins clips (FRG-55).
+  | { state: "joining"; frame: number; frames: number; percent: number } // ffmpeg joins clips (FRG-55).
+  // "Make a longer video" (FRG-56): clip "clip" of "clips", with that clip's own progress (or the join).
+  | { state: "chain"; clip: number; clips: number; inner: Progress | null };
 
 // A job the backend is following, with what it knows besides the saved record.
 export type LiveJob = {
@@ -142,6 +144,14 @@ export function sendError(res: Response, error: unknown) {
 function progressOf(live: LiveJob): Progress | null {
   const { status, promptId } = live.job;
   if (!isActive(status)) return null;
+  const chain = live.job.chain;
+  if (chain) {
+    // Joining after the last clip, or the progress of the clip being made now.
+    if (live.joinProgress) return { state: "chain", clip: chain.clips, clips: chain.clips, inner: live.joinProgress };
+    const current = liveJobs.get(chain.clipJobIds.at(-1) ?? "");
+    const inner = current && isActive(current.job.status) ? progressOf(current) : null;
+    return { state: "chain", clip: Math.max(chain.clipJobIds.length, 1), clips: chain.clips, inner };
+  }
   if (live.joinProgress) return live.joinProgress;
   if (live.finishing) return { state: "finishing" };
   if (status === "running" && promptId) {
@@ -235,7 +245,7 @@ async function checkJob(live: LiveJob, queue: { running: string[]; pending: stri
 
 // The checker and Cancel take turns, so they never change the same job at the same time.
 let lock: Promise<unknown> = Promise.resolve();
-function withLock<T>(work: () => Promise<T>): Promise<T> {
+export function withLock<T>(work: () => Promise<T>): Promise<T> {
   const result = lock.then(work);
   lock = result.catch(() => {});
   return result;
@@ -287,6 +297,13 @@ export function startJobChecker() {
 // that were waiting or running when it stopped.
 // The checker then finds out what happened to each one in ComfyUI: still running (keep following),
 // finished (copy the result), or unknown (failed).
+// "Make a longer video" (FRG-56): chain.ts gives the function that carries on a chain after a
+// restart. It is set this way because chain.ts uses this file, not the other way round.
+let resumeChain: ((live: LiveJob) => void) | null = null;
+export function onResumeChain(resume: (live: LiveJob) => void) {
+  resumeChain = resume;
+}
+
 export async function recoverJobs() {
   let jobs: Job[];
   try {
@@ -305,7 +322,11 @@ export async function recoverJobs() {
   console.log(`Recovery: found ${jobs.length} unfinished job(s) from before the restart. Checking them with ComfyUI.`);
   for (const job of jobs) {
     const live = follow(job);
-    if (job.sourceJobIds) {
+    if (job.chain) {
+      // A chain (FRG-56) carries on: finished clips are kept, a running clip is followed as usual.
+      if (resumeChain) resumeChain(live);
+      else await finish(live, "failed", { error: "The backend stopped while making this longer video." });
+    } else if (job.sourceJobIds) {
       // A join (FRG-55) runs in the backend itself, so it stopped with the backend.
       await finish(live, "failed", { error: "The backend stopped while joining the clips. Press Join all again." });
     } else if (!job.promptId) {
@@ -350,6 +371,29 @@ export async function createJobHandler(req: Request, res: Response) {
     return;
   }
 
+  let made;
+  try {
+    made = await newJob({ presetId, inputs, sourceJobId, parentJobId, projectId, createdBy: res.locals.username ?? null });
+  } catch (error) {
+    sendError(res, error);
+    return;
+  }
+  // 3. and 4.
+  await sendToComfyUI(made.live, made.workflow, res);
+}
+
+// Steps 1 and 2 of a new job: check everything, then save it as "queued" and follow it.
+// Used by POST /api/jobs and by "Make a longer video" for each clip (FRG-56).
+// Throws an HttpError (and saves nothing) if a value, the preset or the project is not right.
+export async function newJob(request: {
+  presetId: unknown;
+  inputs: unknown;
+  sourceJobId?: string;
+  parentJobId?: string;
+  projectId?: unknown;
+  createdBy: string | null;
+}): Promise<{ live: LiveJob; workflow: Workflow }> {
+  const { presetId, inputs, sourceJobId, parentJobId, projectId, createdBy } = request;
   // 1. Load the preset and put the user's values into its workflow. Bad values: answer 400, save nothing.
   //    Start images must be in ComfyUI's input folder; a missing one is uploaded again (FRG-25).
   //    An unknown or archived project also answers 400 (FRG-40).
@@ -357,7 +401,7 @@ export async function createJobHandler(req: Request, res: Response) {
   let inputFiles: string[];
   let project: string;
   let parent: Job | undefined;
-  try {
+  {
     const { preset, workflow } = await loadPreset(presetId);
     built = await ensureStartImages(preset, workflow, buildWorkflow(preset, workflow, inputs ?? {}));
     inputFiles = await inputFilesFor(preset, built.usedValues);
@@ -369,15 +413,12 @@ export async function createJobHandler(req: Request, res: Response) {
     }
     // A job made from another job's result goes into that job's project (FRG-26, FRG-54).
     project = await jobProjectId(projectId, sourceJobId ?? parentJobId);
-  } catch (error) {
-    sendError(res, error);
-    return;
   }
 
   // 2. Save the job first, so it is not lost if the backend stops.
   const live = follow({
     id: crypto.randomUUID(),
-    presetId,
+    presetId: presetId as string, // Checked by loadPreset.
     inputs: built.usedValues,
     status: "queued",
     promptId: null,
@@ -386,7 +427,7 @@ export async function createJobHandler(req: Request, res: Response) {
     error: null,
     durationMs: 0,
     createdAt: new Date(),
-    createdBy: res.locals.username ?? null, // Set by requireLogin in auth.ts.
+    createdBy, // Set by requireLogin in auth.ts.
     projectId: project,
     ...(inputFiles.length > 0 ? { inputFiles } : {}),
     ...(sourceJobId ? { sourceJobId } : {}),
@@ -396,24 +437,31 @@ export async function createJobHandler(req: Request, res: Response) {
   await save(live);
   // The parent was the first clip: mark it, also in the copy in memory if it is still there.
   if (parent && !parent.chainRootId && (await markChainRoot(parent.id))) parent.chainRootId = parent.id;
-
-  // 3. and 4.
-  await sendToComfyUI(live, built.workflow, res);
+  return { live, workflow: built.workflow };
 }
 
-// Send a saved, queued job to ComfyUI and answer the request. Also used to run a board card.
+// Send a saved, queued job to ComfyUI. If ComfyUI does not accept it, the job fails, and the
+// answer is the HTTP status for that error; otherwise null.
 // ComfyUI's job id is saved at once. We do not wait for that save, so the answer stays fast
 // when MongoDB is slow or offline. The checker follows the job from here.
-export async function sendToComfyUI(live: LiveJob, workflow: Workflow, res: Response) {
+export async function queueJob(live: LiveJob, workflow: Workflow): Promise<number | null> {
   try {
     live.job.promptId = await queueWorkflow(workflow);
   } catch (error) {
-    const status = error instanceof HttpError ? error.status : 500;
     await finish(live, "failed", { error: errorMessage(error) });
+    return error instanceof HttpError ? error.status : 500;
+  }
+  save(live);
+  return null;
+}
+
+// Send a saved, queued job to ComfyUI and answer the request. Also used to run a board card.
+export async function sendToComfyUI(live: LiveJob, workflow: Workflow, res: Response) {
+  const status = await queueJob(live, workflow);
+  if (status !== null) {
     res.status(status).json({ jobId: live.job.id, error: live.job.error, warning: live.warning });
     return;
   }
-  save(live);
   res.json({ jobId: live.job.id, warning: live.warning });
 }
 
@@ -429,7 +477,18 @@ function finishedMessage(status: JobStatus): string {
 async function cancelJob(live: LiveJob, username: string | null): Promise<string | null> {
   const { job } = live;
   if (!isActive(job.status)) return finishedMessage(job.status);
-  if (job.sourceJobIds) return "Joining clips cannot be cancelled. It only takes a short time."; // FRG-55
+  if (live.joinProgress || job.sourceJobIds) return "Joining clips cannot be cancelled. It only takes a short time."; // FRG-55
+  if (job.chain) {
+    // "Make a longer video" (FRG-56): stop the clip being made, then the chain. Clips already
+    // made stay in the gallery. A new clip only starts inside the lock, after checking the chain.
+    const current = liveJobs.get(job.chain.clipJobIds.at(-1) ?? "");
+    if (current && isActive(current.job.status)) {
+      const reason = await cancelJob(current, username);
+      if (reason && isActive(current.job.status)) return reason;
+    }
+    await finish(live, "cancelled", { cancelledBy: username, cancelledAt: new Date() });
+    return null;
+  }
   if (!job.promptId) return "The job is still being sent to ComfyUI. Try again in a moment.";
   const promptId = job.promptId;
 
