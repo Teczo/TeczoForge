@@ -495,6 +495,11 @@ export async function moveJobHandler(req: Request, res: Response) {
   }
 }
 
+// One job, from memory (unfinished or just finished) or from MongoDB. null if there is none.
+export async function findAnyJob(id: string): Promise<Job | null> {
+  return liveJobs.get(id)?.job ?? (await findJob(id));
+}
+
 // GET /api/jobs/<id>
 // Answer: the job (status, outputFile, imageUrl, error, ...), plus "progress" while it is
 // unfinished, and "warning" if it could not be saved in MongoDB.
