@@ -25,6 +25,7 @@ import {
 import { boardHandler, createDraftHandler, deleteDraftHandler, runDraftHandler, updateDraftHandler } from "./drafts.js";
 import { startProgressListener } from "./progress.js";
 import { INPUTS_DIR } from "./inputs.js";
+import { lastFrameHandler } from "./lastFrame.js";
 import { sendToHandler, usedInHandler } from "./sendTo.js";
 import { listPresets } from "./presets.js";
 import { createProjectHandler, listProjectsHandler, updateProjectHandler } from "./projects.js";
@@ -97,6 +98,8 @@ app.get("/api/jobs/:id", getJobHandler);
 app.post("/api/send-to", express.json(), sendToHandler);
 app.get("/api/jobs/:id/used-in", usedInHandler);
 app.post("/api/jobs/:id/cancel", cancelJobHandler);
+// Save the last frame of a finished video as a new start image (FRG-53).
+app.post("/api/jobs/:id/last-frame", lastFrameHandler);
 // Move one job to another project (FRG-43).
 app.patch("/api/jobs/:id/project", express.json(), moveJobHandler);
 
