@@ -5,7 +5,7 @@ import type { Attachment } from "./Chat";
 import type { Project } from "./App";
 import { MoveToProject } from "./ProjectDialogs";
 import Media, { outputKind } from "./Media";
-import SendToMenu from "./SendToMenu";
+import SendToMenu, { ExtendButton } from "./SendToMenu";
 import { ArrowLeft, ArrowRight, Download, Folder, MessageSquare, Play, Repeat } from "lucide-react";
 
 // How many results the gallery shows: the newest ones.
@@ -26,6 +26,7 @@ type Job = {
   createdBy?: string | null; // Missing on jobs from before team logins (FRG-16).
   inputFiles?: string[]; // Kept start images, for example "data/inputs/<name>" (FRG-25).
   sourceJobId?: string; // "Send to": the job whose result is the start image (FRG-26).
+  parentJobId?: string; // "Extend": the clip this one continues from its last frame (FRG-54).
   projectId?: string; // The project of the job (FRG-40).
 };
 
@@ -337,6 +338,14 @@ function Detail({ job, onBack, onUseAgain, onUseInChat, onSendToGenerate, projec
                 </dd>
               </>
             )}
+            {job.parentJobId && (
+              <>
+                <dt>Extended from</dt>
+                <dd>
+                  <a href={`#/gallery/${job.parentJobId}`}>Open the previous clip</a>
+                </dd>
+              </>
+            )}
             {usedIn.length > 0 && (
               <>
                 <dt>Used in</dt>
@@ -365,6 +374,9 @@ function Detail({ job, onBack, onUseAgain, onUseInChat, onSendToGenerate, projec
               <Repeat size={18} /> Use again
             </button>
             {outputKind(job) === "image" && job.id && <SendToMenu jobId={job.id} onOpenInGenerate={onSendToGenerate} />}
+            {outputKind(job) === "video" && job.id && (
+              <ExtendButton jobId={job.id} presetId={job.presetId} onOpenInGenerate={onSendToGenerate} />
+            )}
             {outputKind(job) === "image" && (
               <button className="button" onClick={useInChat}>
                 <MessageSquare size={18} /> Use in chat

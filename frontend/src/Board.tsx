@@ -375,8 +375,13 @@ function CardView(props: CardViewProps) {
           <button className="button" onClick={props.onCopy}>
             Copy as new card
           </button>
-          {card.imageUrl && outputKind(card) === "image" && (
-            <SendToMenu jobId={card.id} onOpenInGenerate={props.onOpenInGenerate} />
+          {card.imageUrl && (outputKind(card) === "image" || outputKind(card) === "video") && (
+            <SendToMenu
+              jobId={card.id}
+              onOpenInGenerate={props.onOpenInGenerate}
+              kind={outputKind(card) === "video" ? "video" : "image"}
+              presetId={card.presetId}
+            />
           )}
         </div>
       )}
