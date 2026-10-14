@@ -157,7 +157,8 @@ async function runChain(live: LiveJob): Promise<void> {
         throw new HttpError(500, `Clip ${i + 1} of this video is missing. See the backend log.`);
       }
       clip = await waitForClip(live, clip.id);
-      if (!clip) return; // Cancelled while the clip was being made.
+      // Cancelled while the clip was being made.
+      if (!clip || !isActive(live.job.status)) return;
       if (clip.status !== "done") {
         const what = clip.status === "cancelled" ? "was cancelled" : `failed: ${clip.error ?? "no reason given"}`;
         await finish(live, "failed", { error: `Clip ${i + 1} of ${chain.clips} ${what}. The clips made so far are in the gallery.` });

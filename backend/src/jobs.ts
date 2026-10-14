@@ -479,14 +479,13 @@ async function cancelJob(live: LiveJob, username: string | null): Promise<string
   if (!isActive(job.status)) return finishedMessage(job.status);
   if (live.joinProgress || job.sourceJobIds) return "Joining clips cannot be cancelled. It only takes a short time."; // FRG-55
   if (job.chain) {
-    // "Make a longer video" (FRG-56): stop the clip being made, then the chain. Clips already
-    // made stay in the gallery. A new clip only starts inside the lock, after checking the chain.
-    const current = liveJobs.get(job.chain.clipJobIds.at(-1) ?? "");
-    if (current && isActive(current.job.status)) {
-      const reason = await cancelJob(current, username);
-      if (reason && isActive(current.job.status)) return reason;
-    }
+    // "Make a longer video" (FRG-56): stop the chain first, so it does not see the clip stop and
+    // call that a failure, then stop the clip being made. Clips already made stay in the gallery.
+    // A new clip only starts inside the lock, after checking the chain.
     await finish(live, "cancelled", { cancelledBy: username, cancelledAt: new Date() });
+    const current = liveJobs.get(job.chain.clipJobIds.at(-1) ?? "");
+    // If the clip has just finished, it simply stays in the gallery.
+    if (current && isActive(current.job.status)) await cancelJob(current, username);
     return null;
   }
   if (!job.promptId) return "The job is still being sent to ComfyUI. Try again in a moment.";
