@@ -6,6 +6,7 @@ import { HttpError } from "./httpError.js";
 import { findExtensions } from "./db.js";
 import type { Job } from "./db.js";
 import { findAnyJob, finish, follow, jobProjectId, OUTPUTS_DIR, save, sendError } from "./jobs.js";
+import type { LiveJob } from "./jobs.js";
 import { findVideoJob, requireFfmpeg, runFfmpeg, videoPathOf } from "./lastFrame.js";
 
 // Chains of clips and "Join all" (FRG-55).
@@ -101,8 +102,62 @@ export async function chainHandler(req: Request, res: Response) {
   }
 }
 
-// Only one join runs at a time.
+// Only one join runs at a time. Take the slot before a join; joinInto gives it back.
 let joining = false;
+export function takeJoinSlot(): boolean {
+  if (joining) return false;
+  joining = true;
+  return true;
+}
+
+// The checks before a join: 2 to 10 clips, ffmpeg set up, the same size and frame rate, at most
+// 60 seconds together. Returns the video files and the frame count of the joined video.
+// "Make a longer video" (FRG-56) uses it too.
+export async function prepareJoin(clips: Job[]): Promise<{ files: string[]; totalFrames: number }> {
+  if (clips.length < 2) throw new HttpError(400, "This clip is not part of a chain. Extend it first, then join.");
+  if (clips.length > MAX_CLIPS) {
+    throw new HttpError(400, `This chain has ${clips.length} clips. Join works for at most ${MAX_CLIPS} clips.`);
+  }
+  requireFfmpeg("Joining clips");
+
+  const files = clips.map((clip) => videoPathOf(clip.imageUrl));
+  const facts = await Promise.all(files.map(probeVideo));
+  const first = facts[0];
+  if (facts.some((clip) => clip.fps !== first.fps || clip.width !== first.width || clip.height !== first.height)) {
+    throw new HttpError(400, "These clips have different sizes or frame rates, so they cannot be joined.");
+  }
+  const seconds = joinedSeconds(facts);
+  if (seconds > MAX_SECONDS) {
+    throw new HttpError(400, `Together these clips are ${Math.round(seconds)} seconds long. Join works for at most ${MAX_SECONDS} seconds.`);
+  }
+  return { files, totalFrames: Math.round(seconds * first.fps) };
+}
+
+// Join the clips into this running job, then mark it done (with sourceJobIds) or failed.
+// The caller has taken the join slot (takeJoinSlot); it is given back here.
+export async function joinInto(live: LiveJob, clips: Job[], prepared: { files: string[]; totalFrames: number }): Promise<void> {
+  const { files, totalFrames } = prepared;
+  live.joinProgress = { state: "joining", frame: 0, frames: totalFrames, percent: 0 };
+  try {
+    const fileName = await runJoin(files, (frame) => {
+      const done = Math.min(frame, totalFrames);
+      live.joinProgress = { state: "joining", frame: done, frames: totalFrames, percent: Math.round((done / totalFrames) * 100) };
+    });
+    live.joinProgress = undefined;
+    await finish(live, "done", {
+      outputFile: `data/outputs/${fileName}`,
+      imageUrl: `/api/outputs/${fileName}`,
+      outputKind: "video",
+      sourceJobIds: clips.map((clip) => clip.id),
+    });
+  } catch (error) {
+    console.error(`Join ${live.job.id} failed:`, (error as Error).message);
+    live.joinProgress = undefined;
+    await finish(live, "failed", { error: "Could not join the clips. See the backend log." });
+  } finally {
+    joining = false;
+  }
+}
 
 // POST /api/jobs/<id>/join
 // Join the chain from its first clip up to this clip into one video.
@@ -110,28 +165,11 @@ let joining = false;
 export async function joinHandler(req: Request, res: Response) {
   try {
     const clips = await clipsUpTo(String(req.params.id));
-    if (clips.length < 2) throw new HttpError(400, "This clip is not part of a chain. Extend it first, then join.");
-    if (clips.length > MAX_CLIPS) {
-      throw new HttpError(400, `This chain has ${clips.length} clips. Join works for at most ${MAX_CLIPS} clips.`);
-    }
-    requireFfmpeg("Joining clips");
-
-    const files = clips.map((clip) => videoPathOf(clip.imageUrl));
-    const facts = await Promise.all(files.map(probeVideo));
-    const first = facts[0];
-    if (facts.some((clip) => clip.fps !== first.fps || clip.width !== first.width || clip.height !== first.height)) {
-      throw new HttpError(400, "These clips have different sizes or frame rates, so they cannot be joined.");
-    }
-    const seconds = joinedSeconds(facts);
-    if (seconds > MAX_SECONDS) {
-      throw new HttpError(400, `Together these clips are ${Math.round(seconds)} seconds long. Join works for at most ${MAX_SECONDS} seconds.`);
-    }
-    if (joining) throw new HttpError(409, "Another join is running. Wait until it is done, then try again.");
-
+    const prepared = await prepareJoin(clips);
     // The joined video goes into the project of the clips (see projectForNewItem).
     const project = await jobProjectId(undefined, clips.at(-1)!.id);
+    if (!takeJoinSlot()) throw new HttpError(409, "Another join is running. Wait until it is done, then try again.");
 
-    joining = true;
     const live = follow({
       id: crypto.randomUUID(),
       presetId: null,
@@ -147,27 +185,10 @@ export async function joinHandler(req: Request, res: Response) {
       projectId: project,
       sourceJobIds: clips.map((clip) => clip.id),
     });
-    const totalFrames = Math.round(seconds * first.fps);
-    live.joinProgress = { state: "joining", frame: 0, frames: totalFrames, percent: 0 };
+    live.joinProgress = { state: "joining", frame: 0, frames: prepared.totalFrames, percent: 0 };
     await save(live);
     res.json({ jobId: live.job.id, warning: live.warning });
-
-    runJoin(files, (frame) => {
-      const done = Math.min(frame, totalFrames);
-      live.joinProgress = { state: "joining", frame: done, frames: totalFrames, percent: Math.round((done / totalFrames) * 100) };
-    })
-      .then((fileName) => {
-        live.joinProgress = undefined;
-        return finish(live, "done", { outputFile: `data/outputs/${fileName}`, imageUrl: `/api/outputs/${fileName}`, outputKind: "video" });
-      })
-      .catch((error) => {
-        console.error(`Join ${live.job.id} failed:`, (error as Error).message);
-        live.joinProgress = undefined;
-        return finish(live, "failed", { error: "Could not join the clips. See the backend log." });
-      })
-      .finally(() => {
-        joining = false;
-      });
+    joinInto(live, clips, prepared).catch((error) => console.error("Join failed:", error));
   } catch (error) {
     sendError(res, error);
   }

@@ -17,6 +17,8 @@ export const PRESET_TYPES = ["image", "video", "audio", "3d", "edit", "upscale"]
 const MAX_STAGES = 10;
 // "fps" in preset.json can be at most this (FRG-52).
 const MAX_FPS = 120;
+// A "totalLengths" choice can be at most this many seconds (FRG-56; joining allows 60).
+const MAX_TOTAL_LENGTH = 60;
 // An image input is the file name from POST /api/upload, for example "teczoforge-1791361258118-a1b2c3.png".
 // ComfyUI may add " (1)" if the name is taken. Nothing else is allowed (no folders, no "..").
 export const IMAGE_NAME_PATTERN = /^[A-Za-z0-9_-]+( \(\d+\))?\.(png|jpe?g|webp)$/i;
@@ -64,6 +66,9 @@ export type Preset = {
   stages?: number; // Sampler passes, for example 2 for Wan 2.2 (high noise, then low noise). Default 1.
   estimatedSeconds?: number; // A typical run time.
   fps?: number; // Frames per second of a video preset. Needed by inputs with "unit": "seconds" (FRG-52).
+  // "Make a longer video" (FRG-56): the total lengths in seconds the user can choose, for example
+  // [10, 15, 20]. Needs an image input and an input with "unit": "seconds" (the clip length).
+  totalLengths?: number[];
 };
 
 // A ComfyUI workflow in API format: node id -> node.
@@ -85,6 +90,7 @@ export type PresetSummary = {
   experimental: boolean;
   stages: number;
   estimatedSeconds: number | null;
+  totalLengths: number[]; // Empty: the preset makes single clips only (FRG-56).
   inputs: {
     key: string;
     label: string;
@@ -149,6 +155,20 @@ function checkPreset(folder: string, raw: Preset): Preset {
   preset.inputs = (preset.inputs ?? [])
     .map((input) => checkInput(folder, input))
     .filter((input) => checkSecondsInput(folder, input, preset.fps));
+  if (preset.totalLengths !== undefined) {
+    const canChain = preset.inputs.some((input) => input.kind === "image") && preset.inputs.some((input) => input.unit === "seconds");
+    if (!canChain) {
+      warn(`"totalLengths" needs an image input and an input with "unit": "seconds". It is ignored.`);
+      delete preset.totalLengths;
+    } else if (
+      !Array.isArray(preset.totalLengths) ||
+      preset.totalLengths.length === 0 ||
+      !preset.totalLengths.every((seconds) => Number.isInteger(seconds) && seconds >= 1 && seconds <= MAX_TOTAL_LENGTH)
+    ) {
+      warn(`"totalLengths" must be a list of whole numbers of seconds from 1 to ${MAX_TOTAL_LENGTH}. It is ignored.`);
+      delete preset.totalLengths;
+    }
+  }
   return preset;
 }
 
@@ -267,6 +287,7 @@ export async function listPresets(): Promise<PresetSummary[]> {
         experimental: preset.experimental ?? false,
         stages: preset.stages ?? 1,
         estimatedSeconds: preset.estimatedSeconds ?? null,
+        totalLengths: preset.totalLengths ?? [],
         inputs: preset.inputs.map(({ key, label, kind, default: defaultValue, min, max, step, options, unit, note }) => ({
           key,
           label,
