@@ -6,6 +6,7 @@ import type { Project } from "./App";
 import { MoveToProject } from "./ProjectDialogs";
 import Media, { outputKind } from "./Media";
 import SendToMenu, { ExtendButton } from "./SendToMenu";
+import ChainView from "./ChainView";
 import { ArrowLeft, ArrowRight, Download, Folder, MessageSquare, Play, Repeat } from "lucide-react";
 
 // How many results the gallery shows: the newest ones.
@@ -27,6 +28,8 @@ type Job = {
   inputFiles?: string[]; // Kept start images, for example "data/inputs/<name>" (FRG-25).
   sourceJobId?: string; // "Send to": the job whose result is the start image (FRG-26).
   parentJobId?: string; // "Extend": the clip this one continues from its last frame (FRG-54).
+  chainRootId?: string; // The first clip of its chain (FRG-54). Set on a first clip once it is extended.
+  sourceJobIds?: string[]; // "Join all": the clips joined into this video, in order (FRG-55).
   projectId?: string; // The project of the job (FRG-40).
 };
 
@@ -176,7 +179,7 @@ export default function Gallery({ onUseAgain, onUseInChat, openJobId = null, pro
               <Media url={job.imageUrl!} kind={outputKind(job)} mode="thumbnail" alt={String(job.inputs.prompt ?? "")} />
               {outputKind(job) === "video" && (
                 <span className="video-tag">
-                  <Play size={10} className="fill-current" /> Video
+                  <Play size={10} className="fill-current" /> {job.sourceJobIds ? `Joined (${job.sourceJobIds.length} clips)` : "Video"}
                 </span>
               )}
               <span className="tile-info">
@@ -338,6 +341,15 @@ function Detail({ job, onBack, onUseAgain, onUseInChat, onSendToGenerate, projec
                 </dd>
               </>
             )}
+            {job.sourceJobIds && (
+              <>
+                <dt>Joined</dt>
+                <dd>
+                  {job.sourceJobIds.length} clips (
+                  <a href={`#/gallery/${job.sourceJobIds.at(-1)}`}>open the last clip</a>)
+                </dd>
+              </>
+            )}
             {job.parentJobId && (
               <>
                 <dt>Extended from</dt>
@@ -370,9 +382,12 @@ function Detail({ job, onBack, onUseAgain, onUseInChat, onSendToGenerate, projec
             )}
           </dl>
           <div className="button-row">
-            <button className="button primary" onClick={onUseAgain}>
-              <Repeat size={18} /> Use again
-            </button>
+            {/* A joined video (FRG-55) has no preset to use again. */}
+            {!job.sourceJobIds && (
+              <button className="button primary" onClick={onUseAgain}>
+                <Repeat size={18} /> Use again
+              </button>
+            )}
             {outputKind(job) === "image" && job.id && <SendToMenu jobId={job.id} onOpenInGenerate={onSendToGenerate} />}
             {outputKind(job) === "video" && job.id && (
               <ExtendButton jobId={job.id} presetId={job.presetId} onOpenInGenerate={onSendToGenerate} />
@@ -404,6 +419,8 @@ function Detail({ job, onBack, onUseAgain, onUseInChat, onSendToGenerate, projec
           )}
         </div>
       </div>
+      {/* A clip in a chain made with "Extend" (FRG-55). ChainView shows nothing for a single clip. */}
+      {job.id && (job.parentJobId || job.chainRootId) && <ChainView jobId={job.id} onOpenInGenerate={onSendToGenerate} />}
     </>
   );
 }

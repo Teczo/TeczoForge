@@ -15,32 +15,45 @@ import type { Job } from "./db.js";
 
 // The full path to ffmpeg.exe, from backend/.env. Empty: this feature is off.
 const FFMPEG_PATH = process.env.FFMPEG_PATH ?? "";
-// ffmpeg gets this long. Taking one frame from a short video takes well under a second.
+// ffmpeg gets this long by default. Taking one frame from a short video takes well under a second.
 const FFMPEG_TIMEOUT_MS = 60_000;
 
+// Stop with a clear message if FFMPEG_PATH is not set (FRG-53, FRG-55).
+export function requireFfmpeg(feature: string) {
+  if (FFMPEG_PATH === "") {
+    throw new HttpError(503, `${feature} is not set up. Put the path to ffmpeg.exe in FFMPEG_PATH in backend/.env.`);
+  }
+}
+
 // Run ffmpeg with a list of arguments. No shell, so a file name can never become a command.
-function runFfmpeg(args: string[]): Promise<void> {
+// onOutput gets what ffmpeg writes to stdout (the join's progress, FRG-55).
+// Returns the end of what ffmpeg wrote to stderr (it reports there what it read).
+export function runFfmpeg(
+  args: string[],
+  options: { timeoutMs?: number; onOutput?: (text: string) => void } = {},
+): Promise<string> {
   return new Promise((resolve, reject) => {
     const ffmpeg = spawn(FFMPEG_PATH, args, { shell: false, windowsHide: true });
     let errorText = "";
     ffmpeg.stderr.on("data", (chunk: Buffer) => {
-      errorText = (errorText + chunk.toString()).slice(-2000); // Keep only the end.
+      errorText = (errorText + chunk.toString()).slice(-8000); // Keep only the end.
     });
-    const timer = setTimeout(() => ffmpeg.kill(), FFMPEG_TIMEOUT_MS);
+    ffmpeg.stdout.on("data", (chunk: Buffer) => options.onOutput?.(chunk.toString()));
+    const timer = setTimeout(() => ffmpeg.kill(), options.timeoutMs ?? FFMPEG_TIMEOUT_MS);
     ffmpeg.on("error", (error) => {
       clearTimeout(timer);
       reject(new Error(`ffmpeg could not start (${error.message}). Check FFMPEG_PATH in backend/.env.`));
     });
     ffmpeg.on("close", (code) => {
       clearTimeout(timer);
-      if (code === 0) resolve();
-      else reject(new Error(`ffmpeg stopped with code ${code}: ${errorText.trim()}`));
+      if (code === 0) resolve(errorText);
+      else reject(new Error(`ffmpeg stopped with code ${code}: ${errorText.trim().slice(-2000)}`));
     });
   });
 }
 
 // The video file of a finished job, after checking that it is a plain file name in data/outputs.
-function videoPathOf(imageUrl: string | null): string {
+export function videoPathOf(imageUrl: string | null): string {
   const fileName = (imageUrl ?? "").replace(/^\/api\/outputs\//, "");
   // Only a plain file name (no folders, no "..").
   if (!/^[A-Za-z0-9_-]+\.(mp4|webm|mov|mkv)$/i.test(fileName)) {
@@ -77,9 +90,7 @@ export async function extractLastFrame(jobId: string): Promise<{ name: string; w
     throw new HttpError(404, "This video is not in data/outputs any more.");
   }
 
-  if (FFMPEG_PATH === "") {
-    throw new HttpError(503, "Taking the last frame is not set up. Put the path to ffmpeg.exe in FFMPEG_PATH in backend/.env.");
-  }
+  requireFfmpeg("Taking the last frame");
   const name = `teczoforge-${Date.now()}-${randomBytes(3).toString("hex")}.png`;
   const framePath = inputFilePath(name);
   await mkdir(INPUTS_DIR, { recursive: true });

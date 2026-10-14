@@ -46,8 +46,13 @@ async function requestExtend(jobId: string): Promise<{ values: StartValues } | {
 
 // The "Extend" button on a finished video (FRG-54): opens the Generate form, filled in to continue
 // the clip from its last frame. Hidden if the video's preset has no start image.
-export function ExtendButton(props: { jobId: string; presetId: string | null | undefined; onOpenInGenerate: (values: StartValues) => void }) {
-  const { jobId, presetId, onOpenInGenerate } = props;
+export function ExtendButton(props: {
+  jobId: string;
+  presetId: string | null | undefined;
+  onOpenInGenerate: (values: StartValues) => void;
+  label?: string; // Default "Extend". The chain view says "Extend last clip" (FRG-55).
+}) {
+  const { jobId, presetId, onOpenInGenerate, label = "Extend" } = props;
   const [shown, setShown] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -72,7 +77,7 @@ export function ExtendButton(props: { jobId: string; presetId: string | null | u
   return (
     <span className="send-to">
       <button type="button" className="button" onClick={extend} disabled={busy} title="Continue this video from its last frame">
-        <FastForward size={18} /> {busy ? "Getting the last frame..." : "Extend"}
+        <FastForward size={18} /> {busy ? "Getting the last frame..." : label}
       </button>
       {error && <p className="message error">{error}</p>}
     </span>
