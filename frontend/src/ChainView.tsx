@@ -106,7 +106,8 @@ export default function ChainView(props: { jobId: string; onOpenInGenerate: (val
             <a
               href={`#/gallery/${clip.id}`}
               title={clip.prompt}
-              className={`block overflow-hidden rounded-lg border-2 ${clip.id === jobId ? "border-teal-400" : "border-transparent hover:border-slate-500"}`}
+              // Square thumbnails, like the gallery grid (.tile in styles.css).
+              className={`block overflow-hidden rounded-lg border-2 [&_video]:block [&_video]:aspect-square [&_video]:w-full [&_video]:object-cover ${clip.id === jobId ? "border-teal-400" : "border-transparent hover:border-slate-500"}`}
             >
               <Media url={clip.imageUrl} kind="video" mode="thumbnail" alt={clip.prompt} />
             </a>
