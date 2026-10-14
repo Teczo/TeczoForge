@@ -52,9 +52,6 @@ function videoPathOf(imageUrl: string | null): string {
 // Returns { name, width, height }, like POST /api/upload. Use the name as an "image" input.
 export async function extractLastFrame(jobId: string): Promise<{ name: string; width: number; height: number }> {
   if (!JOB_ID_PATTERN.test(jobId)) throw new HttpError(400, "This is not a job id.");
-  if (FFMPEG_PATH === "") {
-    throw new HttpError(503, "Taking the last frame is not set up. Put the path to ffmpeg.exe in FFMPEG_PATH in backend/.env.");
-  }
 
   const job = await findAnyJob(jobId);
   if (!job) throw new HttpError(404, "There is no job with this id.");
@@ -73,6 +70,9 @@ export async function extractLastFrame(jobId: string): Promise<{ name: string; w
     throw new HttpError(404, "This video is not in data/outputs any more.");
   }
 
+  if (FFMPEG_PATH === "") {
+    throw new HttpError(503, "Taking the last frame is not set up. Put the path to ffmpeg.exe in FFMPEG_PATH in backend/.env.");
+  }
   const name = `teczoforge-${Date.now()}-${randomBytes(3).toString("hex")}.png`;
   const framePath = inputFilePath(name);
   await mkdir(INPUTS_DIR, { recursive: true });

@@ -78,6 +78,7 @@ Backend (Express, 127.0.0.1:4000) ──► ComfyUI (127.0.0.1:8188)   HTTP + on
 | `chatTools.ts` | Chat tools (FRG-24): one `create_card_<preset id>` tool per preset folder, built for every message from `preset.json` (no node ids). A tool call is checked like `/api/drafts` and makes a draft in **Ready** with the conversation id. It never starts a job. Check errors go back to Claude. At most 8 tool calls per message. Between tool rounds the daily token limit is checked again; when it is passed the reply stops with a note (FRG-28). A start image must be the id of a picture attached in that chat (FRG-25). |
 | `chatImages.ts` | Pictures in chat (FRG-25). Checks each picture against the Claude API limits (PNG/JPEG/WebP, at most 10 MB base64, at most 8000 x 8000 px, at most 20 per message) before any API call. Sends at most the newest 20 pictures and 24 MB of pictures per request; older ones are named in the text. |
 | `inputs.ts` | Start images (FRG-25). Keeps every upload in `data/inputs`, reads image type and size from the first bytes, and before a job is queued uploads a start image again if ComfyUI's input folder lost it. |
+| `lastFrame.ts` | Last frame of a video job (FRG-53). Runs ffmpeg (`FFMPEG_PATH` in `backend/.env`) with an argument list, never a shell string, on a video in `data/outputs`, and saves the last frame as a PNG start image in `data/inputs`. |
 | `sendTo.ts` | "Send to" (FRG-26). Copies a finished picture into `data/inputs` and ComfyUI's input folder, then fills the Generate form or makes a Ready card for any preset with an image input. Saves `sourceJobId`. Also lists the jobs made from a job ("Used in"). |
 | `presets.ts` | List and load presets, check the optional v2 fields (FRG-32), check user inputs (text / seed / number / image, with `min` / `max` / `step` / `options`), put values into the workflow. Known preset types: image, video, audio (Music), 3d, edit, upscale; another type loads with a warning and shows under Other (FRG-30) |
 | `comfyui.ts` | ComfyUI client: queue, history polling, upload, view, error parsing. Reads every list in the output node (`images`, `audio`, `gifs`, `3d`, ...): any item with `filename`, `subfolder` and `type` is a file (FRG-29) |
@@ -105,6 +106,7 @@ Backend (Express, 127.0.0.1:4000) ──► ComfyUI (127.0.0.1:8188)   HTTP + on
 | GET | `/api/jobs/:id/used-in` | yes | Jobs and cards made from this job with "Send to" |
 | PATCH | `/api/jobs/:id/project` | yes | Move one job or card to another project: `{ projectId }`. Only `projectId` changes; files stay where they are. Unknown or archived project answers 400 (FRG-43) |
 | POST | `/api/jobs/:id/cancel` | yes | Cancel a waiting or running job (removed from ComfyUI's queue, or stopped). Only who started it. A finished job answers 409 |
+| POST | `/api/jobs/:id/last-frame` | yes | Save the last frame of a finished video job as a new start image in `data/inputs`. Answers `{ name, width, height }`, like `/api/upload`. Image jobs, unfinished or failed jobs and bad ids answer 400; an unknown job 404; no `FFMPEG_PATH` 503 (FRG-53) |
 | GET | `/api/jobs/:id` | yes | One job: `status` (queued / running / done / failed), `progress` (waiting: jobs ahead / running: step x of y / finishing), `imageUrl` (the finished file, of any kind), `outputKind` (image / video / audio / 3d; worked out from the file ending for older jobs), `outputFile`, `error` |
 | GET | `/api/board` | yes | Board cards: all drafts, all waiting / running jobs (with `progress`), and the newest 30 finished jobs that started as a card. `?projectId=<id>`: only that project's cards (FRG-42) |
 | POST | `/api/drafts` | yes | Add a card: `presetId`, `inputs`, `title`, `column` (default `idea`), `projectId` (default "Unsorted"). Inputs and project are checked like `/api/jobs`. Cards from chat go to "Unsorted"; Send to cards go into the source job's project (FRG-40) |
@@ -307,6 +309,7 @@ cd backend && npm run secret
 ```
 
 Set up `backend/.env` from `backend/.env.example` (`PORT`, `COMFYUI_URL`, `MONGODB_URI`, `SESSION_SECRET`,
-and for the chat page `ANTHROPIC_API_KEY`, `CLAUDE_MODEL` and the optional `CHAT_DAILY_TOKEN_LIMIT`).
+and for the chat page `ANTHROPIC_API_KEY`, `CLAUDE_MODEL` and the optional `CHAT_DAILY_TOKEN_LIMIT`;
+`FFMPEG_PATH` is the full path to ffmpeg.exe, used to take the last frame of a video).
 The chat text goes to the Claude API on the internet. Generation stays on this PC.
 For ComfyUI install details, models and measured speeds, see `docs/comfyui-setup.md`.
