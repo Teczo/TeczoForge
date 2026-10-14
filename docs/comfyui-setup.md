@@ -108,6 +108,29 @@ Date: 2026-10-11. Preset `presets/image-to-video-fast/`.
 
 - About 7 times faster than the basic preset (about 266 s). `estimatedSeconds` in preset.json is 37.
 
+## Video duration for the Wan image-to-video presets (FRG-52)
+
+Date: 2026-10-14. Both Wan image-to-video presets have a Duration input: 3, 5 (default) or 7 seconds.
+The backend writes seconds x 16 + 1 frames (49, 81 or 113) into `length` of the WanImageToVideo node (`129:98`).
+
+- Measured by Claude Code: the workflow was built by the app's own code (`buildWorkflow`), then sent to the
+  ComfyUI API. 640 x 640, 16 fps, a new seed for each run. VRAM is the whole GPU (`nvidia-smi`), sampled every 0.5 s.
+- Frame counts were checked by decoding each output file: 49, 81 and 113 frames, exactly as chosen.
+
+| Preset | Length | Run | Time | GPU memory before | Peak GPU memory |
+|---|---|---|---|---|---|
+| Fast | 7 s (113 frames) | Run 1, including model loading | 60.5 s | 1.4 GB | 28.6 GB |
+| Fast | 7 s (113 frames) | Run 2 | 52.3 s | 22.5 GB | 29.2 GB |
+| Fast | 3 s (49 frames) | For comparison | 17.5 s | 22.6 GB | 31.4 GB |
+| Fast | 5 s (81 frames) | For comparison | 34.0 s | 26.0 GB | 31.4 GB |
+| Normal (20 steps) | 7 s (113 frames) | Run 1, right after the Fast runs | 468.0 s | 24.3 GB | 30.9 GB |
+
+- 7 s did not run out of memory on either preset, so all three lengths stay.
+- 7 s takes about 1.5 to 1.75 times as long as 5 s (Fast: 52 s against 34 to 37 s; Normal: 468 s against about 266 s).
+- Peak GPU memory is about the same for every length (29 to 31 GB), because ComfyUI keeps models loaded
+  as long as memory allows. It does not show how much memory each length needs.
+- The page scales `estimatedSeconds` by the chosen length (Fast, 7 s: about 52 s, which matches the measurement).
+
 ## Image edit preset: FLUX.2 klein 4B (FRG-34)
 
 Date: 2026-10-12. Preset `presets/image-edit-klein/` ("Edit Image").
