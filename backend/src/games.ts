@@ -10,6 +10,7 @@ import { createDraft, runDraft } from "./drafts.js";
 import { loadPreset } from "./presets.js";
 import { sendToBoard } from "./sendTo.js";
 import { addProject } from "./projects.js";
+import { exportGame } from "./gameExport.js";
 
 // Games (FRG-66).
 // Importing a game design file saves a game, its project (kind "game", same name as the game),
@@ -557,3 +558,21 @@ onJobDone((job) => {
     .then((assets) => assets.updateOne({ "steps.jobIds": job.id, status: "generating" }, { $set: { status: "review" } }))
     .catch((error) => console.warn(`Warning: could not set the game asset of job ${job.id} to review. ${safeMessage(error)}`));
 });
+
+// POST /api/games/<id>/export (FRG-70)
+// Writes the Unity-ready folder {GAME_EXPORT_DIR}/{CODE}_Assets/ (see gameExport.ts). Only writes
+// and overwrites; nothing in the folder is deleted. Answer: { folder, written, overwritten, missing, problems }.
+export async function exportGameHandler(req: Request, res: Response) {
+  try {
+    const game = await loadGame(req);
+    const assets = await withGames(({ assets }) => assets.find({ gameId: game.id, removed: false }, { projection: { _id: 0 } }).toArray());
+    try {
+      res.json(await exportGame(game, assets));
+    } catch (error) {
+      console.error(`Export of ${game.code} failed:`, error);
+      throw new HttpError(500, `The export could not be written: ${(error as Error).message}`);
+    }
+  } catch (error) {
+    sendError(res, error);
+  }
+}
