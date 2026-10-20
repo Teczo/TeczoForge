@@ -39,6 +39,7 @@ import {
   createAssetCardsHandler,
   doneByHandHandler,
   editAssetHandler,
+  exportGameHandler,
   generateAllHandler,
   getGameHandler,
   importGameHandler,
@@ -157,6 +158,8 @@ app.post("/api/games/:id/assets/:assetId/approve", express.json(), approveHandle
 app.post("/api/games/:id/assets/:assetId/variant", variantHandler);
 app.patch("/api/games/:id/assets/:assetId", express.json(), editAssetHandler);
 app.post("/api/games/:id/assets/:assetId/done-by-hand", doneByHandHandler);
+// Export to a Unity-ready folder with asset_manifest.json (FRG-70).
+app.post("/api/games/:id/export", exportGameHandler);
 
 // Chat with Claude (see chat.ts). Each user only sees their own conversations.
 app.get("/api/chat/status", chatStatusHandler);

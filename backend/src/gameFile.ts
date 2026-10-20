@@ -60,6 +60,14 @@ const ASSET_TYPES: Record<AssetType, { code: string; folder: string; image: bool
   sfx: { code: "SFX", folder: "Audio/SFX", image: false },
 };
 
+// The folder of an asset inside the export (FRG-70), as path parts, for example ["Audio", "Music", "Levels"].
+// The concept art (type "reference", FRG-68) goes to _Reference/. null for an unknown type.
+export function exportFolderParts(type: string, category: string): string[] | null {
+  if (type === "reference") return ["_Reference"];
+  if (!isAssetType(type)) return null;
+  return [...ASSET_TYPES[type].folder.split("/"), category];
+}
+
 const GAME_FIELDS = ["code", "name", "dimension", "pipeline", "style", "palette"];
 const ASSET_FIELDS = ["id", "type", "category", "prompt", "use", "size", "target_height_m", "duration_s", "source", "needs"];
 
