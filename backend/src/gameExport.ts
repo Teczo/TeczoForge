@@ -1,4 +1,4 @@
-import { copyFile, mkdir, stat, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Game, GameAsset } from "./db.js";
 import { exportFolderParts } from "./gameFile.js";
@@ -7,7 +7,8 @@ import { findAnyJob, OUTPUTS_DIR } from "./jobs.js";
 // Export a game to a Unity-ready folder (FRG-70).
 // {GAME_EXPORT_DIR}/{CODE}_Assets/ gets every approved file, renamed to {assetId}.{ending}, in its
 // folder from docs/game-design-format.md; the approved concept art in _Reference/; the design file
-// as {CODE}_GameDesign.md; and asset_manifest.json.
+// as {CODE}_GameDesign.md; asset_manifest.json; and the Claude Code handoff kit from templates/unity
+// (FRG-71): README_ClaudeCode.md with the game's values filled in, and Editor/TeczoForgeImporter.cs.
 // Safe to export again: files are only written or overwritten. Nothing in the export folder is
 // ever deleted, so Unity's .meta files (and anything else someone put there) stay.
 
@@ -17,6 +18,9 @@ export const EXPORT_DIR = process.env.GAME_EXPORT_DIR
   : path.join(import.meta.dirname, "..", "..", "data", "exports");
 
 export const MANIFEST_SCHEMA = "teczoforge-manifest/1";
+
+// The fixed files of the handoff kit (FRG-71), at the root of the repo.
+const TEMPLATES_DIR = path.join(import.meta.dirname, "..", "..", "templates", "unity");
 
 // One asset in asset_manifest.json. path: inside the export folder, with "/" (as Unity writes paths).
 type ManifestAsset = {
@@ -119,6 +123,14 @@ export async function exportGame(game: Game, assets: GameAsset[]): Promise<Expor
     assets: manifestAssets,
   };
   await put(["asset_manifest.json"], (target) => writeFile(target, JSON.stringify(manifest, null, 2) + "\n", "utf8"));
+
+  // The Claude Code handoff kit (FRG-71). The README gets the game's values; the editor script is copied as it is.
+  const readme = (await readFile(path.join(TEMPLATES_DIR, "README_ClaudeCode.md"), "utf8"))
+    .replaceAll("{CODE}", game.code)
+    .replaceAll("{NAME}", game.name)
+    .replaceAll("{PIPELINE}", game.pipeline);
+  await put(["README_ClaudeCode.md"], (target) => writeFile(target, readme, "utf8"));
+  await put(["Editor", "TeczoForgeImporter.cs"], (target) => copyFile(path.join(TEMPLATES_DIR, "Editor", "TeczoForgeImporter.cs"), target));
 
   return report;
 }
