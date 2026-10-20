@@ -7,6 +7,8 @@ import { checkGameFile, conceptPrompt, firstStepPrompt, IMAGE_PRESET, readGameFi
 import type { PlannedAsset } from "./gameFile.js";
 import { findAnyJob, JOB_ID_PATTERN, onJobDone, sendError } from "./jobs.js";
 import { createDraft, runDraft } from "./drafts.js";
+import { loadPreset } from "./presets.js";
+import { sendToBoard } from "./sendTo.js";
 import { addProject } from "./projects.js";
 
 // Games (FRG-66).
@@ -205,7 +207,7 @@ export async function presetTimesHandler(_req: Request, res: Response) {
 
 // ---- Concept art and asset cards (FRG-68) ----
 // 1. "Make concept art": 3 cards for the concept asset, queued at once.
-// 2. "Use this concept": choose one finished concept picture.
+// 2. Approve one finished concept picture (the same Approve as every asset, FRG-69).
 // 3. "Create all asset cards" (only after 2): one card per planned asset, in the Ready column.
 // 4. "Generate all": runs every Ready card of the game, like pressing Generate on each.
 // 5. When a game card's job is done, its asset goes to "review" (see onJobDone below).
@@ -321,28 +323,153 @@ export async function makeConceptHandler(req: Request, res: Response) {
   }
 }
 
-// POST /api/games/<id>/concept/choose
-// Body: { "jobId": "<a finished concept job>" }. "Use this concept" (until FRG-69 brings approve).
-// After this, the asset cards can be made. Answer: the concept asset.
-export async function chooseConceptHandler(req: Request, res: Response) {
+// ---- Review, variants and approve (FRG-69) ----
+// Only results a person approved go into the game. Each asset works on one step at a time: the
+// first step without an approved result. On that step:
+// - Approve a finished result. A model's reference picture then gets its 3D card (step 2), made
+//   with "Send to" (sendTo.ts) and queued at once. The last step approved: the asset is approved.
+// - Make variant: a new card with the same preset and values, a new seed, and the asset's prompt.
+// - Edit prompt: saved on the asset, used for the next variant (first step only).
+// External assets: "Mark as done by hand" approves them with no file.
+
+const MAX_PROMPT_LENGTH = 2000; // The same limit as the design file (gameFile.ts).
+
+// The asset of a /api/games/<id>/assets/<assetId>/... route (assetId: the record id), or 404.
+async function loadAsset(req: Request, game: Game): Promise<GameAsset> {
+  const id = String(req.params.assetId);
+  if (!JOB_ID_PATTERN.test(id)) throw new HttpError(400, "This is not an asset id.");
+  const asset = await withGames(({ assets }) => assets.findOne({ id, gameId: game.id, removed: false }, { projection: { _id: 0 } }));
+  if (!asset) throw new HttpError(404, "There is no such asset in this game.");
+  return asset;
+}
+
+function findAsset(id: string): Promise<GameAsset | null> {
+  return withGames(({ assets }) => assets.findOne({ id }, { projection: { _id: 0 } }));
+}
+
+// The step being worked on: the first one without an approved result, or -1 when all are approved.
+function currentStepIndex(asset: GameAsset): number {
+  return asset.steps.findIndex((step) => !step.approvedJobId);
+}
+
+// POST /api/games/<id>/assets/<assetId>/approve
+// Body: { "jobId": "<a finished result of the current step>" }.
+// Saves it as the step's approvedJobId. If the asset has another step (models: the 3D step), its
+// card is made from the approved picture and queued, and the asset is "generating" again.
+// Otherwise the asset is "approved". Answer: { asset, errors }.
+export async function approveHandler(req: Request, res: Response) {
   try {
     const game = await loadGame(req);
+    const asset = await loadAsset(req, game);
     const jobId = req.body?.jobId;
     if (typeof jobId !== "string" || !JOB_ID_PATTERN.test(jobId)) throw new HttpError(400, "jobId must be a job id.");
-    const concept = await findConcept(game);
-    if (!concept || !concept.steps[0]?.jobIds.includes(jobId)) {
-      throw new HttpError(400, "This job is not a concept picture of this game.");
-    }
+    const index = currentStepIndex(asset);
+    if (asset.status === "approved" || index < 0) throw new HttpError(400, "This asset is already approved.");
+    const step = asset.steps[index];
+    if (!step.jobIds.includes(jobId)) throw new HttpError(400, "This result does not belong to the step of this asset that is being reviewed.");
     const job = await findAnyJob(jobId);
-    if (!job || job.status !== "done") throw new HttpError(400, "This concept picture is not finished yet.");
-    const updated = await withGames(({ assets }) =>
-      assets.findOneAndUpdate(
-        { id: concept.id },
-        { $set: { "steps.0.approvedJobId": jobId, status: "approved" } },
-        { returnDocument: "after", projection: { _id: 0 } },
+    if (!job || job.status !== "done") throw new HttpError(400, "This result is not finished yet.");
+
+    const next = asset.steps[index + 1];
+    // Save the approval only if nobody approved this step in the meantime (two clicks at once).
+    const claimed = await withGames(({ assets }) =>
+      assets.updateOne(
+        { id: asset.id, [`steps.${index}.approvedJobId`]: null },
+        { $set: { [`steps.${index}.approvedJobId`]: jobId, status: next ? "generating" : "approved" } },
       ),
     );
-    res.json(updated);
+    if (claimed.matchedCount === 0) throw new HttpError(409, "This step was already approved. Refresh the page.");
+
+    let errors: string[] = [];
+    if (next) {
+      let card: Job;
+      try {
+        card = await sendToBoard(jobId, next.presetId, res.locals.username ?? null); // Set by requireLogin in auth.ts.
+      } catch (error) {
+        // The next card could not be made: take the approval back, so it can be tried again.
+        await withGames(({ assets }) =>
+          assets.updateOne({ id: asset.id }, { $set: { [`steps.${index}.approvedJobId`]: null, status: "review" } }),
+        );
+        throw error;
+      }
+      await withGames(({ assets }) => assets.updateOne({ id: asset.id }, { $push: { [`steps.${index + 1}.jobIds`]: card.id } }));
+      errors = (await runCards([{ id: card.id, title: card.title ?? asset.assetId }])).errors;
+    }
+    res.json({ asset: await findAsset(asset.id), errors });
+  } catch (error) {
+    sendError(res, error);
+  }
+}
+
+// POST /api/games/<id>/assets/<assetId>/variant
+// "Make variant": a new card for the current step, with the same preset and values as its newest
+// card, a new random seed, and (first step) the asset's prompt as it is now. Queued at once.
+// Answer: { asset, errors }.
+export async function variantHandler(req: Request, res: Response) {
+  try {
+    const game = await loadGame(req);
+    const asset = await loadAsset(req, game);
+    const index = currentStepIndex(asset);
+    if (asset.status === "approved" || index < 0) throw new HttpError(400, "This asset is already approved.");
+    if (asset.source === "external") throw new HttpError(400, "External assets are not made by TeczoForge.");
+    const lastJobId = asset.steps[index].jobIds.at(-1);
+    if (!lastJobId) throw new HttpError(400, "This asset has no card yet. Create the asset cards first.");
+    const last = await findAnyJob(lastJobId);
+    if (!last || !last.presetId) throw new HttpError(400, "The card of this asset cannot be found.");
+
+    // The same values without the seed, so the card gets a new random seed when it runs.
+    const { preset } = await loadPreset(last.presetId);
+    const seedKeys = new Set(preset.inputs.filter((input) => input.kind === "seed").map((input) => input.key));
+    const inputs = Object.fromEntries(Object.entries((last.inputs ?? {}) as Record<string, unknown>).filter(([key]) => !seedKeys.has(key)));
+    // The first step of a file asset uses the asset's prompt, which may have been edited. The concept keeps its prompt.
+    if (index === 0 && asset.type !== REFERENCE_TYPE) inputs.prompt = firstStepPrompt(game, asset.type, asset.prompt);
+
+    const card = await createDraft({
+      presetId: last.presetId,
+      inputs,
+      title: last.title ?? asset.assetId,
+      column: "ready",
+      projectId: game.projectId,
+      createdBy: res.locals.username ?? null,
+      ...(last.sourceJobId ? { sourceJobId: last.sourceJobId } : {}),
+    });
+    await withGames(({ assets }) =>
+      assets.updateOne({ id: asset.id }, { $push: { [`steps.${index}.jobIds`]: card.id }, $set: { status: "generating" } }),
+    );
+    const { errors } = await runCards([{ id: card.id, title: card.title ?? asset.assetId }]);
+    res.json({ asset: await findAsset(asset.id), errors });
+  } catch (error) {
+    sendError(res, error);
+  }
+}
+
+// PATCH /api/games/<id>/assets/<assetId>
+// Body: { "prompt": "..." }. "Edit prompt": saved on the asset, used by the next variant.
+// Not for the concept art or external assets. Answer: the asset.
+export async function editAssetHandler(req: Request, res: Response) {
+  try {
+    const game = await loadGame(req);
+    const asset = await loadAsset(req, game);
+    if (asset.type === REFERENCE_TYPE || asset.source === "external") throw new HttpError(400, "The prompt of this asset cannot be changed.");
+    const prompt = req.body?.prompt;
+    if (typeof prompt !== "string" || prompt.trim() === "") throw new HttpError(400, "The prompt is empty.");
+    if (prompt.trim().length > MAX_PROMPT_LENGTH) throw new HttpError(400, `The prompt is too long. Maximum is ${MAX_PROMPT_LENGTH} characters.`);
+    await withGames(({ assets }) => assets.updateOne({ id: asset.id }, { $set: { prompt: prompt.trim() } }));
+    res.json(await findAsset(asset.id));
+  } catch (error) {
+    sendError(res, error);
+  }
+}
+
+// POST /api/games/<id>/assets/<assetId>/done-by-hand
+// "Mark as done by hand": an external asset becomes approved, with no file. Answer: the asset.
+export async function doneByHandHandler(req: Request, res: Response) {
+  try {
+    const game = await loadGame(req);
+    const asset = await loadAsset(req, game);
+    if (asset.source !== "external") throw new HttpError(400, "Only external assets are done by hand.");
+    await withGames(({ assets }) => assets.updateOne({ id: asset.id }, { $set: { status: "approved" } }));
+    res.json(await findAsset(asset.id));
   } catch (error) {
     sendError(res, error);
   }

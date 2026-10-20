@@ -35,14 +35,17 @@ import { IMAGE_TYPES, MAX_UPLOAD_BYTES, uploadHandler, useOutputHandler } from "
 import { checkSessionSecret, loginHandler, logoutHandler, meHandler, requireLogin } from "./auth.js";
 import { checkGameFileHandler } from "./gameFile.js";
 import {
-  chooseConceptHandler,
+  approveHandler,
   createAssetCardsHandler,
+  doneByHandHandler,
+  editAssetHandler,
   generateAllHandler,
   getGameHandler,
   importGameHandler,
   listGamesHandler,
   makeConceptHandler,
   presetTimesHandler,
+  variantHandler,
 } from "./games.js";
 
 // Settings come from backend/.env. The defaults match .env.example.
@@ -147,9 +150,13 @@ app.get("/api/games/preset-times", presetTimesHandler);
 app.get("/api/games/:id", getGameHandler);
 // Concept art first, then all asset cards, then Generate all (FRG-68).
 app.post("/api/games/:id/concept", makeConceptHandler);
-app.post("/api/games/:id/concept/choose", express.json(), chooseConceptHandler);
 app.post("/api/games/:id/cards", createAssetCardsHandler);
 app.post("/api/games/:id/generate", generateAllHandler);
+// Review (FRG-69): approve a result, make a variant, edit the prompt, or mark an external asset as done by hand.
+app.post("/api/games/:id/assets/:assetId/approve", express.json(), approveHandler);
+app.post("/api/games/:id/assets/:assetId/variant", variantHandler);
+app.patch("/api/games/:id/assets/:assetId", express.json(), editAssetHandler);
+app.post("/api/games/:id/assets/:assetId/done-by-hand", doneByHandHandler);
 
 // Chat with Claude (see chat.ts). Each user only sees their own conversations.
 app.get("/api/chat/status", chatStatusHandler);

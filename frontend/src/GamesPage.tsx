@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import type { ChangeEvent, ReactNode } from "react";
 import { AlertTriangle, ArrowLeft, CheckCircle2, Clock, FileUp, Gamepad2, Hand, X } from "lucide-react";
+import Media, { outputKind } from "./Media";
 
 // The Games section (FRG-67): the list of games as tiles, "Import game design (.md)" with a preview
 // of the plan before anything is saved, and the detail page of one game with its assets.
@@ -11,6 +12,9 @@ const NO_BACKEND = "Could not reach the backend. Make sure it is running, then t
 
 // How often the game page loads the game again while something is being made (FRG-68).
 const POLL_MS = 3000;
+
+// The longest asset prompt (MAX_PROMPT_LENGTH in backend/src/games.ts).
+const MAX_PROMPT_LENGTH = 2000;
 
 // The biggest design file the backend reads (MAX_GAME_FILE_BYTES in backend/src/gameFile.ts).
 const MAX_FILE_BYTES = 1024 * 1024;
@@ -36,6 +40,7 @@ type GameAsset = {
   id: string;
   assetId: string;
   type: string;
+  prompt: string;
   use: string;
   needs: string[];
   source: "forge" | "external";
@@ -164,10 +169,11 @@ function GamesList() {
   );
 }
 
-// "12 of 24 approved". External assets are not made by TeczoForge, so they are counted apart.
+// "12 of 24 approved". Every asset counts, also external ones: they are approved with "Mark as done
+// by hand" (FRG-69). "· 1 by hand": external assets not marked yet.
 function approvedText(counts: StatusCounts): string {
-  const made = counts.planned + counts.generating + counts.review + counts.approved;
-  const text = `${counts.approved} of ${made} approved`;
+  const all = counts.planned + counts.generating + counts.review + counts.approved + counts.external;
+  const text = `${counts.approved} of ${all} approved`;
   return counts.external > 0 ? `${text} · ${counts.external} by hand` : text;
 }
 
@@ -558,17 +564,27 @@ function GameDetail({ id }: { id: string }) {
 
           <Table head={["Id", "Type", "Use", "Needs", "Status"]}>
             {assets.map((asset) => (
-              <tr key={asset.id} className="border-t border-slate-700/50 align-top">
-                <Cell mono>{asset.assetId}</Cell>
-                <Cell>{asset.type}</Cell>
-                <Cell>{asset.use}</Cell>
-                <Cell>
-                  <Needs needs={asset.needs} external={asset.source === "external"} />
-                </Cell>
-                <Cell>
-                  <StatusBadge status={asset.status} />
-                </Cell>
-              </tr>
+              <Fragment key={asset.id}>
+                <tr className="border-t border-slate-700/50 align-top">
+                  <Cell mono>{asset.assetId}</Cell>
+                  <Cell>{asset.type}</Cell>
+                  <Cell>{asset.use}</Cell>
+                  <Cell>
+                    <Needs needs={asset.needs} external={asset.source === "external"} />
+                  </Cell>
+                  <Cell>
+                    <StatusBadge status={asset.status} />
+                  </Cell>
+                </tr>
+                {/* The results to review, and the actions (FRG-69). Nothing while the asset has no card. */}
+                {(asset.source === "external" || asset.steps.some((step) => step.jobIds.length > 0)) && (
+                  <tr>
+                    <td colSpan={5} className="px-3 pb-4">
+                      <AssetReview gameId={detail.game.id} asset={asset} onChanged={load} canEditPrompt />
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
             ))}
           </Table>
         </>
@@ -605,9 +621,6 @@ function HandNote({ children }: { children: ReactNode }) {
 
 // ---- Concept art first, then all asset cards (FRG-68) ----
 
-// One concept job, as GET /api/jobs/<id> returns it. Only the parts the page uses.
-type ConceptJob = { id: string; status: string; imageUrl: string | null; error: string | null };
-
 // The answer of a step: what happened, and any problems.
 type StepResult = { text: string; errors: string[] };
 
@@ -620,39 +633,12 @@ type GameStepsProps = {
 };
 
 // The three steps on the game page:
-// 1. "Make concept art": 3 pictures in the game's style. "Use this concept" on a finished one.
+// 1. "Make concept art": 3 pictures in the game's style. Approve one (the same Approve as every asset, FRG-69).
 // 2. "Create all asset cards": only after a concept is chosen. One board card per planned asset.
 // 3. "Generate all": runs every Ready card of this game. ComfyUI's own queue runs them.
 function GameSteps({ gameId, projectName, concept, assets, onChanged }: GameStepsProps) {
   const [busy, setBusy] = useState<string | null>(null);
   const [result, setResult] = useState<StepResult | null>(null);
-  const [conceptJobs, setConceptJobs] = useState<ConceptJob[]>([]);
-  // Goes up every few seconds while a concept picture is still being made, so it is loaded again.
-  const [tick, setTick] = useState(0);
-
-  // Load the concept jobs again each time the concept asset changes (the page reloads it while something runs).
-  const conceptJobIds = concept?.steps[0]?.jobIds ?? [];
-  const conceptKey = `${conceptJobIds.join(",")}|${concept?.status}`;
-  useEffect(() => {
-    if (conceptJobIds.length === 0) {
-      setConceptJobs([]);
-      return;
-    }
-    async function load() {
-      const loaded = await Promise.all(
-        conceptJobIds.map(async (jobId) => {
-          try {
-            const response = await fetch(`/api/jobs/${jobId}`);
-            return response.ok ? ((await response.json()) as ConceptJob) : null;
-          } catch {
-            return null;
-          }
-        }),
-      );
-      setConceptJobs(loaded.filter((job): job is ConceptJob => job !== null));
-    }
-    load();
-  }, [conceptKey, tick]);
 
   async function post(name: string, url: string, body?: unknown): Promise<Record<string, unknown> | null> {
     setBusy(name);
@@ -687,10 +673,6 @@ function GameSteps({ gameId, projectName, concept, assets, onChanged }: GameStep
     if (answer) setResult({ text: `Started ${answer.queued} concept picture(s).`, errors: answer.errors as string[] });
   }
 
-  async function useConcept(jobId: string) {
-    await post("choose", `/api/games/${gameId}/concept/choose`, { jobId });
-  }
-
   async function createCards() {
     const answer = await post("cards", `/api/games/${gameId}/cards`);
     if (answer) {
@@ -707,23 +689,17 @@ function GameSteps({ gameId, projectName, concept, assets, onChanged }: GameStep
     }
   }
 
-  const chosenJobId = concept?.steps[0]?.approvedJobId ?? null;
   const conceptChosen = concept?.status === "approved";
-  const conceptRunning = conceptJobs.some((job) => job.status === "queued" || job.status === "running");
-  useEffect(() => {
-    if (!conceptRunning) return;
-    const timer = setInterval(() => setTick((t) => t + 1), POLL_MS);
-    return () => clearInterval(timer);
-  }, [conceptRunning]);
+  const conceptRunning = concept?.status === "generating";
   const plannedCount = assets.filter((asset) => asset.status === "planned").length;
-  const hasCards = assets.some((asset) => asset.steps[0]?.jobIds.length) || conceptJobs.some((job) => job.status === "draft");
+  const hasCards = [concept, ...assets].some((asset) => asset?.steps.some((step) => step.jobIds.length > 0));
 
   return (
     <div className="mb-6 space-y-3">
       <StepBox
         number={1}
         title="Make concept art"
-        text="Three pictures in the game's style. Choose one before the asset cards are made."
+        text="Three pictures in the game's style. Approve one before the asset cards are made."
         done={conceptChosen}
         action={
           <StepButton
@@ -733,17 +709,9 @@ function GameSteps({ gameId, projectName, concept, assets, onChanged }: GameStep
           />
         }
       >
-        {conceptJobs.length > 0 && (
-          <div className="mt-3 grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-3">
-            {conceptJobs.map((job) => (
-              <ConceptTile
-                key={job.id}
-                job={job}
-                chosen={job.id === chosenJobId}
-                canChoose={!conceptChosen && busy === null}
-                onChoose={() => useConcept(job.id)}
-              />
-            ))}
+        {concept && (
+          <div className="mt-3">
+            <AssetReview gameId={gameId} asset={concept} onChanged={onChanged} canEditPrompt={false} />
           </div>
         )}
       </StepBox>
@@ -754,7 +722,7 @@ function GameSteps({ gameId, projectName, concept, assets, onChanged }: GameStep
         text={
           conceptChosen
             ? `One board card per planned asset, in the Ready column. ${plannedCount} planned asset(s) left.`
-            : "Choose a concept in step 1 first."
+            : "Approve a concept in step 1 first."
         }
         done={conceptChosen && plannedCount === 0}
         action={
@@ -823,13 +791,178 @@ function StepButton({ label, onClick, disabled }: { label: string; onClick: () =
   );
 }
 
-// One concept picture: waiting, being made, finished (with "Use this concept"), or back on the board after a failure.
-function ConceptTile({ job, chosen, canChoose, onChoose }: { job: ConceptJob; chosen: boolean; canChoose: boolean; onChoose: () => void }) {
+// ---- Review, variants and approve (FRG-69) ----
+
+// One result, as GET /api/jobs/<id> returns it. Only the parts the page uses.
+type ResultJob = { id: string; status: string; imageUrl: string | null; outputKind?: string | null; error: string | null };
+
+// Load these jobs, and load them again every few seconds while one is waiting or running.
+function useJobs(ids: string[], key: string): ResultJob[] {
+  const [jobs, setJobs] = useState<ResultJob[]>([]);
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    if (ids.length === 0) {
+      setJobs([]);
+      return;
+    }
+    async function load() {
+      const loaded = await Promise.all(
+        ids.map(async (jobId) => {
+          try {
+            const response = await fetch(`/api/jobs/${jobId}`);
+            return response.ok ? ((await response.json()) as ResultJob) : null;
+          } catch {
+            return null;
+          }
+        }),
+      );
+      setJobs(loaded.filter((job): job is ResultJob => job !== null));
+    }
+    load();
+  }, [key, tick]);
+  const running = jobs.some((job) => job.status === "queued" || job.status === "running");
+  useEffect(() => {
+    if (!running) return;
+    const timer = setInterval(() => setTick((t) => t + 1), POLL_MS);
+    return () => clearInterval(timer);
+  }, [running]);
+  return jobs;
+}
+
+// What each step of an asset makes, shown above its results.
+function stepLabel(asset: GameAsset, index: number): string {
+  if (asset.type === "model") return index === 0 ? "Step 1 of 2: reference picture" : "Step 2 of 2: 3D model";
+  return "Results";
+}
+
+type AssetReviewProps = {
+  gameId: string;
+  asset: GameAsset;
+  onChanged: () => void; // Load the game again.
+  canEditPrompt: boolean;
+};
+
+// The results of an asset's current step (the first step without an approved result), each with
+// Approve, plus "Make variant" and "Edit prompt". An approved asset shows its approved result.
+// An external asset has "Mark as done by hand".
+function AssetReview({ gameId, asset, onChanged, canEditPrompt }: AssetReviewProps) {
+  const [busy, setBusy] = useState<string | null>(null);
+  const [errors, setErrors] = useState<string[]>([]);
+  const [editing, setEditing] = useState<string | null>(null); // The prompt being edited, or null.
+
+  const stepIndex = asset.steps.findIndex((step) => !step.approvedJobId);
+  const approved = asset.status === "approved" || stepIndex < 0;
+  // Approved: the approved result of the last step. Otherwise: every result of the current step.
+  const lastStep = asset.steps.at(-1);
+  const ids = approved ? (lastStep?.approvedJobId ? [lastStep.approvedJobId] : []) : (asset.steps[stepIndex]?.jobIds ?? []);
+  const jobs = useJobs(ids, `${ids.join(",")}|${asset.status}`);
+
+  async function send(name: string, method: "POST" | "PATCH", url: string, body?: unknown): Promise<boolean> {
+    setBusy(name);
+    setErrors([]);
+    try {
+      const response = await fetch(url, {
+        method,
+        headers: body === undefined ? undefined : { "Content-Type": "application/json" },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+      const answer = await response.json().catch(() => null);
+      if (!answer) setErrors([NO_BACKEND]);
+      else if (!response.ok) setErrors([answer.error ?? "Something went wrong."]);
+      else setErrors(answer.errors ?? []);
+      return !!answer && response.ok;
+    } catch {
+      setErrors([NO_BACKEND]);
+      return false;
+    } finally {
+      setBusy(null);
+      onChanged();
+    }
+  }
+
+  const base = `/api/games/${gameId}/assets/${asset.id}`;
+
+  if (asset.source === "external") {
+    return asset.status === "approved" ? (
+      <p className="m-0 flex items-center gap-1.5 text-xs text-emerald-300">
+        <CheckCircle2 size={14} /> Done by hand
+      </p>
+    ) : (
+      <div>
+        <SmallButton label={busy ? "Saving..." : "Mark as done by hand"} disabled={busy !== null} onClick={() => send("hand", "POST", `${base}/done-by-hand`)} />
+        {errors.length > 0 && <ErrorList title="This did not work." errors={errors} />}
+      </div>
+    );
+  }
+  if (ids.length === 0) return null; // No card yet (step 2 of the game page).
+
   return (
-    <div className={`overflow-hidden rounded-lg border ${chosen ? "border-emerald-500/70 ring-2 ring-emerald-500/30" : "border-slate-700/60"}`}>
-      <div className="flex aspect-square items-center justify-center bg-slate-900/60">
-        {job.status === "done" && job.imageUrl ? (
-          <img src={job.imageUrl} alt="Concept art" className="h-full w-full object-cover" />
+    <div>
+      {!approved && <div className="mb-2 text-xs font-medium text-slate-400">{stepLabel(asset, stepIndex)}</div>}
+      <div className="flex flex-wrap gap-3">
+        {jobs.map((job) => (
+          <ResultTile
+            key={job.id}
+            job={job}
+            approved={approved}
+            canApprove={!approved && busy === null}
+            onApprove={() => send("approve", "POST", `${base}/approve`, { jobId: job.id })}
+          />
+        ))}
+      </div>
+
+      {!approved && (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <SmallButton
+            label={busy === "variant" ? "Starting..." : "Make variant"}
+            disabled={busy !== null}
+            onClick={() => send("variant", "POST", `${base}/variant`)}
+          />
+          {canEditPrompt && stepIndex === 0 && editing === null && (
+            <SmallButton label="Edit prompt" disabled={busy !== null} onClick={() => setEditing(asset.prompt)} />
+          )}
+        </div>
+      )}
+
+      {editing !== null && (
+        <div className="mt-3 max-w-2xl">
+          <textarea
+            value={editing}
+            onChange={(event) => setEditing(event.target.value)}
+            maxLength={MAX_PROMPT_LENGTH}
+            rows={3}
+            className="block w-full rounded-lg border border-slate-600 bg-slate-900/60 px-3 py-2 text-sm text-slate-100 outline-none focus:border-teal-500/60"
+          />
+          <p className="mt-1 mb-2 text-xs text-slate-500">Used for the next variant. The game's style and palette are added in front.</p>
+          <div className="flex gap-2">
+            <SmallButton
+              label={busy === "prompt" ? "Saving..." : "Save prompt"}
+              disabled={busy !== null || editing.trim() === ""}
+              onClick={async () => {
+                if (await send("prompt", "PATCH", base, { prompt: editing })) setEditing(null);
+              }}
+            />
+            <SmallButton label="Cancel" disabled={busy !== null} onClick={() => setEditing(null)} />
+          </div>
+        </div>
+      )}
+
+      {errors.length > 0 && <ErrorList title="This did not work." errors={errors} />}
+    </div>
+  );
+}
+
+// One result: the picture, sound or 3D model (in the 3D viewer), or where the job is now.
+function ResultTile({ job, approved, canApprove, onApprove }: { job: ResultJob; approved: boolean; canApprove: boolean; onApprove: () => void }) {
+  const kind = outputKind(job);
+  const done = job.status === "done" && job.imageUrl;
+  // The 3D viewer needs at least 320 px of height (.model-viewer in styles.css), so a 3D tile is bigger.
+  const size = done && kind === "3d" ? "w-80" : "w-56";
+  return (
+    <div className={`${size} overflow-hidden rounded-lg border ${approved ? "border-emerald-500/70" : "border-slate-700/60"}`}>
+      <div className={`flex ${done && kind === "3d" ? "h-80" : "h-56"} items-center justify-center overflow-hidden bg-slate-900/60`}>
+        {done ? (
+          <Media url={job.imageUrl!} kind={kind} alt="Result" mode={kind === "3d" ? "full" : "thumbnail"} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
         ) : (
           <span className="px-3 text-center text-xs text-slate-500">
             {job.status === "queued"
@@ -837,28 +970,41 @@ function ConceptTile({ job, chosen, canChoose, onChoose }: { job: ConceptJob; ch
               : job.status === "running"
                 ? "Making..."
                 : job.status === "draft"
-                  ? `Back on the board: ${job.error ?? "it did not finish."}`
+                  ? `On the board, not run: ${job.error ?? "press Generate all."}`
                   : "Not finished."}
           </span>
         )}
       </div>
       <div className="p-2">
-        {chosen ? (
+        {approved ? (
           <span className="flex items-center justify-center gap-1.5 py-1 text-xs font-medium text-emerald-300">
-            <CheckCircle2 size={14} /> Chosen concept
+            <CheckCircle2 size={14} /> Approved
           </span>
         ) : (
           <button
             type="button"
-            onClick={onChoose}
-            disabled={!canChoose || job.status !== "done"}
-            className="w-full cursor-pointer rounded-md border border-slate-600 bg-transparent px-2 py-1 text-xs text-slate-200 hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+            onClick={onApprove}
+            disabled={!canApprove || !done}
+            className="w-full cursor-pointer rounded-md border-0 bg-emerald-600/80 px-2 py-1 text-xs font-medium text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-40"
           >
-            Use this concept
+            Approve
           </button>
         )}
       </div>
     </div>
+  );
+}
+
+function SmallButton({ label, onClick, disabled }: { label: string; onClick: () => void; disabled: boolean }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className="cursor-pointer rounded-md border border-slate-600 bg-transparent px-3 py-1.5 text-xs text-slate-200 hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+    >
+      {label}
+    </button>
   );
 }
 
