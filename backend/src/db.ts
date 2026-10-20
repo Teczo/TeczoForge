@@ -160,7 +160,8 @@ export type GameAssetStep = {
   approvedJobId: string | null;
 };
 
-// One asset from the design file.
+// One asset from the design file. The concept art is an asset too (FRG-68): type "reference",
+// id {CODE}_REF_Style_Concept, order -1. It is not in the file; "Make concept art" adds it.
 export type GameAsset = {
   id: string; // A UUID.
   gameId: string;
@@ -327,6 +328,13 @@ export function updateDraft(id: string, fields: Partial<Job>): Promise<boolean> 
 // Delete a draft. A job that has run is never deleted. Returns false if there is no such draft.
 export function deleteDraft(id: string): Promise<boolean> {
   return withJobs(async (jobs) => (await jobs.deleteOne({ id, status: "draft" })).deletedCount > 0);
+}
+
+// The cards among these ids that are still drafts in the Ready column, oldest first ("Generate all", FRG-68).
+export function findReadyDrafts(ids: string[]): Promise<Job[]> {
+  return withJobs((jobs) =>
+    jobs.find({ id: { $in: ids }, status: "draft", column: "ready" }, { projection: { _id: 0 } }).sort({ createdAt: 1 }).toArray(),
+  );
 }
 
 // Turn a draft into a job, in one step, so it can never run twice.
@@ -574,6 +582,7 @@ export async function checkDatabase(): Promise<boolean> {
     await games.createIndex({ id: 1 });
     await games.createIndex({ code: 1 }, { unique: true });
     await (await getGameAssetsCollection()).createIndex({ gameId: 1, order: 1 });
+    await (await getGameAssetsCollection()).createIndex({ "steps.jobIds": 1 }); // The asset of a finished job (FRG-68).
     await ensureUnsortedProject(projects);
     await moveOldJobsToUnsorted(jobs);
     await moveOldConversationsToUnsorted(conversations);

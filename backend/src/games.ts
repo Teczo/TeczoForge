@@ -1,11 +1,12 @@
 import type { Request, Response } from "express";
 import type { Collection } from "mongodb";
 import { HttpError } from "./httpError.js";
-import { averageDurationsByPreset, GAME_ASSET_STATUSES, getGameAssetsCollection, getGamesCollection, getProjectsCollection, safeMessage } from "./db.js";
-import type { Game, GameAsset, GameAssetStatus } from "./db.js";
-import { checkGameFile, readGameFileBody } from "./gameFile.js";
+import { averageDurationsByPreset, findReadyDrafts, GAME_ASSET_STATUSES, getGameAssetsCollection, getGamesCollection, getProjectsCollection, safeMessage } from "./db.js";
+import type { Game, GameAsset, GameAssetStatus, Job } from "./db.js";
+import { checkGameFile, conceptPrompt, firstStepPrompt, IMAGE_PRESET, readGameFileBody } from "./gameFile.js";
 import type { PlannedAsset } from "./gameFile.js";
-import { JOB_ID_PATTERN, sendError } from "./jobs.js";
+import { findAnyJob, JOB_ID_PATTERN, onJobDone, sendError } from "./jobs.js";
+import { createDraft, runDraft } from "./drafts.js";
 import { addProject } from "./projects.js";
 
 // Games (FRG-66).
@@ -152,7 +153,7 @@ export async function listGamesHandler(_req: Request, res: Response) {
       games: await games.find({}, { projection: { _id: 0, designText: 0 } }).sort({ createdAt: -1 }).toArray(),
       rows: await assets
         .aggregate<{ _id: { gameId: string; status: GameAssetStatus }; count: number }>([
-          { $match: { removed: false } },
+          { $match: { removed: false, type: { $ne: REFERENCE_TYPE } } }, // The concept art is not counted.
           { $group: { _id: { gameId: "$gameId", status: "$status" }, count: { $sum: 1 } } },
         ])
         .toArray(),
@@ -201,3 +202,231 @@ export async function presetTimesHandler(_req: Request, res: Response) {
     sendError(res, error);
   }
 }
+
+// ---- Concept art and asset cards (FRG-68) ----
+// 1. "Make concept art": 3 cards for the concept asset, queued at once.
+// 2. "Use this concept": choose one finished concept picture.
+// 3. "Create all asset cards" (only after 2): one card per planned asset, in the Ready column.
+// 4. "Generate all": runs every Ready card of the game, like pressing Generate on each.
+// 5. When a game card's job is done, its asset goes to "review" (see onJobDone below).
+
+const REFERENCE_TYPE = "reference";
+const CONCEPT_CARDS = 3;
+
+function conceptAssetId(game: Game): string {
+  return `${game.code}_REF_Style_Concept`;
+}
+
+// The game of a /api/games/<id>/... route, or 404.
+async function loadGame(req: Request): Promise<Game> {
+  const id = String(req.params.id);
+  if (!JOB_ID_PATTERN.test(id)) throw new HttpError(400, "This is not a game id.");
+  const game = await withGames(({ games }) => games.findOne({ id }, { projection: { _id: 0 } }));
+  if (!game) throw new HttpError(404, "There is no game with this id.");
+  return game;
+}
+
+function findConcept(game: Game): Promise<GameAsset | null> {
+  return withGames(({ assets }) => assets.findOne({ gameId: game.id, type: REFERENCE_TYPE }, { projection: { _id: 0 } }));
+}
+
+// Run cards one after the other, through the normal run path (runDraft in drafts.ts).
+// Stops at the first card ComfyUI does not accept (it is probably not running): that card goes
+// back to Ready with the reason, like a failed Generate.
+// Returns how many were queued, and the problems in plain English.
+async function runCards(cards: { id: string; title: string }[]): Promise<{ queued: number; errors: string[] }> {
+  let queued = 0;
+  const errors: string[] = [];
+  for (const [index, card] of cards.entries()) {
+    try {
+      const { live, failedStatus } = await runDraft(card.id);
+      if (failedStatus !== null) {
+        const left = cards.length - index - 1;
+        const rest = left > 0 ? ` The other ${left} card(s) were not started.` : "";
+        errors.push(`${card.title}: ${live.job.error ?? "ComfyUI did not accept it."}${rest}`);
+        break;
+      }
+      queued += 1;
+    } catch (error) {
+      if (!(error instanceof HttpError)) console.error(`Game card ${card.id} could not be started:`, error);
+      errors.push(`${card.title}: ${error instanceof HttpError ? error.message : "could not be started. See the backend log."}`);
+    }
+  }
+  return { queued, errors };
+}
+
+// POST /api/games/<id>/concept
+// "Make concept art": 3 cards in the game's project, queued at once. They belong to the concept asset
+// ({CODE}_REF_Style_Concept, type "reference"), which is added the first time.
+// Answer: { concept, queued, errors }.
+export async function makeConceptHandler(req: Request, res: Response) {
+  try {
+    const game = await loadGame(req);
+    const createdBy: string | null = res.locals.username ?? null; // Set by requireLogin in auth.ts.
+
+    // Add the concept asset once. An upsert, so two clicks at once never make two.
+    await withGames(({ assets }) =>
+      assets.updateOne(
+        { gameId: game.id, type: REFERENCE_TYPE },
+        {
+          $setOnInsert: {
+            id: crypto.randomUUID(),
+            gameId: game.id,
+            order: -1,
+            assetId: conceptAssetId(game),
+            type: REFERENCE_TYPE,
+            category: "Style",
+            prompt: "key art, concept art",
+            use: "Style reference for every asset",
+            options: {},
+            source: "forge",
+            needs: [],
+            status: "planned",
+            steps: [{ presetId: IMAGE_PRESET, jobIds: [], approvedJobId: null }],
+            removed: false,
+          },
+        },
+        { upsert: true },
+      ),
+    );
+    const concept = await findConcept(game);
+    if (!concept) throw new HttpError(500, "The concept asset could not be made.");
+    if (concept.status === "approved") throw new HttpError(400, "A concept is already chosen for this game.");
+
+    // Save the cards and their ids on the asset first, so a finished job always finds its asset.
+    const cards: Job[] = [];
+    for (let i = 1; i <= CONCEPT_CARDS; i++) {
+      cards.push(
+        await createDraft({
+          presetId: IMAGE_PRESET,
+          inputs: { prompt: conceptPrompt(game) },
+          title: `${concept.assetId} (${i} of ${CONCEPT_CARDS})`,
+          column: "ready",
+          projectId: game.projectId,
+          createdBy,
+        }),
+      );
+    }
+    await withGames(({ assets }) =>
+      assets.updateOne(
+        { id: concept.id },
+        { $push: { "steps.0.jobIds": { $each: cards.map((card) => card.id) } }, $set: { status: "generating" } },
+      ),
+    );
+
+    const { queued, errors } = await runCards(cards.map((card) => ({ id: card.id, title: card.title ?? card.id })));
+    res.json({ concept: await findConcept(game), queued, errors });
+  } catch (error) {
+    sendError(res, error);
+  }
+}
+
+// POST /api/games/<id>/concept/choose
+// Body: { "jobId": "<a finished concept job>" }. "Use this concept" (until FRG-69 brings approve).
+// After this, the asset cards can be made. Answer: the concept asset.
+export async function chooseConceptHandler(req: Request, res: Response) {
+  try {
+    const game = await loadGame(req);
+    const jobId = req.body?.jobId;
+    if (typeof jobId !== "string" || !JOB_ID_PATTERN.test(jobId)) throw new HttpError(400, "jobId must be a job id.");
+    const concept = await findConcept(game);
+    if (!concept || !concept.steps[0]?.jobIds.includes(jobId)) {
+      throw new HttpError(400, "This job is not a concept picture of this game.");
+    }
+    const job = await findAnyJob(jobId);
+    if (!job || job.status !== "done") throw new HttpError(400, "This concept picture is not finished yet.");
+    const updated = await withGames(({ assets }) =>
+      assets.findOneAndUpdate(
+        { id: concept.id },
+        { $set: { "steps.0.approvedJobId": jobId, status: "approved" } },
+        { returnDocument: "after", projection: { _id: 0 } },
+      ),
+    );
+    res.json(updated);
+  } catch (error) {
+    sendError(res, error);
+  }
+}
+
+// POST /api/games/<id>/cards
+// "Create all asset cards": one card per planned asset (not external, not removed), in the game's
+// project, Ready column. Title: the asset id. Models get only their first step (the reference picture).
+// Each asset goes to "generating", and the card id is saved in its first step.
+// Only after a concept is chosen. Assets that already have a card are not planned any more, so a
+// second click adds nothing. Answer: { created, errors }.
+export async function createAssetCardsHandler(req: Request, res: Response) {
+  try {
+    const game = await loadGame(req);
+    const concept = await findConcept(game);
+    if (concept?.status !== "approved") throw new HttpError(400, "Choose a concept first (step 1), then create the asset cards.");
+    const createdBy: string | null = res.locals.username ?? null;
+
+    const planned = await withGames(({ assets }) =>
+      assets
+        .find(
+          { gameId: game.id, removed: false, status: "planned", source: "forge", type: { $ne: REFERENCE_TYPE } },
+          { projection: { _id: 0 } },
+        )
+        .sort({ order: 1 })
+        .toArray(),
+    );
+
+    let created = 0;
+    const errors: string[] = [];
+    for (const asset of planned) {
+      const step = asset.steps[0];
+      if (!step) continue;
+      // The size comes from the asset. Music: the preset has no duration input yet (FRG-44), so duration_s is not used.
+      const inputs: Record<string, unknown> = { prompt: firstStepPrompt(game, asset.type, asset.prompt) };
+      if (asset.options.size) [inputs.width, inputs.height] = asset.options.size;
+      try {
+        const card = await createDraft({
+          presetId: step.presetId,
+          inputs,
+          title: asset.assetId,
+          column: "ready",
+          projectId: game.projectId,
+          createdBy,
+        });
+        await withGames(({ assets }) =>
+          assets.updateOne({ id: asset.id }, { $push: { "steps.0.jobIds": card.id }, $set: { status: "generating" } }),
+        );
+        created += 1;
+      } catch (error) {
+        if (error instanceof HttpError && error.status === 503) throw error; // MongoDB offline: stop here.
+        if (!(error instanceof HttpError)) console.error(`The card of ${asset.assetId} could not be made:`, error);
+        errors.push(`${asset.assetId}: ${error instanceof HttpError ? error.message : "could not be made. See the backend log."}`);
+      }
+    }
+    res.json({ created, errors });
+  } catch (error) {
+    sendError(res, error);
+  }
+}
+
+// POST /api/games/<id>/generate
+// "Generate all": runs every card of this game that is still in the Ready column, oldest first,
+// through the normal run path (like pressing Generate on each). ComfyUI's own queue runs them.
+// Answer: { queued, errors }.
+export async function generateAllHandler(req: Request, res: Response) {
+  try {
+    const game = await loadGame(req);
+    const assets = await withGames(({ assets }) =>
+      assets.find({ gameId: game.id, removed: false }, { projection: { _id: 0 } }).toArray(),
+    );
+    const jobIds = assets.flatMap((asset) => asset.steps.flatMap((step) => step.jobIds));
+    const cards = jobIds.length === 0 ? [] : await findReadyDrafts(jobIds);
+    const { queued, errors } = await runCards(cards.map((card) => ({ id: card.id, title: card.title ?? card.id })));
+    res.json({ queued, errors });
+  } catch (error) {
+    sendError(res, error);
+  }
+}
+
+// When a game card's job is done, its asset goes from "generating" to "review" (FRG-68).
+// Approving is FRG-69. A failed job goes back to the board as a draft, and its asset stays "generating".
+onJobDone((job) => {
+  getGameAssetsCollection()
+    .then((assets) => assets.updateOne({ "steps.jobIds": job.id, status: "generating" }, { $set: { status: "review" } }))
+    .catch((error) => console.warn(`Warning: could not set the game asset of job ${job.id} to review. ${safeMessage(error)}`));
+});

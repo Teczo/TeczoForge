@@ -34,7 +34,16 @@ import { createProjectHandler, listProjectsHandler, updateProjectHandler } from 
 import { IMAGE_TYPES, MAX_UPLOAD_BYTES, uploadHandler, useOutputHandler } from "./upload.js";
 import { checkSessionSecret, loginHandler, logoutHandler, meHandler, requireLogin } from "./auth.js";
 import { checkGameFileHandler } from "./gameFile.js";
-import { getGameHandler, importGameHandler, listGamesHandler, presetTimesHandler } from "./games.js";
+import {
+  chooseConceptHandler,
+  createAssetCardsHandler,
+  generateAllHandler,
+  getGameHandler,
+  importGameHandler,
+  listGamesHandler,
+  makeConceptHandler,
+  presetTimesHandler,
+} from "./games.js";
 
 // Settings come from backend/.env. The defaults match .env.example.
 const PORT = Number(process.env.PORT ?? 4000);
@@ -136,6 +145,11 @@ app.get("/api/games", listGamesHandler);
 // The average job time per preset, for the time estimate before an import (FRG-67). Above /:id.
 app.get("/api/games/preset-times", presetTimesHandler);
 app.get("/api/games/:id", getGameHandler);
+// Concept art first, then all asset cards, then Generate all (FRG-68).
+app.post("/api/games/:id/concept", makeConceptHandler);
+app.post("/api/games/:id/concept/choose", express.json(), chooseConceptHandler);
+app.post("/api/games/:id/cards", createAssetCardsHandler);
+app.post("/api/games/:id/generate", generateAllHandler);
 
 // Chat with Claude (see chat.ts). Each user only sees their own conversations.
 app.get("/api/chat/status", chatStatusHandler);
