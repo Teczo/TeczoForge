@@ -144,22 +144,30 @@ export async function listProjectsHandler(req: Request, res: Response) {
   }
 }
 
+// Add a new project and return it. A name that is already used answers 400.
+// kind "game": the project of an imported game (FRG-66).
+export async function addProject(name: unknown, createdBy: string | null, kind?: "game"): Promise<Project> {
+  const now = new Date();
+  const project: Project = {
+    id: crypto.randomUUID(),
+    name: checkName(name),
+    createdBy,
+    createdAt: now,
+    updatedAt: now,
+    archived: false,
+  };
+  if (kind) project.kind = kind;
+  // The unique index on name stops a duplicate, even when two people add the same name at once.
+  await withProjects((p) => p.insertOne({ ...project })); // A copy: insertOne adds MongoDB's own _id to what it gets.
+  return project;
+}
+
 // POST /api/projects
 // Body: { "name": "..." }. Answer: the new project.
 // A name that is already used (also by an archived project, and not counting capital letters) answers 400.
 export async function createProjectHandler(req: Request, res: Response) {
   try {
-    const now = new Date();
-    const project: Project = {
-      id: crypto.randomUUID(),
-      name: checkName(req.body?.name),
-      createdBy: res.locals.username ?? null, // Set by requireLogin in auth.ts.
-      createdAt: now,
-      updatedAt: now,
-      archived: false,
-    };
-    // The unique index on name stops a duplicate, even when two people add the same name at once.
-    await withProjects((p) => p.insertOne({ ...project })); // A copy: insertOne adds MongoDB's own _id to what it gets.
+    const project = await addProject(req.body?.name, res.locals.username ?? null); // Set by requireLogin in auth.ts.
     res.status(201).json(project);
   } catch (error) {
     sendError(res, error);

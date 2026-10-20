@@ -124,6 +124,58 @@ export type Project = {
   createdAt: Date;
   updatedAt: Date;
   archived: boolean;
+  // "game": the project of an imported game (FRG-66). Older projects have no kind and are normal projects.
+  kind?: "game";
+};
+
+// ---- Games (FRG-66) ----
+
+// An imported game design file. Its project (kind "game") holds the game's jobs and cards.
+export type Game = {
+  id: string; // A UUID.
+  projectId: string;
+  code: string; // 3 capital letters. Unique: no two games have the same code.
+  name: string;
+  dimension: string; // "2D" or "3D"
+  pipeline: string; // "URP", "HDRP" or "BuiltIn"
+  style: string;
+  palette: string[];
+  fileName: string | null;
+  designText: string; // The whole .md file, kept for the export.
+  createdBy: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+// planned: nothing made yet. generating: a job is running. review: made, waiting for approval.
+// approved: done. external: not made by TeczoForge (source "external" in the file).
+export type GameAssetStatus = "planned" | "generating" | "review" | "approved" | "external";
+
+export const GAME_ASSET_STATUSES: GameAssetStatus[] = ["planned", "generating", "review", "approved", "external"];
+
+// One generation step of an asset: the preset, the jobs made with it, and the one that was approved.
+export type GameAssetStep = {
+  presetId: string;
+  jobIds: string[];
+  approvedJobId: string | null;
+};
+
+// One asset from the design file.
+export type GameAsset = {
+  id: string; // A UUID.
+  gameId: string;
+  order: number; // Its place in the file, from 0. The list is shown in this order.
+  assetId: string; // The id from the file, for example "SKR_BG_Levels_Sky".
+  type: string;
+  category: string;
+  prompt: string; // As written in the file. The full prompt (with style and palette) is made by gameFile.ts.
+  use: string;
+  options: { size?: [number, number]; target_height_m?: number; duration_s?: number };
+  source: "forge" | "external";
+  needs: string[];
+  status: GameAssetStatus;
+  steps: GameAssetStep[]; // Empty for external assets.
+  removed: boolean;
 };
 
 // The project that always exists. Made when the backend starts, if it is missing (FRG-39).
@@ -176,6 +228,15 @@ export async function getConversationsCollection(): Promise<Collection<Conversat
 // The projects (FRG-39). Names are unique (the index is made once, in checkDatabase).
 export async function getProjectsCollection(): Promise<Collection<Project>> {
   return (await getDatabase()).collection<Project>("projects");
+}
+
+// The games and their assets (FRG-66). Game codes are unique (the index is made once, in checkDatabase).
+export async function getGamesCollection(): Promise<Collection<Game>> {
+  return (await getDatabase()).collection<Game>("games");
+}
+
+export async function getGameAssetsCollection(): Promise<Collection<GameAsset>> {
+  return (await getDatabase()).collection<GameAsset>("gameAssets");
 }
 
 export async function getChatUsageCollection(): Promise<Collection<ChatUsage>> {
@@ -481,6 +542,11 @@ export async function checkDatabase(): Promise<boolean> {
     const projects = await getProjectsCollection();
     await projects.createIndex({ name: 1 }, { unique: true, collation: PROJECT_NAME_COLLATION });
     await projects.createIndex({ id: 1 });
+    // Games (FRG-66): one game by id, game codes are unique, and the assets of one game in file order.
+    const games = await getGamesCollection();
+    await games.createIndex({ id: 1 });
+    await games.createIndex({ code: 1 }, { unique: true });
+    await (await getGameAssetsCollection()).createIndex({ gameId: 1, order: 1 });
     await ensureUnsortedProject(projects);
     await moveOldJobsToUnsorted(jobs);
     await moveOldConversationsToUnsorted(conversations);
