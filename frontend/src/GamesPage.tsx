@@ -639,6 +639,7 @@ type GameStepsProps = {
 function GameSteps({ gameId, projectName, concept, assets, onChanged }: GameStepsProps) {
   const [busy, setBusy] = useState<string | null>(null);
   const [result, setResult] = useState<StepResult | null>(null);
+  const [exportReport, setExportReport] = useState<ExportReport | null>(null);
 
   async function post(name: string, url: string, body?: unknown): Promise<Record<string, unknown> | null> {
     setBusy(name);
@@ -678,6 +679,13 @@ function GameSteps({ gameId, projectName, concept, assets, onChanged }: GameStep
     if (answer) {
       setResult({ text: `Made ${answer.created} card(s) on the Board, in the project "${projectName}".`, errors: answer.errors as string[] });
     }
+  }
+
+  // "Export to Unity folder" (FRG-70): the backend writes the folder and answers with a report.
+  async function exportGame() {
+    setExportReport(null);
+    const answer = await post("export", `/api/games/${gameId}/export`);
+    if (answer) setExportReport(answer as unknown as ExportReport);
   }
 
   async function generateAll() {
@@ -744,12 +752,47 @@ function GameSteps({ gameId, projectName, concept, assets, onChanged }: GameStep
         }
       />
 
+      <StepBox
+        number={4}
+        title="Export to Unity folder"
+        text="Writes every approved asset, the concept art, the design file and asset_manifest.json into one folder. Copy it into Unity's Assets folder. Exporting again only adds and replaces files."
+        done={false}
+        action={<StepButton label={busy === "export" ? "Exporting..." : "Export to Unity folder"} onClick={exportGame} disabled={busy !== null} />}
+      >
+        {exportReport && <ExportSummary report={exportReport} />}
+      </StepBox>
+
       {result && (result.text || result.errors.length > 0) && (
         <div>
           {result.text && <p className="m-0 text-sm text-emerald-300">{result.text}</p>}
           {result.errors.length > 0 && <ErrorList title="Some steps did not work." errors={result.errors} />}
         </div>
       )}
+    </div>
+  );
+}
+
+// The answer of POST /api/games/<id>/export (ExportReport in backend/src/gameExport.ts).
+type ExportReport = { folder: string; written: string[]; overwritten: string[]; missing: string[]; problems: string[] };
+
+// Where the export is, and what it did: files written and overwritten, and assets still missing.
+function ExportSummary({ report }: { report: ExportReport }) {
+  return (
+    <div className="mt-3 space-y-2 text-sm">
+      <div className="text-slate-300">
+        Folder: <span className="font-mono text-xs break-all text-slate-100 select-all">{report.folder}</span>
+      </div>
+      <div className="text-slate-400">
+        {report.written.length} new file(s) written, {report.overwritten.length} file(s) overwritten.
+      </div>
+      {report.missing.length === 0 ? (
+        <div className="text-emerald-300">Every asset is in the folder.</div>
+      ) : (
+        <div className="text-amber-300">
+          Still missing (not approved yet): {report.missing.join(", ")}
+        </div>
+      )}
+      {report.problems.length > 0 && <ErrorList title="Some approved files could not be found." errors={report.problems} />}
     </div>
   );
 }
