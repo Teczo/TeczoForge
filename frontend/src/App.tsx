@@ -9,8 +9,10 @@ import Login from "./Login";
 import AppShell from "./AppShell";
 import type { Page, Status } from "./AppShell";
 import ProjectsPage from "./ProjectsPage";
+import GamesPage from "./GamesPage";
 
 // Which page to show comes from the address: #/generate, #/board, #/projects,
+// #/games (or #/games/<game id> to open one game, FRG-67),
 // #/gallery (or #/gallery/<job id> to open one job), or the Chat page, which is the home page:
 // #/, #/chat, or #/chat/<conversation id> (FRG-46).
 // Using the # part means a refresh or bookmark keeps the same page.
@@ -19,6 +21,7 @@ function currentPage(): Page {
   if (hash === "#/generate") return "generate";
   if (hash === "#/board") return "board";
   if (hash === "#/projects") return "projects";
+  if (hash === "#/games" || hash.startsWith("#/games/")) return "games";
   if (hash === "#/gallery" || hash.startsWith("#/gallery/")) return "gallery";
   return "chat";
 }
@@ -26,6 +29,11 @@ function currentPage(): Page {
 // The conversation id in #/chat/<id>, or null.
 function chatConversationId(): string | null {
   return window.location.hash.match(/^#\/chat\/(.+)$/)?.[1] ?? null;
+}
+
+// The game id in #/games/<game id>, or null (FRG-67).
+function gameId(): string | null {
+  return window.location.hash.match(/^#\/games\/(.+)$/)?.[1] ?? null;
 }
 
 // The job id in #/gallery/<job id>, or null.
@@ -73,6 +81,7 @@ export default function App() {
   const [page, setPage] = useState(currentPage);
   const [openJobId, setOpenJobId] = useState(galleryJobId);
   const [conversationId, setConversationId] = useState(chatConversationId);
+  const [openGameId, setOpenGameId] = useState(gameId);
   // The projects for the picker, and the current one (FRG-41). project is undefined while loading,
   // and null if the projects could not be loaded (MongoDB offline): then pages work without a project.
   const [projects, setProjects] = useState<Project[]>([]);
@@ -120,6 +129,7 @@ export default function App() {
       setPage(currentPage());
       setOpenJobId(galleryJobId());
       setConversationId(chatConversationId());
+      setOpenGameId(gameId());
     };
     window.addEventListener("hashchange", onHashChange);
     return () => window.removeEventListener("hashchange", onHashChange);
@@ -273,6 +283,8 @@ export default function App() {
           projects={projects}
           onShowProject={showProjectOf}
         />
+      ) : page === "games" ? (
+        <GamesPage gameId={openGameId} />
       ) : page === "projects" ? (
         <ProjectsPage
           currentProjectId={project?.id}
