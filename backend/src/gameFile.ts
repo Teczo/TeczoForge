@@ -42,7 +42,7 @@ const PIPELINES = ["URP", "HDRP", "BuiltIn"];
 const SOURCES = ["forge", "external"];
 const NEEDS = ["rigging", "animation", "transparent_bg", "tiling"];
 
-const IMAGE_PRESET = "text-to-image-basic";
+export const IMAGE_PRESET = "text-to-image-basic";
 const MODEL_PRESET = "image-to-3d-trellis2";
 const MUSIC_PRESET = "music-ace-step-xl";
 
@@ -394,30 +394,46 @@ function checkAsset(value: unknown, number: number, game: GamePlan["game"], seen
   return asset;
 }
 
-// The full prompt for a picture: the style first, then the asset prompt, then the palette.
-function imagePrompt(game: GamePlan["game"], ...parts: string[]): string {
-  const all = [game.style, ...parts];
+// The parts of a game that its prompts use.
+type PromptGame = { name: string; style: string; palette: string[] };
+
+// The full prompt for a picture: "{style}, colour palette: {palette}, {parts}" (FRG-68).
+// Without a palette: "{style}, {parts}".
+function imagePrompt(game: PromptGame, ...parts: string[]): string {
+  const all = [game.style];
   if (game.palette.length > 0) all.push(`colour palette: ${game.palette.join(", ")}`);
-  return all.join(", ");
+  return [...all, ...parts].join(", ");
+}
+
+// The prompt of an asset's first step, the one its board card runs (FRG-68).
+// Models: the reference picture prompt from the format doc. Music: the asset prompt as written
+// (the style is for pictures). Every other type: the picture prompt.
+export function firstStepPrompt(game: PromptGame, type: string, prompt: string): string {
+  if (type === "model") return imagePrompt(game, prompt, "single object, centred, full view from the front, plain white background, no shadow");
+  if (type === "music") return prompt;
+  return imagePrompt(game, prompt);
+}
+
+// The prompt of the concept art (FRG-68): style, palette, the game name, "key art, concept art".
+export function conceptPrompt(game: PromptGame): string {
+  return imagePrompt(game, game.name, "key art, concept art");
 }
 
 function stepsFor(type: AssetType, prompt: string, game: GamePlan["game"]): PlanStep[] {
   if (type === "model") {
-    const reference = imagePrompt(game, prompt, "single object, centred, full view from the front, plain white background, no shadow");
     // The 3D step uses the reference picture, not text.
     return [
-      { preset: IMAGE_PRESET, prompt: reference },
+      { preset: IMAGE_PRESET, prompt: firstStepPrompt(game, type, prompt) },
       { preset: MODEL_PRESET, prompt: "" },
     ];
   }
-  if (type === "music") return [{ preset: MUSIC_PRESET, prompt }];
   if (type === "sfx") return [];
-  return [{ preset: IMAGE_PRESET, prompt: imagePrompt(game, prompt) }];
+  return [{ preset: type === "music" ? MUSIC_PRESET : IMAGE_PRESET, prompt: firstStepPrompt(game, type, prompt) }];
 }
 
 // The concept art: made by TeczoForge first, sets the look for every other asset.
 function conceptFor(game: GamePlan["game"]): PlannedAsset {
-  const prompt = `concept art for the game ${game.name}`;
+  const prompt = "key art, concept art";
   return {
     id: `${game.code}_REF_Style_Concept`,
     type: "concept",
@@ -428,7 +444,7 @@ function conceptFor(game: GamePlan["game"]): PlannedAsset {
     needs: [],
     size: [...DEFAULT_SIZE],
     exportFolder: "_Reference/",
-    steps: [{ preset: IMAGE_PRESET, prompt: imagePrompt(game, prompt) }],
+    steps: [{ preset: IMAGE_PRESET, prompt: conceptPrompt(game) }],
   };
 }
 

@@ -105,6 +105,13 @@ export function save(live: LiveJob): Promise<void> {
   return live.saving;
 }
 
+// Games (FRG-68): games.ts gives the function that runs when a job is done, so a game asset whose
+// card finished goes to "review". It is set this way because games.ts uses this file, not the other way round.
+let jobDoneListener: ((job: Job) => void) | null = null;
+export function onJobDone(listener: (job: Job) => void) {
+  jobDoneListener = listener;
+}
+
 // The job is done, failed or cancelled: save it, and forget it after a while.
 export async function finish(live: LiveJob, status: "done" | "failed" | "cancelled", fields: Partial<Job>) {
   const { job } = live;
@@ -123,6 +130,7 @@ export async function finish(live: LiveJob, status: "done" | "failed" | "cancell
   }
 
   await save(live);
+  if (status === "done" && jobDoneListener) jobDoneListener(job);
   // Only forget this run: the same card may have been run again since.
   setTimeout(() => {
     if (liveJobs.get(job.id) === live) liveJobs.delete(job.id);

@@ -9,6 +9,9 @@ import { AlertTriangle, ArrowLeft, CheckCircle2, Clock, FileUp, Gamepad2, Hand, 
 
 const NO_BACKEND = "Could not reach the backend. Make sure it is running, then try again.";
 
+// How often the game page loads the game again while something is being made (FRG-68).
+const POLL_MS = 3000;
+
 // The biggest design file the backend reads (MAX_GAME_FILE_BYTES in backend/src/gameFile.ts).
 const MAX_FILE_BYTES = 1024 * 1024;
 
@@ -38,6 +41,7 @@ type GameAsset = {
   source: "forge" | "external";
   status: AssetStatus;
   removed: boolean;
+  steps: { presetId: string; jobIds: string[]; approvedJobId: string | null }[];
 };
 type GameDetailAnswer = {
   game: GameTile & { style: string; palette: string[]; fileName: string | null };
@@ -479,25 +483,40 @@ function GameDetail({ id }: { id: string }) {
   const [detail, setDetail] = useState<GameDetailAnswer | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  async function load() {
+    try {
+      const response = await fetch(`/api/games/${encodeURIComponent(id)}`);
+      const body = await response.json().catch(() => null);
+      if (!body) setError(NO_BACKEND);
+      else if (!response.ok) setError(body.error ?? "Could not load the game.");
+      else {
+        setDetail(body);
+        setError(null);
+      }
+    } catch {
+      setError(NO_BACKEND);
+    }
+  }
+
   useEffect(() => {
     setDetail(null);
     setError(null);
-    async function load() {
-      try {
-        const response = await fetch(`/api/games/${encodeURIComponent(id)}`);
-        const body = await response.json().catch(() => null);
-        if (!body) setError(NO_BACKEND);
-        else if (!response.ok) setError(body.error ?? "Could not load the game.");
-        else setDetail(body);
-      } catch {
-        setError(NO_BACKEND);
-      }
-    }
     load();
   }, [id]);
 
-  // Removed assets (after a re-import, FRG-72) are not shown.
-  const assets = detail?.assets.filter((asset) => !asset.removed) ?? [];
+  // While something is being made, load the game again every few seconds, so the statuses
+  // (generating -> review) and the concept pictures show up by themselves (FRG-68).
+  const generating = detail?.assets.some((asset) => !asset.removed && asset.status === "generating") ?? false;
+  useEffect(() => {
+    if (!generating) return;
+    const timer = setInterval(load, POLL_MS);
+    return () => clearInterval(timer);
+  }, [generating, id]);
+
+  // Removed assets (after a re-import, FRG-72) are not shown. The concept art (type "reference",
+  // FRG-68) is shown in step 1, not in the table.
+  const concept = detail?.assets.find((asset) => asset.type === "reference" && !asset.removed);
+  const assets = detail?.assets.filter((asset) => !asset.removed && asset.type !== "reference") ?? [];
   const counts = Object.fromEntries(Object.keys(STATUS_STYLES).map((status) => [status, 0])) as StatusCounts;
   for (const asset of assets) counts[asset.status] += 1;
 
@@ -534,6 +553,8 @@ function GameDetail({ id }: { id: string }) {
               )}
             </div>
           </div>
+
+          <GameSteps gameId={detail.game.id} projectName={detail.game.name} concept={concept} assets={assets} onChanged={load} />
 
           <Table head={["Id", "Type", "Use", "Needs", "Status"]}>
             {assets.map((asset) => (
@@ -578,6 +599,265 @@ function HandNote({ children }: { children: ReactNode }) {
     <div className="flex items-start gap-1.5 text-xs text-amber-300/90">
       <Hand size={13} className="mt-0.5 shrink-0" />
       <span>{children}</span>
+    </div>
+  );
+}
+
+// ---- Concept art first, then all asset cards (FRG-68) ----
+
+// One concept job, as GET /api/jobs/<id> returns it. Only the parts the page uses.
+type ConceptJob = { id: string; status: string; imageUrl: string | null; error: string | null };
+
+// The answer of a step: what happened, and any problems.
+type StepResult = { text: string; errors: string[] };
+
+type GameStepsProps = {
+  gameId: string;
+  projectName: string;
+  concept: GameAsset | undefined;
+  assets: GameAsset[];
+  onChanged: () => void; // Load the game again.
+};
+
+// The three steps on the game page:
+// 1. "Make concept art": 3 pictures in the game's style. "Use this concept" on a finished one.
+// 2. "Create all asset cards": only after a concept is chosen. One board card per planned asset.
+// 3. "Generate all": runs every Ready card of this game. ComfyUI's own queue runs them.
+function GameSteps({ gameId, projectName, concept, assets, onChanged }: GameStepsProps) {
+  const [busy, setBusy] = useState<string | null>(null);
+  const [result, setResult] = useState<StepResult | null>(null);
+  const [conceptJobs, setConceptJobs] = useState<ConceptJob[]>([]);
+  // Goes up every few seconds while a concept picture is still being made, so it is loaded again.
+  const [tick, setTick] = useState(0);
+
+  // Load the concept jobs again each time the concept asset changes (the page reloads it while something runs).
+  const conceptJobIds = concept?.steps[0]?.jobIds ?? [];
+  const conceptKey = `${conceptJobIds.join(",")}|${concept?.status}`;
+  useEffect(() => {
+    if (conceptJobIds.length === 0) {
+      setConceptJobs([]);
+      return;
+    }
+    async function load() {
+      const loaded = await Promise.all(
+        conceptJobIds.map(async (jobId) => {
+          try {
+            const response = await fetch(`/api/jobs/${jobId}`);
+            return response.ok ? ((await response.json()) as ConceptJob) : null;
+          } catch {
+            return null;
+          }
+        }),
+      );
+      setConceptJobs(loaded.filter((job): job is ConceptJob => job !== null));
+    }
+    load();
+  }, [conceptKey, tick]);
+
+  async function post(name: string, url: string, body?: unknown): Promise<Record<string, unknown> | null> {
+    setBusy(name);
+    setResult(null);
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: body === undefined ? undefined : { "Content-Type": "application/json" },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+      const answer = await response.json().catch(() => null);
+      if (!answer) {
+        setResult({ text: "", errors: [NO_BACKEND] });
+        return null;
+      }
+      if (!response.ok) {
+        setResult({ text: "", errors: [answer.error ?? "Something went wrong."] });
+        return null;
+      }
+      return answer;
+    } catch {
+      setResult({ text: "", errors: [NO_BACKEND] });
+      return null;
+    } finally {
+      setBusy(null);
+      onChanged();
+    }
+  }
+
+  async function makeConcept() {
+    const answer = await post("concept", `/api/games/${gameId}/concept`);
+    if (answer) setResult({ text: `Started ${answer.queued} concept picture(s).`, errors: answer.errors as string[] });
+  }
+
+  async function useConcept(jobId: string) {
+    await post("choose", `/api/games/${gameId}/concept/choose`, { jobId });
+  }
+
+  async function createCards() {
+    const answer = await post("cards", `/api/games/${gameId}/cards`);
+    if (answer) {
+      setResult({ text: `Made ${answer.created} card(s) on the Board, in the project "${projectName}".`, errors: answer.errors as string[] });
+    }
+  }
+
+  async function generateAll() {
+    const answer = await post("generate", `/api/games/${gameId}/generate`);
+    if (answer) {
+      const text =
+        answer.queued === 0 ? "No Ready cards to start." : `Started ${answer.queued} card(s). ComfyUI runs them one after the other.`;
+      setResult({ text, errors: answer.errors as string[] });
+    }
+  }
+
+  const chosenJobId = concept?.steps[0]?.approvedJobId ?? null;
+  const conceptChosen = concept?.status === "approved";
+  const conceptRunning = conceptJobs.some((job) => job.status === "queued" || job.status === "running");
+  useEffect(() => {
+    if (!conceptRunning) return;
+    const timer = setInterval(() => setTick((t) => t + 1), POLL_MS);
+    return () => clearInterval(timer);
+  }, [conceptRunning]);
+  const plannedCount = assets.filter((asset) => asset.status === "planned").length;
+  const hasCards = assets.some((asset) => asset.steps[0]?.jobIds.length) || conceptJobs.some((job) => job.status === "draft");
+
+  return (
+    <div className="mb-6 space-y-3">
+      <StepBox
+        number={1}
+        title="Make concept art"
+        text="Three pictures in the game's style. Choose one before the asset cards are made."
+        done={conceptChosen}
+        action={
+          <StepButton
+            label={busy === "concept" ? "Starting..." : "Make concept art"}
+            onClick={makeConcept}
+            disabled={busy !== null || conceptChosen || conceptRunning}
+          />
+        }
+      >
+        {conceptJobs.length > 0 && (
+          <div className="mt-3 grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-3">
+            {conceptJobs.map((job) => (
+              <ConceptTile
+                key={job.id}
+                job={job}
+                chosen={job.id === chosenJobId}
+                canChoose={!conceptChosen && busy === null}
+                onChoose={() => useConcept(job.id)}
+              />
+            ))}
+          </div>
+        )}
+      </StepBox>
+
+      <StepBox
+        number={2}
+        title="Create all asset cards"
+        text={
+          conceptChosen
+            ? `One board card per planned asset, in the Ready column. ${plannedCount} planned asset(s) left.`
+            : "Choose a concept in step 1 first."
+        }
+        done={conceptChosen && plannedCount === 0}
+        action={
+          <StepButton
+            label={busy === "cards" ? "Creating..." : "Create all asset cards"}
+            onClick={createCards}
+            disabled={busy !== null || !conceptChosen || plannedCount === 0}
+          />
+        }
+      />
+
+      <StepBox
+        number={3}
+        title="Generate all"
+        text="Starts every Ready card of this game. Finished assets show Review."
+        done={false}
+        action={
+          <StepButton label={busy === "generate" ? "Starting..." : "Generate all"} onClick={generateAll} disabled={busy !== null || !hasCards} />
+        }
+      />
+
+      {result && (result.text || result.errors.length > 0) && (
+        <div>
+          {result.text && <p className="m-0 text-sm text-emerald-300">{result.text}</p>}
+          {result.errors.length > 0 && <ErrorList title="Some steps did not work." errors={result.errors} />}
+        </div>
+      )}
+    </div>
+  );
+}
+
+type StepBoxProps = { number: number; title: string; text: string; done: boolean; action: ReactNode; children?: ReactNode };
+
+function StepBox({ number, title, text, done, action, children }: StepBoxProps) {
+  return (
+    <div className="rounded-xl border border-slate-700/60 bg-slate-800/40 p-4">
+      <div className="flex flex-wrap items-center gap-3">
+        <span
+          className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
+            done ? "bg-emerald-500/20 text-emerald-300" : "bg-slate-700 text-slate-300"
+          }`}
+        >
+          {done ? <CheckCircle2 size={16} /> : number}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-semibold text-slate-100">{title}</div>
+          <div className="text-xs text-slate-400">{text}</div>
+        </div>
+        {action}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function StepButton({ label, onClick, disabled }: { label: string; onClick: () => void; disabled: boolean }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className="cursor-pointer rounded-lg border-0 bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-500 disabled:cursor-not-allowed disabled:opacity-40"
+    >
+      {label}
+    </button>
+  );
+}
+
+// One concept picture: waiting, being made, finished (with "Use this concept"), or back on the board after a failure.
+function ConceptTile({ job, chosen, canChoose, onChoose }: { job: ConceptJob; chosen: boolean; canChoose: boolean; onChoose: () => void }) {
+  return (
+    <div className={`overflow-hidden rounded-lg border ${chosen ? "border-emerald-500/70 ring-2 ring-emerald-500/30" : "border-slate-700/60"}`}>
+      <div className="flex aspect-square items-center justify-center bg-slate-900/60">
+        {job.status === "done" && job.imageUrl ? (
+          <img src={job.imageUrl} alt="Concept art" className="h-full w-full object-cover" />
+        ) : (
+          <span className="px-3 text-center text-xs text-slate-500">
+            {job.status === "queued"
+              ? "Waiting in ComfyUI's queue..."
+              : job.status === "running"
+                ? "Making..."
+                : job.status === "draft"
+                  ? `Back on the board: ${job.error ?? "it did not finish."}`
+                  : "Not finished."}
+          </span>
+        )}
+      </div>
+      <div className="p-2">
+        {chosen ? (
+          <span className="flex items-center justify-center gap-1.5 py-1 text-xs font-medium text-emerald-300">
+            <CheckCircle2 size={14} /> Chosen concept
+          </span>
+        ) : (
+          <button
+            type="button"
+            onClick={onChoose}
+            disabled={!canChoose || job.status !== "done"}
+            className="w-full cursor-pointer rounded-md border border-slate-600 bg-transparent px-2 py-1 text-xs text-slate-200 hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Use this concept
+          </button>
+        )}
+      </div>
     </div>
   );
 }
