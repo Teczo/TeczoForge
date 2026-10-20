@@ -1,4 +1,6 @@
 import type { Request, Response } from "express";
+import { HttpError } from "./httpError.js";
+import { sendError } from "./jobs.js";
 
 // Game design files (FRG-65). The format is in docs/game-design-format.md.
 // A game design file is a .md file with free prose and exactly ONE ```json block
@@ -462,21 +464,27 @@ export function checkGameFile(text: string): CheckResult {
   return { ok: true, plan: { game, concept: conceptFor(game), assets } };
 }
 
+// Read the body of a game file request: { fileName, text }. Throws a 400 or 413 if it is wrong.
+export function readGameFileBody(body: unknown): { fileName: string | null; text: string } {
+  if (!isObject(body) || typeof body.text !== "string") {
+    throw new HttpError(400, 'Send { "fileName": "...", "text": "..." } with the text of the game design file.');
+  }
+  if (body.fileName !== undefined && body.fileName !== null && typeof body.fileName !== "string") {
+    throw new HttpError(400, "fileName must be text.");
+  }
+  if (Buffer.byteLength(body.text, "utf8") > MAX_GAME_FILE_BYTES) {
+    throw new HttpError(413, "This file is too big. The limit is 1 MB.");
+  }
+  return { fileName: typeof body.fileName === "string" ? body.fileName : null, text: body.text };
+}
+
 // POST /api/games/check. Body: { fileName, text }. Answers { ok: true, plan } or { ok: false, errors }.
 // The file is only checked here, nothing is saved.
 export function checkGameFileHandler(req: Request, res: Response) {
-  const body: unknown = req.body;
-  if (!isObject(body) || typeof body.text !== "string") {
-    res.status(400).json({ error: 'Send { "fileName": "...", "text": "..." } with the text of the game design file.' });
-    return;
+  try {
+    const { text } = readGameFileBody(req.body);
+    res.json(checkGameFile(text));
+  } catch (error) {
+    sendError(res, error);
   }
-  if (body.fileName !== undefined && typeof body.fileName !== "string") {
-    res.status(400).json({ error: "fileName must be text." });
-    return;
-  }
-  if (Buffer.byteLength(body.text, "utf8") > MAX_GAME_FILE_BYTES) {
-    res.status(413).json({ error: "This file is too big. The limit is 1 MB." });
-    return;
-  }
-  res.json(checkGameFile(body.text));
 }

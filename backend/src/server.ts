@@ -34,6 +34,7 @@ import { createProjectHandler, listProjectsHandler, updateProjectHandler } from 
 import { IMAGE_TYPES, MAX_UPLOAD_BYTES, uploadHandler, useOutputHandler } from "./upload.js";
 import { checkSessionSecret, loginHandler, logoutHandler, meHandler, requireLogin } from "./auth.js";
 import { checkGameFileHandler } from "./gameFile.js";
+import { getGameHandler, importGameHandler, listGamesHandler } from "./games.js";
 
 // Settings come from backend/.env. The defaults match .env.example.
 const PORT = Number(process.env.PORT ?? 4000);
@@ -129,6 +130,10 @@ app.patch("/api/projects/:id", express.json(), updateProjectHandler);
 // Games (see gameFile.ts, FRG-65): check a game design .md file and answer with its asset plan.
 // The text can be up to 1 MB. JSON escaping can make the body bigger, so the body limit is higher.
 app.post("/api/games/check", express.json({ limit: "3mb" }), checkGameFileHandler);
+// Import a game design file: save the game, its project and its planned assets (FRG-66).
+app.post("/api/games/import", express.json({ limit: "3mb" }), importGameHandler);
+app.get("/api/games", listGamesHandler);
+app.get("/api/games/:id", getGameHandler);
 
 // Chat with Claude (see chat.ts). Each user only sees their own conversations.
 app.get("/api/chat/status", chatStatusHandler);
