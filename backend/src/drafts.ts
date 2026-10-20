@@ -4,7 +4,8 @@ import { buildWorkflow, loadPreset } from "./presets.js";
 import { ensureStartImages, inputFilesFor } from "./inputs.js";
 import { claimDraft, deleteDraft, findBoardJob, insertDraft, listBoardJobs, updateDraft } from "./db.js";
 import type { DraftColumn, Job } from "./db.js";
-import { activeJobs, follow, JOB_ID_PATTERN, sendError, sendToComfyUI } from "./jobs.js";
+import { activeJobs, follow, JOB_ID_PATTERN, queueJob, sendError } from "./jobs.js";
+import type { LiveJob } from "./jobs.js";
 import { projectForNewItem } from "./projects.js";
 
 // The board (FRG-22).
@@ -181,49 +182,55 @@ export async function deleteDraftHandler(req: Request, res: Response) {
   }
 }
 
+// Run one card: check its inputs again, then queue it like POST /api/jobs.
+// Used by the Generate button (below) and by "Generate all" of a game (games.ts, FRG-68).
+// Returns the job, and the HTTP status if ComfyUI did not accept it (null when it did).
+// Throws an HttpError if it is not a draft or its inputs are wrong; then the card keeps the error.
+export async function runDraft(id: string): Promise<{ live: LiveJob; failedStatus: number | null }> {
+  const draft = await findBoardJob(id);
+  if (!draft || draft.status !== "draft") throw await notADraft(id, "run again");
+
+  // 1. Check the inputs again (the preset may have changed since the card was made).
+  //    Start images must be in ComfyUI's input folder; a missing one is uploaded again (FRG-25).
+  let built;
+  let inputFiles: string[];
+  try {
+    const { preset, workflow } = await loadPreset(draft.presetId);
+    built = await ensureStartImages(preset, workflow, buildWorkflow(preset, workflow, draft.inputs));
+    inputFiles = await inputFilesFor(preset, built.usedValues);
+  } catch (error) {
+    if (error instanceof HttpError) await updateDraft(id, { error: error.message });
+    throw error;
+  }
+
+  // 2. Turn the draft into a queued job in one step, so it can never run twice.
+  //    The inputs now include the seed that is used, like any other job.
+  const job = await claimDraft(id, {
+    status: "queued",
+    inputs: built.usedValues,
+    ...(inputFiles.length > 0 ? { inputFiles } : {}),
+    promptId: null,
+    error: null,
+    createdAt: new Date(), // The job starts now. This also keeps the time taken right.
+  });
+  if (!job) throw await notADraft(id, "run again");
+
+  // 3. Send it to ComfyUI.
+  const live = follow(job);
+  return { live, failedStatus: await queueJob(live, built.workflow) };
+}
+
 // POST /api/drafts/<id>/run
 // Checks the inputs again, then queues the card like POST /api/jobs.
 // Answer: { "jobId": "<the card id>" }. If the inputs are wrong, the card keeps the error.
 export async function runDraftHandler(req: Request, res: Response) {
-  let id: string;
   try {
-    id = checkId(req);
-  } catch (error) {
-    sendError(res, error);
-    return;
-  }
-
-  try {
-    const draft = await findBoardJob(id);
-    if (!draft || draft.status !== "draft") throw await notADraft(id, "run again");
-
-    // 1. Check the inputs again (the preset may have changed since the card was made).
-    //    Start images must be in ComfyUI's input folder; a missing one is uploaded again (FRG-25).
-    let built;
-    let inputFiles: string[];
-    try {
-      const { preset, workflow } = await loadPreset(draft.presetId);
-      built = await ensureStartImages(preset, workflow, buildWorkflow(preset, workflow, draft.inputs));
-      inputFiles = await inputFilesFor(preset, built.usedValues);
-    } catch (error) {
-      if (error instanceof HttpError) await updateDraft(id, { error: error.message });
-      throw error;
+    const { live, failedStatus } = await runDraft(checkId(req));
+    if (failedStatus !== null) {
+      res.status(failedStatus).json({ jobId: live.job.id, error: live.job.error, warning: live.warning });
+      return;
     }
-
-    // 2. Turn the draft into a queued job in one step, so it can never run twice.
-    //    The inputs now include the seed that is used, like any other job.
-    const job = await claimDraft(id, {
-      status: "queued",
-      inputs: built.usedValues,
-      ...(inputFiles.length > 0 ? { inputFiles } : {}),
-      promptId: null,
-      error: null,
-      createdAt: new Date(), // The job starts now. This also keeps the time taken right.
-    });
-    if (!job) throw await notADraft(id, "run again");
-
-    // 3. Send it to ComfyUI and answer, like POST /api/jobs.
-    await sendToComfyUI(follow(job), built.workflow, res);
+    res.json({ jobId: live.job.id, warning: live.warning });
   } catch (error) {
     sendError(res, error);
   }
