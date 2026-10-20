@@ -1,7 +1,7 @@
 import type { Request, Response } from "express";
 import type { Collection } from "mongodb";
 import { HttpError } from "./httpError.js";
-import { GAME_ASSET_STATUSES, getGameAssetsCollection, getGamesCollection, getProjectsCollection, safeMessage } from "./db.js";
+import { averageDurationsByPreset, GAME_ASSET_STATUSES, getGameAssetsCollection, getGamesCollection, getProjectsCollection, safeMessage } from "./db.js";
 import type { Game, GameAsset, GameAssetStatus } from "./db.js";
 import { checkGameFile, readGameFileBody } from "./gameFile.js";
 import type { PlannedAsset } from "./gameFile.js";
@@ -186,6 +186,17 @@ export async function getGameHandler(req: Request, res: Response) {
     });
     if (!found) throw new HttpError(404, "There is no game with this id.");
     res.json(found);
+  } catch (error) {
+    sendError(res, error);
+  }
+}
+
+// GET /api/games/preset-times (FRG-67)
+// Answer: { "presets": { "<preset id>": { "averageMs": 41000, "jobs": 12 }, ... } }: the average time
+// of finished jobs per preset, for the time estimate before an import. A preset with no finished jobs is left out.
+export async function presetTimesHandler(_req: Request, res: Response) {
+  try {
+    res.json({ presets: Object.fromEntries(await averageDurationsByPreset()) });
   } catch (error) {
     sendError(res, error);
   }

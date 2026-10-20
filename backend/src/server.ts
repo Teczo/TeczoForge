@@ -34,7 +34,7 @@ import { createProjectHandler, listProjectsHandler, updateProjectHandler } from 
 import { IMAGE_TYPES, MAX_UPLOAD_BYTES, uploadHandler, useOutputHandler } from "./upload.js";
 import { checkSessionSecret, loginHandler, logoutHandler, meHandler, requireLogin } from "./auth.js";
 import { checkGameFileHandler } from "./gameFile.js";
-import { getGameHandler, importGameHandler, listGamesHandler } from "./games.js";
+import { getGameHandler, importGameHandler, listGamesHandler, presetTimesHandler } from "./games.js";
 
 // Settings come from backend/.env. The defaults match .env.example.
 const PORT = Number(process.env.PORT ?? 4000);
@@ -133,6 +133,8 @@ app.post("/api/games/check", express.json({ limit: "3mb" }), checkGameFileHandle
 // Import a game design file: save the game, its project and its planned assets (FRG-66).
 app.post("/api/games/import", express.json({ limit: "3mb" }), importGameHandler);
 app.get("/api/games", listGamesHandler);
+// The average job time per preset, for the time estimate before an import (FRG-67). Above /:id.
+app.get("/api/games/preset-times", presetTimesHandler);
 app.get("/api/games/:id", getGameHandler);
 
 // Chat with Claude (see chat.ts). Each user only sees their own conversations.

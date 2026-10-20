@@ -463,6 +463,33 @@ export async function summarizeProjects(): Promise<Map<string, ProjectSummary>> 
   }
 }
 
+// The average time of finished jobs, per preset (FRG-67, the time estimate of a game import).
+// Only single jobs count: "Make a longer video" chains and joined videos are left out.
+// Key: preset id. A preset with no finished jobs is not in the map.
+export async function averageDurationsByPreset(): Promise<Map<string, { averageMs: number; jobs: number }>> {
+  try {
+    const jobs = await getJobsCollection();
+    const rows = await jobs
+      .aggregate<{ _id: string; averageMs: number; jobs: number }>([
+        {
+          $match: {
+            status: "done",
+            presetId: { $type: "string" },
+            durationMs: { $gt: 0 },
+            chain: { $exists: false },
+            sourceJobIds: { $exists: false },
+          },
+        },
+        { $group: { _id: "$presetId", averageMs: { $avg: "$durationMs" }, jobs: { $sum: 1 } } },
+      ])
+      .toArray();
+    return new Map(rows.map((row) => [row._id, { averageMs: Math.round(row.averageMs), jobs: row.jobs }]));
+  } catch (error) {
+    console.warn(`Warning: could not read the job times. ${safeMessage(error)}`);
+    throw new HttpError(503, "Job times are not available because MongoDB cannot be reached.");
+  }
+}
+
 // Move one job or card to another project (FRG-43). Only its projectId changes: its files stay
 // where they are. Returns the changed job, or null if there is no job with this id.
 export async function moveJobToProject(id: string, projectId: string): Promise<Job | null> {
