@@ -1,10 +1,12 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import type { ChangeEvent, ReactNode } from "react";
-import { AlertTriangle, ArrowLeft, CheckCircle2, FileUp, Package, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, CheckCircle2, Download, FileText, FileUp, Package, RefreshCw, X } from "lucide-react";
 import EstimateView from "./Estimate";
 
 // The Packs section (FRG-78): the list of packs as tiles, "Import pack file (.md)" with a preview
 // of the plan and the time estimate before anything is saved, and the detail page of one pack.
+// "Import any document (.md or .txt)" (FRG-79): Claude turns an asset document into a pack file
+// (backend/src/packConvert.ts), shown with the same preview and an editable copy of the pack file.
 // The file format is in docs/pack-format.md. The backend checks it (backend/src/packFile.ts)
 // and saves it (backend/src/packs.ts). Nothing runs here: that is FRG-80.
 
@@ -40,6 +42,8 @@ type PackPlan = {
   jobTotals: { presetId: string; count: number }[];
 };
 type CheckAnswer = { ok: true; plan: PackPlan } | { ok: false; errors: string[] };
+// The answer of POST /api/packs/convert (FRG-79): the made pack file, checked, with warnings.
+type ConvertAnswer = { ok: boolean; packText: string; plan?: PackPlan; errors?: string[]; warnings: string[]; couldNotMap: string[] };
 
 // One saved item, as GET /api/packs/<id> returns it.
 type PackItem = {
@@ -93,7 +97,9 @@ function PacksList() {
   const [packs, setPacks] = useState<PackTile[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [chosen, setChosen] = useState<ChosenFile | null>(null);
+  const [documentFile, setDocumentFile] = useState<ChosenFile | null>(null); // "Import any document" (FRG-79).
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const documentInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     async function load() {
@@ -114,19 +120,19 @@ function PacksList() {
     fileInputRef.current?.click();
   }
 
-  // Read the chosen file as text. The backend checks it (see ImportPreview).
-  async function onFileChosen(event: ChangeEvent<HTMLInputElement>) {
+  // Read the chosen file as text: a pack file (see ImportPreview) or a document (see ConvertPreview).
+  async function readChosen(event: ChangeEvent<HTMLInputElement>, show: (file: ChosenFile) => void) {
     const file = event.target.files?.[0];
     event.target.value = ""; // So choosing the same file again (after a fix) reads it again.
     if (!file) return;
     if (file.size > MAX_FILE_BYTES) {
-      setChosen({ fileName: file.name, error: "This file is too big. The limit is 1 MB." });
+      show({ fileName: file.name, error: "This file is too big. The limit is 1 MB." });
       return;
     }
     try {
-      setChosen({ fileName: file.name, text: await file.text() });
+      show({ fileName: file.name, text: await file.text() });
     } catch {
-      setChosen({ fileName: file.name, error: "Could not read this file." });
+      show({ fileName: file.name, error: "Could not read this file." });
     }
   }
 
@@ -134,16 +140,36 @@ function PacksList() {
     <main className="mx-auto w-full max-w-6xl px-8 pt-2 pb-12">
       <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
         <h1 className="m-0 text-2xl font-semibold text-slate-100">Packs</h1>
-        <button
-          type="button"
-          onClick={chooseFile}
-          className="flex cursor-pointer items-center gap-2 rounded-xl border-0 bg-teal-600/90 px-4 py-2.5 text-sm font-medium text-white shadow-sm shadow-teal-900/20 transition-colors hover:bg-teal-500"
-        >
-          <FileUp size={16} />
-          Import pack file (.md)
-        </button>
-        <input ref={fileInputRef} type="file" accept=".md,text/markdown" onChange={onFileChosen} className="hidden" />
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => documentInputRef.current?.click()}
+            className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-600 bg-slate-800 px-4 py-2.5 text-sm font-medium text-slate-100 transition-colors hover:bg-slate-700"
+          >
+            <FileText size={16} />
+            Import any document (.md or .txt)
+          </button>
+          <button
+            type="button"
+            onClick={chooseFile}
+            className="flex cursor-pointer items-center gap-2 rounded-xl border-0 bg-teal-600/90 px-4 py-2.5 text-sm font-medium text-white shadow-sm shadow-teal-900/20 transition-colors hover:bg-teal-500"
+          >
+            <FileUp size={16} />
+            Import pack file (.md)
+          </button>
+        </div>
+        <input ref={fileInputRef} type="file" accept=".md,text/markdown" onChange={(event) => readChosen(event, setChosen)} className="hidden" />
+        <input
+          ref={documentInputRef}
+          type="file"
+          accept=".md,.txt,text/markdown,text/plain"
+          onChange={(event) => readChosen(event, setDocumentFile)}
+          className="hidden"
+        />
       </div>
+      <p className="mt-0 mb-5 text-xs text-slate-500">
+        Import any document: the document is sent to the Claude API to read it. Generation stays on this PC.
+      </p>
 
       {/* MongoDB offline: the backend's message. Import still checks a file, but cannot save it. */}
       {error && <p className="message warning">{error}</p>}
@@ -156,6 +182,17 @@ function PacksList() {
             <Tile key={pack.id} pack={pack} />
           ))}
         </div>
+      )}
+
+      {documentFile && (
+        <ConvertPreview
+          chosen={documentFile}
+          onClose={() => setDocumentFile(null)}
+          onCreated={(id) => {
+            setDocumentFile(null);
+            window.location.hash = `#/packs/${id}`;
+          }}
+        />
       )}
 
       {chosen && (
@@ -278,7 +315,6 @@ function ImportPreview({ chosen, onClose, onChooseAnother, onCreated }: ImportPr
 
   const error = "error" in chosen ? chosen.error : problem;
   const plan = answer?.ok ? answer.plan : null;
-  const rows = plan ? plan.items.map(plannedRow) : [];
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 px-4 py-10" onClick={onClose}>
@@ -303,25 +339,7 @@ function ImportPreview({ chosen, onClose, onChooseAnother, onCreated }: ImportPr
 
         {answer && !answer.ok && <ErrorList title="This file has problems. Fix them in the file, then import it again." errors={answer.errors} />}
 
-        {plan && (
-          <>
-            <div className="mb-5 flex items-center gap-2 text-sm text-emerald-300">
-              <CheckCircle2 size={16} />
-              The file is correct. Nothing is saved until you press Create pack.
-            </div>
-            <div className="mb-5 rounded-xl border border-slate-700/60 bg-slate-900/40 p-4">
-              <div className="flex items-center gap-2">
-                <span className="text-base font-semibold text-slate-100">{plan.pack.name}</span>
-                <CodeChip code={plan.pack.code} />
-                <span className="text-xs text-slate-500">{plan.pack.engine === "unreal" ? "For Unreal" : "No engine"}</span>
-              </div>
-              {plan.pack.style && <p className="mt-2 mb-0 text-sm text-slate-400">Style added to every prompt: {plan.pack.style}</p>}
-            </div>
-            <Counts rows={rows} />
-            <EstimateView items={plan.jobTotals} />
-            <ItemTable rows={rows} showStatus={false} />
-          </>
-        )}
+        {plan && <PlanView plan={plan} />}
 
         {saveErrors && <ErrorList title="The pack was not saved." errors={saveErrors} />}
 
@@ -341,6 +359,263 @@ function ImportPreview({ chosen, onClose, onChooseAnother, onCreated }: ImportPr
             Cancel
           </button>
           {/* Only a correct file can be saved. */}
+          {plan && (
+            <button
+              type="button"
+              onClick={createPack}
+              disabled={saving}
+              className="cursor-pointer rounded-lg border-0 bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-500 disabled:cursor-wait disabled:opacity-50"
+            >
+              {saving ? "Creating..." : "Create pack"}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// A correct plan: the pack, counts per kind and group, the time estimate (FRG-76) and the item table.
+function PlanView({ plan }: { plan: PackPlan }) {
+  const rows = plan.items.map(plannedRow);
+  return (
+    <>
+      <div className="mb-5 flex items-center gap-2 text-sm text-emerald-300">
+        <CheckCircle2 size={16} />
+        The file is correct. Nothing is saved until you press Create pack.
+      </div>
+      <div className="mb-5 rounded-xl border border-slate-700/60 bg-slate-900/40 p-4">
+        <div className="flex items-center gap-2">
+          <span className="text-base font-semibold text-slate-100">{plan.pack.name}</span>
+          <CodeChip code={plan.pack.code} />
+          <span className="text-xs text-slate-500">{plan.pack.engine === "unreal" ? "For Unreal" : "No engine"}</span>
+        </div>
+        {plan.pack.style && <p className="mt-2 mb-0 text-sm text-slate-400">Style added to every prompt: {plan.pack.style}</p>}
+      </div>
+      <Counts rows={rows} />
+      <EstimateView items={plan.jobTotals} />
+      <ItemTable rows={rows} showStatus={false} />
+    </>
+  );
+}
+
+// ---- "Import any document" (FRG-79) ----
+
+// "aquatwin-assets.md" -> "aquatwin-assets.pack.md"
+function packFileName(documentName: string): string {
+  return `${documentName.replace(/\.(md|txt)$/i, "")}.pack.md`;
+}
+
+type ConvertPreviewProps = { chosen: ChosenFile; onClose: () => void; onCreated: (packId: string) => void };
+
+// Claude makes the pack file from the document (POST /api/packs/convert). Then: the warnings, the
+// "Could not map" list, the pack file in a text box that can be edited, "Check again", "Download .pack.md",
+// and the same preview as a pack file import. "Create pack" saves the checked text, with the document's name.
+function ConvertPreview({ chosen, onClose, onCreated }: ConvertPreviewProps) {
+  const [converted, setConverted] = useState<ConvertAnswer | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
+  const [packText, setPackText] = useState("");
+  // The last check, and the text it was for. Create pack only saves text that was checked as it is now.
+  const [check, setCheck] = useState<{ text: string; answer: CheckAnswer } | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [saveErrors, setSaveErrors] = useState<string[] | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setConverted(null);
+    setProblem(null);
+    setCheck(null);
+    if ("error" in chosen) return;
+    let stopped = false;
+    async function convert(text: string) {
+      try {
+        const response = await fetch("/api/packs/convert", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ fileName: chosen.fileName, text }),
+        });
+        const body = await response.json().catch(() => null);
+        if (stopped) return;
+        if (!body) setProblem(NO_BACKEND);
+        else if (!response.ok) setProblem(body.error ?? "Could not make a pack file from this document.");
+        else {
+          const answer = body as ConvertAnswer;
+          setConverted(answer);
+          setPackText(answer.packText);
+          setCheck({ text: answer.packText, answer: answer.ok && answer.plan ? { ok: true, plan: answer.plan } : { ok: false, errors: answer.errors ?? [] } });
+        }
+      } catch {
+        if (!stopped) setProblem(NO_BACKEND);
+      }
+    }
+    convert(chosen.text);
+    return () => {
+      stopped = true;
+    };
+  }, [chosen]);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  // "Check again": the pack file check (FRG-77) on the edited text.
+  async function checkAgain() {
+    setChecking(true);
+    setSaveErrors(null);
+    const text = packText;
+    try {
+      const response = await fetch("/api/packs/check", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fileName: packFileName(chosen.fileName), text }),
+      });
+      const body = await response.json().catch(() => null);
+      if (!body) setSaveErrors([NO_BACKEND]);
+      else if (!response.ok) setSaveErrors([body.error ?? "Could not check the pack file."]);
+      else setCheck({ text, answer: body });
+    } catch {
+      setSaveErrors([NO_BACKEND]);
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  // Save the pack file on this PC. It never leaves the browser.
+  function download() {
+    const url = URL.createObjectURL(new Blob([packText], { type: "text/markdown" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = packFileName(chosen.fileName);
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function createPack() {
+    setSaving(true);
+    setSaveErrors(null);
+    try {
+      const response = await fetch("/api/packs/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fileName: packFileName(chosen.fileName), text: packText, sourceDocName: chosen.fileName }),
+      });
+      const body = await response.json().catch(() => null);
+      if (!body) setSaveErrors([NO_BACKEND]);
+      else if (response.ok && body.ok) onCreated(body.pack.id);
+      else setSaveErrors(body.errors ?? [body.error ?? "Could not save the pack."]);
+    } catch {
+      setSaveErrors([NO_BACKEND]);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const error = "error" in chosen ? chosen.error : problem;
+  const upToDate = check !== null && check.text === packText;
+  const plan = upToDate && check.answer.ok ? check.answer.plan : null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 px-4 py-10" onClick={onClose}>
+      <div onClick={(event) => event.stopPropagation()} className="w-full max-w-5xl rounded-2xl border border-slate-700 bg-slate-800 p-6 shadow-2xl">
+        <div className="mb-4 flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <h2 className="m-0 text-lg font-semibold text-slate-100">Make a pack from a document</h2>
+            <div className="mt-1 truncate text-sm text-slate-400">{chosen.fileName}</div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            title="Close"
+            className="flex cursor-pointer items-center rounded-lg border-0 bg-transparent p-1.5 text-slate-400 hover:bg-slate-700 hover:text-slate-200"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        {error && <p className="message error">{error}</p>}
+        {!error && !converted && (
+          <p className="text-sm text-slate-400">Claude is reading the document and writing the pack file. A long document can take a few minutes...</p>
+        )}
+
+        {converted && (
+          <>
+            {converted.warnings.length > 0 && (
+              <div className="mb-4 rounded-xl border border-amber-400/40 bg-amber-400/5 p-4">
+                <div className="mb-2 flex items-center gap-2 text-sm font-medium text-amber-300">
+                  <AlertTriangle size={16} />
+                  These prompts are not in the document word for word. Compare them before you create the pack.
+                </div>
+                <ul className="m-0 space-y-1 pl-6 text-sm text-amber-200">
+                  {converted.warnings.map((warning, index) => (
+                    <li key={index}>{warning}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            <div className="mb-4 rounded-xl border border-slate-700/60 bg-slate-900/40 p-4 text-sm">
+              <div className="mb-1 font-medium text-slate-200">Could not map</div>
+              {converted.couldNotMap.length === 0 ? (
+                <div className="text-slate-400">Nothing. Claude put everything from the document into the pack file.</div>
+              ) : (
+                <ul className="m-0 space-y-1 pl-6 text-slate-300">
+                  {converted.couldNotMap.map((entry, index) => (
+                    <li key={index}>{entry}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            <label className="mb-2 block text-sm font-medium text-slate-200" htmlFor="pack-text">
+              The pack file (you can edit it)
+            </label>
+            <textarea
+              id="pack-text"
+              value={packText}
+              onChange={(event) => setPackText(event.target.value)}
+              spellCheck={false}
+              className="mb-2 h-72 w-full resize-y rounded-xl border border-slate-700 bg-slate-950/60 p-3 font-mono text-xs text-slate-200"
+            />
+            <div className="mb-5 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={checkAgain}
+                disabled={checking}
+                className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-slate-600 bg-transparent px-3 py-1.5 text-sm text-slate-200 hover:bg-slate-700 disabled:cursor-wait disabled:opacity-50"
+              >
+                <RefreshCw size={14} /> {checking ? "Checking..." : "Check again"}
+              </button>
+              <button
+                type="button"
+                onClick={download}
+                className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-slate-600 bg-transparent px-3 py-1.5 text-sm text-slate-200 hover:bg-slate-700"
+              >
+                <Download size={14} /> Download .pack.md
+              </button>
+              {!upToDate && <span className="text-xs text-amber-300">You changed the pack file. Press Check again before you create the pack.</span>}
+            </div>
+
+            {upToDate && !check.answer.ok && (
+              <ErrorList title="The pack file still has problems. Fix them in the text above, then press Check again." errors={check.answer.errors} />
+            )}
+            {plan && <PlanView plan={plan} />}
+          </>
+        )}
+
+        {saveErrors && <ErrorList title="The pack was not saved." errors={saveErrors} />}
+
+        <div className="mt-6 flex flex-wrap justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="cursor-pointer rounded-lg border border-slate-600 bg-transparent px-4 py-2 text-sm text-slate-300 hover:bg-slate-700"
+          >
+            Cancel
+          </button>
+          {/* Only text that was checked as it is now, and is correct, can be saved. */}
           {plan && (
             <button
               type="button"
