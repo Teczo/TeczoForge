@@ -106,9 +106,9 @@ export type GamePlan = {
 
 export type CheckResult = { ok: true; plan: GamePlan } | { ok: false; errors: string[] };
 
-type Json = Record<string, unknown>;
+export type Json = Record<string, unknown>;
 
-function isObject(value: unknown): value is Json {
+export function isObject(value: unknown): value is Json {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
@@ -132,11 +132,12 @@ function findJsonBlocks(text: string): string[] {
   return blocks;
 }
 
-// Find the one json block with our schema. Returns the parsed JSON, or the errors.
-function findGameBlock(text: string): { data: Json } | { errors: string[] } {
+// Find the one json block with this schema. Returns the parsed JSON, or the errors.
+// Used for game files and for pack files (packFile.ts, FRG-77), each with its own schema.
+export function findSchemaBlock(text: string, schema: string): { data: Json } | { errors: string[] } {
   const blocks = findJsonBlocks(text);
   if (blocks.length === 0) {
-    return { errors: [`No \`\`\`json block was found. The file needs exactly one, with "schema": "${GAME_SCHEMA}".`] };
+    return { errors: [`No \`\`\`json block was found. The file needs exactly one, with "schema": "${schema}".`] };
   }
 
   const found: Json[] = [];
@@ -148,30 +149,30 @@ function findGameBlock(text: string): { data: Json } | { errors: string[] } {
       data = JSON.parse(block);
     } catch (error) {
       // Only complain about a broken block if it looks like ours.
-      if (block.includes(GAME_SCHEMA) || blocks.length === 1) {
+      if (block.includes(schema) || blocks.length === 1) {
         otherErrors.push(`${name} is not valid JSON: ${(error as Error).message}`);
       }
       return;
     }
-    if (isObject(data) && data.schema === GAME_SCHEMA) {
+    if (isObject(data) && data.schema === schema) {
       found.push(data);
     } else if (isObject(data) && "schema" in data) {
-      otherErrors.push(`${name} has "schema": ${JSON.stringify(data.schema)}. It must be "${GAME_SCHEMA}".`);
+      otherErrors.push(`${name} has "schema": ${JSON.stringify(data.schema)}. It must be "${schema}".`);
     }
   });
 
   if (found.length > 1) {
-    return { errors: [`Found ${found.length} json blocks with "schema": "${GAME_SCHEMA}". The file must have exactly one.`] };
+    return { errors: [`Found ${found.length} json blocks with "schema": "${schema}". The file must have exactly one.`] };
   }
   if (found.length === 1 && otherErrors.length === 0) return { data: found[0] };
   if (found.length === 0 && otherErrors.length === 0) {
-    return { errors: [`No json block has "schema": "${GAME_SCHEMA}". The file needs exactly one.`] };
+    return { errors: [`No json block has "schema": "${schema}". The file needs exactly one.`] };
   }
   return { errors: otherErrors };
 }
 
 // Check text: required, a string, not empty, and not too long. Adds an error and returns "" if wrong.
-function checkText(value: unknown, label: string, max: number, errors: string[], prefix: string): string {
+export function checkText(value: unknown, label: string, max: number, errors: string[], prefix: string): string {
   if (value === undefined || value === null) {
     errors.push(`${prefix}${label} is missing.`);
     return "";
@@ -190,7 +191,7 @@ function checkText(value: unknown, label: string, max: number, errors: string[],
   return value.trim();
 }
 
-function checkUnknownFields(data: Json, allowed: string[], errors: string[], prefix: string) {
+export function checkUnknownFields(data: Json, allowed: string[], errors: string[], prefix: string) {
   for (const key of Object.keys(data)) {
     if (!allowed.includes(key)) {
       errors.push(`${prefix}"${key}" is not a known field. Known fields: ${allowed.join(", ")}.`);
@@ -458,7 +459,7 @@ function conceptFor(game: GamePlan["game"]): PlannedAsset {
 
 // Check a whole game design file. Returns the plan, or every error found.
 export function checkGameFile(text: string): CheckResult {
-  const block = findGameBlock(text);
+  const block = findSchemaBlock(text, GAME_SCHEMA);
   if ("errors" in block) return { ok: false, errors: block.errors };
   const data = block.data;
 
