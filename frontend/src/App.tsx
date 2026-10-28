@@ -10,9 +10,10 @@ import AppShell from "./AppShell";
 import type { Page, Status } from "./AppShell";
 import ProjectsPage from "./ProjectsPage";
 import GamesPage from "./GamesPage";
+import PacksPage from "./PacksPage";
 
 // Which page to show comes from the address: #/generate, #/board, #/projects,
-// #/games (or #/games/<game id> to open one game, FRG-67),
+// #/games (or #/games/<game id> to open one game, FRG-67), #/packs (or #/packs/<pack id>, FRG-78),
 // #/gallery (or #/gallery/<job id> to open one job), or the Chat page, which is the home page:
 // #/, #/chat, or #/chat/<conversation id> (FRG-46).
 // Using the # part means a refresh or bookmark keeps the same page.
@@ -22,6 +23,7 @@ function currentPage(): Page {
   if (hash === "#/board") return "board";
   if (hash === "#/projects") return "projects";
   if (hash === "#/games" || hash.startsWith("#/games/")) return "games";
+  if (hash === "#/packs" || hash.startsWith("#/packs/")) return "packs";
   if (hash === "#/gallery" || hash.startsWith("#/gallery/")) return "gallery";
   return "chat";
 }
@@ -34,6 +36,11 @@ function chatConversationId(): string | null {
 // The game id in #/games/<game id>, or null (FRG-67).
 function gameId(): string | null {
   return window.location.hash.match(/^#\/games\/(.+)$/)?.[1] ?? null;
+}
+
+// The pack id in #/packs/<pack id>, or null (FRG-78).
+function packId(): string | null {
+  return window.location.hash.match(/^#\/packs\/(.+)$/)?.[1] ?? null;
 }
 
 // The job id in #/gallery/<job id>, or null.
@@ -82,6 +89,7 @@ export default function App() {
   const [openJobId, setOpenJobId] = useState(galleryJobId);
   const [conversationId, setConversationId] = useState(chatConversationId);
   const [openGameId, setOpenGameId] = useState(gameId);
+  const [openPackId, setOpenPackId] = useState(packId);
   // The projects for the picker, and the current one (FRG-41). project is undefined while loading,
   // and null if the projects could not be loaded (MongoDB offline): then pages work without a project.
   const [projects, setProjects] = useState<Project[]>([]);
@@ -130,6 +138,7 @@ export default function App() {
       setOpenJobId(galleryJobId());
       setConversationId(chatConversationId());
       setOpenGameId(gameId());
+      setOpenPackId(packId());
     };
     window.addEventListener("hashchange", onHashChange);
     return () => window.removeEventListener("hashchange", onHashChange);
@@ -285,6 +294,8 @@ export default function App() {
         />
       ) : page === "games" ? (
         <GamesPage gameId={openGameId} />
+      ) : page === "packs" ? (
+        <PacksPage packId={openPackId} />
       ) : page === "projects" ? (
         <ProjectsPage
           currentProjectId={project?.id}

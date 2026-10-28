@@ -124,8 +124,9 @@ export type Project = {
   createdAt: Date;
   updatedAt: Date;
   archived: boolean;
-  // "game": the project of an imported game (FRG-66). Older projects have no kind and are normal projects.
-  kind?: "game";
+  // "game": the project of an imported game (FRG-66). "pack": the project of an imported pack (FRG-78).
+  // Older projects have no kind and are normal projects.
+  kind?: "game" | "pack";
 };
 
 // ---- Games (FRG-66) ----
@@ -178,6 +179,67 @@ export type GameAsset = {
   steps: GameAssetStep[]; // Empty for external assets.
   removed: boolean;
 };
+
+// ---- Packs (FRG-78) ----
+
+// An imported pack file (docs/pack-format.md). Its project (kind "pack", same name) holds its jobs and cards.
+export type Pack = {
+  id: string; // A UUID.
+  projectId: string;
+  code: string; // 2 to 5 capital letters. Unique: no two packs have the same code.
+  name: string;
+  engine: string; // "unreal" or "none"
+  style: string;
+  defaults: { pictures: number; model_presets: string[]; model_seeds: number }; // As in the file (short preset names).
+  fileName: string | null;
+  packText: string; // The whole pack file.
+  sourceDocName: string; // The document Claude made the pack from (FRG-79). Empty for now.
+  createdBy: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+// planned: nothing made yet. pictures: making the pictures. pick_picture: waiting for someone to pick one.
+// models: making the 3D models. pick_model: waiting for a pick. done: finished. skip: made outside
+// TeczoForge. failed: could not be made.
+export type PackItemStatus = "planned" | "pictures" | "pick_picture" | "models" | "pick_model" | "done" | "skip" | "failed";
+
+export const PACK_ITEM_STATUSES: PackItemStatus[] = ["planned", "pictures", "pick_picture", "models", "pick_model", "done", "skip", "failed"];
+
+// One item of a pack, from the file, with what has been made for it so far.
+export type PackItem = {
+  id: string; // A UUID.
+  packId: string;
+  order: number; // Its place in the file, from 0.
+  itemId: string; // The id from the file, for example "VEG-01".
+  name: string;
+  group: string;
+  kind: "model" | "picture" | "skip";
+  prompt: string | null; // The full prompt (with the pack style). null for edits and skips.
+  editFrom: string | null; // The itemId of the earlier item whose picked picture is edited.
+  editPrompt: string | null;
+  size: [number, number] | null; // null for edits and skips.
+  pictures: number;
+  modelPresetIds: string[]; // Full preset ids, for example "image-to-3d-trellis2". Empty unless kind "model".
+  modelSeeds: number;
+  realSize: { height_m?: number; length_m?: number; width_m?: number } | null;
+  notes: string;
+  status: PackItemStatus;
+  pictureJobIds: string[];
+  pickedPictureJobId: string | null;
+  autoPicked: boolean;
+  modelJobIds: string[];
+  pickedModelJobId: string | null;
+  error: string | null;
+};
+
+export async function getPacksCollection(): Promise<Collection<Pack>> {
+  return (await getDatabase()).collection<Pack>("packs");
+}
+
+export async function getPackItemsCollection(): Promise<Collection<PackItem>> {
+  return (await getDatabase()).collection<PackItem>("packItems");
+}
 
 // ---- Batches (FRG-75) ----
 
@@ -649,6 +711,11 @@ export async function checkDatabase(): Promise<boolean> {
     await games.createIndex({ code: 1 }, { unique: true });
     await (await getGameAssetsCollection()).createIndex({ gameId: 1, order: 1 });
     await (await getGameAssetsCollection()).createIndex({ "steps.jobIds": 1 }); // The asset of a finished job (FRG-68).
+    // Packs (FRG-78): one pack by id, pack codes are unique, and the items of one pack in file order.
+    const packs = await getPacksCollection();
+    await packs.createIndex({ id: 1 });
+    await packs.createIndex({ code: 1 }, { unique: true });
+    await (await getPackItemsCollection()).createIndex({ packId: 1, order: 1 });
     // Batches (FRG-75): one batch by id, and the list by state, newest first.
     const batches = await getBatchesCollection();
     await batches.createIndex({ id: 1 });
