@@ -38,6 +38,7 @@ import { checkPackFileHandler } from "./packFile.js";
 import { getPackHandler, importPackHandler, listPacksHandler } from "./packs.js";
 import { convertDocumentHandler } from "./packConvert.js";
 import { editPictureHandler, makeModelsHandler, moreModelHandler, morePictureHandler, pickHandler, runPackHandler } from "./packRun.js";
+import { exportPackHandler } from "./packExport.js";
 import {
   approveHandler,
   createAssetCardsHandler,
@@ -193,6 +194,8 @@ app.post("/api/packs/:id/items/:itemId/pick", express.json(), pickHandler);
 app.post("/api/packs/:id/items/:itemId/more-picture", morePictureHandler);
 app.post("/api/packs/:id/items/:itemId/edit-picture", express.json(), editPictureHandler);
 app.post("/api/packs/:id/items/:itemId/more-model", moreModelHandler);
+// Export a pack to a folder for Unreal, with forge_manifest.json and forge_record.md (FRG-82).
+app.post("/api/packs/:id/export", exportPackHandler);
 
 // Batches (see batches.ts, FRG-75): a list of board cards that runs one card at a time and can pause.
 // Everyone can see a batch. Only the user who started it can use the buttons.
