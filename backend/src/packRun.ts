@@ -3,7 +3,7 @@ import { HttpError } from "./httpError.js";
 import { findCards, getBatchesCollection, getPackItemsCollection, getPacksCollection, safeMessage, updateDraft } from "./db.js";
 import type { Batch, Job, Pack, PackItem } from "./db.js";
 import { findAnyJob, JOB_ID_PATTERN, onJobDone, sendError } from "./jobs.js";
-import { createDraft } from "./drafts.js";
+import { createDraft, runDraft } from "./drafts.js";
 import { sendToBoard } from "./sendTo.js";
 import { addCardsToBatch, createBatch, onBatchCardFailed } from "./batches.js";
 import { EDIT_PRESET, PICTURE_PRESET } from "./packFile.js";
@@ -22,12 +22,15 @@ import { copyOutputToInputs } from "./upload.js";
 // Full auto: phase 1 in one batch. When an item's pictures are finished, the first finished one is
 //   picked (autoPicked) and its edit and 3D cards go to the end of the same batch. 3D results are
 //   never picked by themselves: model items end in "pick_model".
-// A picked picture can still be changed while none of the cards made from it has run.
+// A picked picture can be changed only while the item has no 3D jobs (FRG-81). Edit cards made from it
+// that have not run yet move to the new picture.
+// The fast pick screen (FRG-81) adds one more picture (N), an edit of a picture (E) or one more 3D run (P).
 
 const OFFLINE_MESSAGE = "Packs are not available because MongoDB cannot be reached.";
 
 // The 3D presets by preset id, as card titles show them.
 const MODEL_LABELS: Record<string, string> = { "image-to-3d-trellis2": "TRELLIS.2", "image-to-3d-pixal3d": "Pixal3D" };
+const MODEL_PRESET_IDS = { trellis2: "image-to-3d-trellis2", pixal3d: "image-to-3d-pixal3d" };
 
 type RunMode = NonNullable<Pack["runMode"]>;
 
@@ -342,7 +345,8 @@ export async function makeModelsHandler(req: Request, res: Response) {
 // POST /api/packs/<id>/items/<itemId>/pick
 // Body: { "jobId": "<a finished result>", "target": "picture" | "model" }. itemId: the item record id.
 // picture: the item's picked picture. A picture item is then "done"; the items that edit it get their
-//   cards. It can be changed while no card made from it has run (those cards then use the new picture).
+//   cards. It can be changed only while the item has no 3D jobs (FRG-81), and while the edit cards made
+//   from it have not run (those cards then use the new picture).
 // model: the item's picked 3D result. The item is then "done".
 // Answer: the item.
 export async function pickHandler(req: Request, res: Response) {
@@ -371,11 +375,13 @@ export async function pickHandler(req: Request, res: Response) {
         return found;
       }
       if (found.pickedPictureJobId) {
-        // A new pick: the cards already made from the old picture (3D, and edits of this item) move to the new one.
+        if (found.modelJobIds.length > 0) {
+          throw new HttpError(409, "This item already has 3D jobs made from the picked picture, so the pick cannot be changed.");
+        }
+        // A new pick: the edit cards already made from the old picture move to the new one.
         const edits = (await packItems(pack.id)).filter((candidate) => candidate.editFrom === found.itemId);
-        const madeFrom = [...found.modelJobIds, ...edits.flatMap((edit) => edit.pictureJobIds)];
-        if (!(await retarget(madeFrom, jobId))) {
-          throw new HttpError(409, "Cards made from the picked picture have already run, so the pick cannot be changed any more.");
+        if (!(await retarget(edits.flatMap((edit) => edit.pictureJobIds), jobId))) {
+          throw new HttpError(409, "Edit cards made from the picked picture have already run, so the pick cannot be changed any more.");
         }
       }
       const ids = await applyPicturePick(pack, found, jobId, false, createdBy);
@@ -383,6 +389,142 @@ export async function pickHandler(req: Request, res: Response) {
       return found;
     });
     res.json(item);
+  } catch (error) {
+    sendError(res, error);
+  }
+}
+
+// ---- More results from the fast pick screen (FRG-81) ----
+
+const MAX_EDIT_INSTRUCTION = 1000; // The same limit as edit_prompt in a pack file.
+
+// The pack's batch that is running or paused, or null.
+function activePackBatch(packId: string): Promise<Batch | null> {
+  return db(async () =>
+    (await getBatchesCollection()).findOne(
+      { "owner.type": "pack", "owner.id": packId, state: { $in: ["running", "paused"] } },
+      { projection: { _id: 0 }, sort: { createdAt: -1 } },
+    ),
+  );
+}
+
+// One new card: added to the pack's running batch, or run at once as a single job when no batch runs.
+// Returns a note for the answer.
+async function runOneCard(pack: Pack, cardId: string): Promise<string> {
+  const batch = await activePackBatch(pack.id);
+  if (batch) {
+    await addCardsToBatch(batch.id, [cardId]);
+    return "Added to the running batch.";
+  }
+  const { live, failedStatus } = await runDraft(cardId);
+  if (failedStatus !== null) {
+    return `The card was made, but ComfyUI did not take it: ${live.job.error ?? "unknown reason"} Press Generate on the board when ComfyUI runs.`;
+  }
+  return "Started.";
+}
+
+// The item of a /api/packs/<id>/items/<itemId>/... route, with its pack.
+async function itemFromRequest(req: Request): Promise<{ pack: Pack; item: PackItem }> {
+  const pack = await packFromRequest(req);
+  const itemId = checkId(req.params.itemId, "an item");
+  const item = (await packItems(pack.id)).find((candidate) => candidate.id === itemId);
+  if (!item) throw new HttpError(404, "There is no such item in this pack.");
+  return { pack, item };
+}
+
+// POST /api/packs/<id>/items/<itemId>/more-picture  ("N" on the pick screen)
+// One more picture with a new random seed: the item's prompt and size, or for an edit item one more edit
+// of its source's picked picture. Only before the item has 3D jobs. Answer: { item, cardId, note }.
+export async function morePictureHandler(req: Request, res: Response) {
+  try {
+    const createdBy: string | null = res.locals.username ?? null;
+    const answer = await withPackLock(async () => {
+      const { pack, item } = await itemFromRequest(req);
+      if (item.kind === "skip") throw new HttpError(400, "This item is made outside TeczoForge.");
+      if (item.modelJobIds.length > 0) throw new HttpError(409, "This item already has 3D jobs. Make one more 3D run instead (P).");
+      if (item.pictureJobIds.length === 0) throw new HttpError(400, "This item has no pictures yet. Start the pictures on the pack page first.");
+      const title = `${item.itemId}_${item.name} (extra ${item.pictureJobIds.length + 1})`;
+      let cardId: string;
+      if (item.editFrom) {
+        const source = (await packItems(pack.id)).find((candidate) => candidate.itemId === item.editFrom);
+        if (!source?.pickedPictureJobId) throw new HttpError(400, `Pick a picture for ${item.editFrom} first: this item edits it.`);
+        const card = await sendToBoard(source.pickedPictureJobId, EDIT_PRESET, createdBy);
+        await updateDraft(card.id, { inputs: { ...(card.inputs as Record<string, unknown>), prompt: item.editPrompt }, title, error: null });
+        cardId = card.id;
+      } else {
+        const card = await createDraft({
+          presetId: PICTURE_PRESET,
+          inputs: { prompt: item.prompt, ...(item.size ? { width: item.size[0], height: item.size[1] } : {}) },
+          title,
+          column: "ready",
+          projectId: pack.projectId,
+          createdBy,
+        });
+        cardId = card.id;
+      }
+      // A failed item waits for this picture now; any other status stays as it is.
+      await saveItem(item, { pictureJobIds: [...item.pictureJobIds, cardId], ...(item.status === "failed" ? { status: "pictures" as const, error: null } : {}) });
+      return { item, cardId, note: await runOneCard(pack, cardId) };
+    });
+    res.json(answer);
+  } catch (error) {
+    sendError(res, error);
+  }
+}
+
+// POST /api/packs/<id>/items/<itemId>/edit-picture  ("E" on the pick screen)
+// Body: { "jobId": "<a finished picture of this item>", "instruction": "..." }. An Edit Image card made
+// from that picture; its result joins the item's pictures. Only before the item has 3D jobs.
+// Answer: { item, cardId, note }.
+export async function editPictureHandler(req: Request, res: Response) {
+  try {
+    const createdBy: string | null = res.locals.username ?? null;
+    const { jobId, instruction } = req.body ?? {};
+    if (typeof jobId !== "string" || !JOB_ID_PATTERN.test(jobId)) throw new HttpError(400, "jobId must be a job id.");
+    if (typeof instruction !== "string" || instruction.trim() === "") throw new HttpError(400, "Write what to change.");
+    if (instruction.trim().length > MAX_EDIT_INSTRUCTION) {
+      throw new HttpError(400, `The instruction is too long. Maximum is ${MAX_EDIT_INSTRUCTION} characters.`);
+    }
+    const answer = await withPackLock(async () => {
+      const { pack, item } = await itemFromRequest(req);
+      if (item.modelJobIds.length > 0) throw new HttpError(409, "This item already has 3D jobs, so its pictures cannot change any more.");
+      if (!item.pictureJobIds.includes(jobId)) throw new HttpError(400, "This picture does not belong to this item.");
+      const card = await sendToBoard(jobId, EDIT_PRESET, createdBy);
+      await updateDraft(card.id, {
+        inputs: { ...(card.inputs as Record<string, unknown>), prompt: instruction.trim() },
+        title: `${item.itemId}_${item.name} (edit ${item.pictureJobIds.length + 1})`,
+        error: null,
+      });
+      await saveItem(item, { pictureJobIds: [...item.pictureJobIds, card.id], ...(item.status === "failed" ? { status: "pictures" as const, error: null } : {}) });
+      return { item, cardId: card.id, note: await runOneCard(pack, card.id) };
+    });
+    res.json(answer);
+  } catch (error) {
+    sendError(res, error);
+  }
+}
+
+// POST /api/packs/<id>/items/<itemId>/more-model  ("P" on the pick screen)
+// One more 3D run from the picked picture: with Pixal3D, or with TRELLIS.2 if Pixal3D was used already.
+// Answer: { item, cardId, note }.
+export async function moreModelHandler(req: Request, res: Response) {
+  try {
+    const createdBy: string | null = res.locals.username ?? null;
+    const answer = await withPackLock(async () => {
+      const { pack, item } = await itemFromRequest(req);
+      if (item.kind !== "model") throw new HttpError(400, "Only model items have 3D runs.");
+      if (!item.pickedPictureJobId) throw new HttpError(400, "Pick a picture first.");
+      const used = new Set((await findCards(item.modelJobIds)).map((card) => card.presetId));
+      const presetId = used.has(MODEL_PRESET_IDS.pixal3d) ? MODEL_PRESET_IDS.trellis2 : MODEL_PRESET_IDS.pixal3d;
+      const card = await sendToBoard(item.pickedPictureJobId, presetId, createdBy);
+      await updateDraft(card.id, { title: `${item.itemId}_${item.name} 3D (${MODEL_LABELS[presetId]}, extra ${item.modelJobIds.length + 1})` });
+      const fields: Partial<PackItem> = { modelJobIds: [...item.modelJobIds, card.id] };
+      // A picked 3D model stays picked. An item still waiting for its first 3D jobs, or failed, now waits for this one.
+      if (item.status === "pick_picture" || item.status === "failed") Object.assign(fields, { status: "models", error: null });
+      await saveItem(item, fields);
+      return { item, cardId: card.id, note: await runOneCard(pack, card.id) };
+    });
+    res.json(answer);
   } catch (error) {
     sendError(res, error);
   }
