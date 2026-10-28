@@ -6,6 +6,7 @@
   "model": "Z-Image-Turbo",
   "licence": "Apache 2.0",
   "clientWork": "yes",
+  "estimatedSeconds": 4,
   "type": "image",
   "inputs": [
     { "key": "image", "label": "Start image", "kind": "image", "node": "60", "field": "image" },

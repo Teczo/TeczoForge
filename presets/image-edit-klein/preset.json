@@ -7,6 +7,7 @@
   "model": "FLUX.2 klein 4B",
   "licence": "Apache 2.0",
   "clientWork": "yes",
+  "estimatedSeconds": 4,
   "type": "edit",
   "inputs": [
     { "key": "image", "label": "Start image", "kind": "image", "node": "76", "field": "image" },

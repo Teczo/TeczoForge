@@ -9,6 +9,7 @@
   "clientWork": "conditions",
   "licenceNote": "Pixal3D and TRELLIS.2 are MIT. The DINOv3 image encoder it uses has its own licence (Meta). Check that licence before client work.",
   "stages": 4,
+  "estimatedSeconds": 85,
   "type": "3d",
   "inputs": [
     { "key": "image", "label": "Start image", "kind": "image", "node": "122", "field": "image" },

@@ -19,6 +19,8 @@ const MAX_STAGES = 10;
 const MAX_FPS = 120;
 // A "totalLengths" choice can be at most this many seconds (FRG-56; joining allows 60).
 const MAX_TOTAL_LENGTH = 60;
+// The longest typical run time preset.json may give, in seconds (2 hours, FRG-76).
+const MAX_ESTIMATED_SECONDS = 7200;
 // An image input is the file name from POST /api/upload, for example "teczoforge-1791361258118-a1b2c3.png".
 // ComfyUI may add " (1)" if the name is taken. Nothing else is allowed (no folders, no "..").
 export const IMAGE_NAME_PATTERN = /^[A-Za-z0-9_-]+( \(\d+\))?\.(png|jpe?g|webp)$/i;
@@ -64,7 +66,7 @@ export type Preset = {
   licenceNote?: string; // One short line about the licence.
   experimental?: boolean; // Shown with a "Test" label.
   stages?: number; // Sampler passes, for example 2 for Wan 2.2 (high noise, then low noise). Default 1.
-  estimatedSeconds?: number; // A typical run time.
+  estimatedSeconds?: number; // A typical run time. Also used by the time estimate (estimate.ts, FRG-76) when there is no history.
   fps?: number; // Frames per second of a video preset. Needed by inputs with "unit": "seconds" (FRG-52).
   // "Make a longer video" (FRG-56): the total lengths in seconds the user can choose, for example
   // [10, 15, 20]. Needs an image input and an input with "unit": "seconds" (the clip length).
@@ -141,8 +143,11 @@ function checkPreset(folder: string, raw: Preset): Preset {
     warn(`"stages" must be a whole number from 1 to ${MAX_STAGES}. 1 is used.`);
     delete preset.stages;
   }
-  if (preset.estimatedSeconds !== undefined && (!Number.isInteger(preset.estimatedSeconds) || preset.estimatedSeconds < 1)) {
-    warn(`"estimatedSeconds" must be a whole number above 0. It is ignored.`);
+  if (
+    preset.estimatedSeconds !== undefined &&
+    (!Number.isInteger(preset.estimatedSeconds) || preset.estimatedSeconds < 1 || preset.estimatedSeconds > MAX_ESTIMATED_SECONDS)
+  ) {
+    warn(`"estimatedSeconds" must be a whole number from 1 to ${MAX_ESTIMATED_SECONDS}. It is ignored.`);
     delete preset.estimatedSeconds;
   }
   if (preset.fps !== undefined && (!Number.isInteger(preset.fps) || preset.fps < 1 || preset.fps > MAX_FPS)) {

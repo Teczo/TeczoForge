@@ -8,7 +8,7 @@
   "licence": "Apache 2.0",
   "clientWork": "yes",
   "stages": 2,
-  "estimatedSeconds": 266,
+  "estimatedSeconds": 272,
   "type": "video",
   "fps": 16,
   "totalLengths": [10, 15, 20],

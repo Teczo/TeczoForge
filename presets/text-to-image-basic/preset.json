@@ -6,6 +6,7 @@
   "model": "Z-Image-Turbo",
   "licence": "Apache 2.0",
   "clientWork": "yes",
+  "estimatedSeconds": 9,
   "type": "image",
   "inputs": [
     { "key": "prompt", "label": "Prompt", "kind": "text", "node": "57:27", "field": "text" },

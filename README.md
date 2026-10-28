@@ -54,7 +54,7 @@ Backend (Express, 127.0.0.1:4000) ──► ComfyUI (127.0.0.1:8188)   HTTP + on
   | `licenceNote` | `"Credit the author."` | One short line. Shown next to **Check licence**, and in the Research only question. |
   | `experimental` | `true` | A small **Test** label. |
   | `stages` | `2` | Sampler passes (1 to 10, default 1). With 2 or more, progress shows **Pass 1 of 2** and one bar for the whole job that never goes back. A pass starts when ComfyUI reports progress from another node. |
-  | `estimatedSeconds` | `270` | Shown as "Usually takes about 4 min 30 s". |
+  | `estimatedSeconds` | `270` | A typical run time (1 to 7200). Shown as "Usually takes about 4 min 30 s". The time estimate (FRG-76) uses it when the preset has no finished jobs yet. |
 
   On inputs: `min`, `max` and `step` (kind `number` only), and `options` (kind `number` or `text`),
   for example `"options": [{ "value": 768, "label": "Small" }, { "value": 1024, "label": "Medium" }]`.

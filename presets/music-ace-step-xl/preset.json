@@ -3,6 +3,7 @@
   "description": "ACE-Step 1.5 XL Turbo. Text to music, 30 seconds, 8 steps.",
   "promptGuide": "Write the style as short comma-separated tags: genre, mood, instruments, vocal type, tempo feel. Example: calm lo-fi piano, soft rain, warm, instrumental. For songs with singing, put the words in Lyrics with section tags like [verse] and [chorus]. For music with no singing, leave Lyrics as [instrumental].",
   "model": "ACE-Step 1.5 XL",
+  "estimatedSeconds": 22,
   "type": "audio",
   "experimental": true,
   "inputs": [
