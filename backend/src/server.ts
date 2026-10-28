@@ -36,6 +36,7 @@ import { checkSessionSecret, loginHandler, logoutHandler, meHandler, requireLogi
 import { checkGameFileHandler } from "./gameFile.js";
 import { checkPackFileHandler } from "./packFile.js";
 import { getPackHandler, importPackHandler, listPacksHandler } from "./packs.js";
+import { convertDocumentHandler } from "./packConvert.js";
 import {
   approveHandler,
   createAssetCardsHandler,
@@ -181,6 +182,8 @@ app.post("/api/packs/check", express.json({ limit: "3mb" }), checkPackFileHandle
 app.post("/api/packs/import", express.json({ limit: "3mb" }), importPackHandler);
 app.get("/api/packs", listPacksHandler);
 app.get("/api/packs/:id", getPackHandler);
+// "Import any document" (FRG-79): Claude turns an asset document into a pack file. Nothing is saved.
+app.post("/api/packs/convert", express.json({ limit: "3mb" }), convertDocumentHandler);
 
 // Batches (see batches.ts, FRG-75): a list of board cards that runs one card at a time and can pause.
 // Everyone can see a batch. Only the user who started it can use the buttons.

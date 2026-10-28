@@ -193,7 +193,7 @@ export type Pack = {
   defaults: { pictures: number; model_presets: string[]; model_seeds: number }; // As in the file (short preset names).
   fileName: string | null;
   packText: string; // The whole pack file.
-  sourceDocName: string; // The document Claude made the pack from (FRG-79). Empty for now.
+  sourceDocName: string; // The document Claude made the pack file from (FRG-79). Empty for a pack file imported as it is.
   createdBy: string | null;
   createdAt: Date;
   updatedAt: Date;
