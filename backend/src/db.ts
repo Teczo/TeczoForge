@@ -190,7 +190,8 @@ export type Batch = {
   id: string; // A UUID.
   name: string;
   projectId: string | null;
-  owner: { type: "game" | "pack" | null; id: string | null }; // Who made it: a game, a pack (FRG-80), or a person.
+  // Who made it: a game, a pack (FRG-80), a person (null), or the Time test (FRG-76, id: its picture card).
+  owner: { type: "game" | "pack" | "time-test" | null; id: string | null };
   state: BatchState;
   cardIds: string[]; // In the order they run.
   currentCardId: string | null; // The card running now (or the one a paused batch still waits for).
@@ -524,6 +525,36 @@ export async function averageDurationsByPreset(): Promise<Map<string, { averageM
           },
         },
         { $group: { _id: "$presetId", averageMs: { $avg: "$durationMs" }, jobs: { $sum: 1 } } },
+      ])
+      .toArray();
+    return new Map(rows.map((row) => [row._id, { averageMs: Math.round(row.averageMs), jobs: row.jobs }]));
+  } catch (error) {
+    console.warn(`Warning: could not read the job times. ${safeMessage(error)}`);
+    throw new HttpError(503, "Job times are not available because MongoDB cannot be reached.");
+  }
+}
+
+// The average time of the last `last` finished jobs of each preset (FRG-76, the time estimate in
+// estimate.ts). Single jobs only, like averageDurationsByPreset. Key: preset id. A preset with no
+// finished jobs is not in the map. Throws a 503 HttpError when MongoDB cannot be reached.
+export async function recentAverageDurations(presetIds: string[], last: number): Promise<Map<string, { averageMs: number; jobs: number }>> {
+  try {
+    const jobs = await getJobsCollection();
+    const rows = await jobs
+      .aggregate<{ _id: string; averageMs: number; jobs: number }>([
+        {
+          $match: {
+            status: "done",
+            presetId: { $in: presetIds },
+            durationMs: { $gt: 0 },
+            chain: { $exists: false },
+            sourceJobIds: { $exists: false },
+          },
+        },
+        { $sort: { createdAt: -1 } },
+        { $group: { _id: "$presetId", durations: { $push: "$durationMs" } } },
+        { $project: { recent: { $slice: ["$durations", last] } } },
+        { $project: { averageMs: { $avg: "$recent" }, jobs: { $size: "$recent" } } },
       ])
       .toArray();
     return new Map(rows.map((row) => [row._id, { averageMs: Math.round(row.averageMs), jobs: row.jobs }]));
