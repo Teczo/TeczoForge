@@ -2,6 +2,7 @@ import { Fragment, useEffect, useRef, useState } from "react";
 import type { ChangeEvent, ReactNode } from "react";
 import { AlertTriangle, ArrowLeft, CheckCircle2, Clock, FileUp, Gamepad2, Hand, X } from "lucide-react";
 import Media, { outputKind } from "./Media";
+import BatchBar, { useActiveBatches } from "./BatchBar";
 
 // The Games section (FRG-67): the list of games as tiles, "Import game design (.md)" with a preview
 // of the plan before anything is saved, and the detail page of one game with its assets.
@@ -488,6 +489,8 @@ function PreviewTable({ assets }: { assets: PlannedAsset[] }) {
 function GameDetail({ id }: { id: string }) {
   const [detail, setDetail] = useState<GameDetailAnswer | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // "Generate all" makes a batch (FRG-75). Its bar shows here while it runs or is paused.
+  const gameBatches = useActiveBatches().filter((batch) => batch.owner.type === "game" && batch.owner.id === id);
 
   async function load() {
     try {
@@ -560,6 +563,9 @@ function GameDetail({ id }: { id: string }) {
             </div>
           </div>
 
+          {gameBatches.map((batch) => (
+            <BatchBar key={batch.id} batchId={batch.id} />
+          ))}
           <GameSteps gameId={detail.game.id} projectName={detail.game.name} concept={concept} assets={assets} onChanged={load} />
 
           <Table head={["Id", "Type", "Use", "Needs", "Status"]}>
@@ -635,7 +641,7 @@ type GameStepsProps = {
 // The three steps on the game page:
 // 1. "Make concept art": 3 pictures in the game's style. Approve one (the same Approve as every asset, FRG-69).
 // 2. "Create all asset cards": only after a concept is chosen. One board card per planned asset.
-// 3. "Generate all": runs every Ready card of this game. ComfyUI's own queue runs them.
+// 3. "Generate all": one batch of every Ready card of this game. It runs one card at a time (FRG-75).
 function GameSteps({ gameId, projectName, concept, assets, onChanged }: GameStepsProps) {
   const [busy, setBusy] = useState<string | null>(null);
   const [result, setResult] = useState<StepResult | null>(null);
@@ -692,7 +698,7 @@ function GameSteps({ gameId, projectName, concept, assets, onChanged }: GameStep
     const answer = await post("generate", `/api/games/${gameId}/generate`);
     if (answer) {
       const text =
-        answer.queued === 0 ? "No Ready cards to start." : `Started ${answer.queued} card(s). ComfyUI runs them one after the other.`;
+        answer.queued === 0 ? "No Ready cards to start." : `Started a batch of ${answer.queued} card(s). They run one at a time; pause it in the bar above.`;
       setResult({ text, errors: answer.errors as string[] });
     }
   }
@@ -745,7 +751,7 @@ function GameSteps({ gameId, projectName, concept, assets, onChanged }: GameStep
       <StepBox
         number={3}
         title="Generate all"
-        text="Starts every Ready card of this game. Finished assets show Review."
+        text="Runs every Ready card of this game as one batch, one card at a time. You can pause it. Finished assets show Review."
         done={false}
         action={
           <StepButton label={busy === "generate" ? "Starting..." : "Generate all"} onClick={generateAll} disabled={busy !== null || !hasCards} />
