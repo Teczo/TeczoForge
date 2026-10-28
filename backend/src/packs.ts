@@ -188,7 +188,8 @@ export async function listPacksHandler(_req: Request, res: Response) {
 
 // GET /api/packs/<id>
 // Answer: { pack, items, jobs }: the pack (with its packText), all its items in file order, and
-// (FRG-80) every card of its items by id: { id, status, imageUrl, outputKind, error, progress }.
+// (FRG-80) every card of its items by id: { id, status, imageUrl, outputKind, error, progress, presetId, seed }.
+// presetId and seed label the 3D results on the pick screen (FRG-81). seed is null until the card runs.
 export async function getPackHandler(req: Request, res: Response) {
   try {
     const id = String(req.params.id);
@@ -205,7 +206,20 @@ export async function getPackHandler(req: Request, res: Response) {
     const jobs = Object.fromEntries(
       saved.map((card) => {
         const job = active.get(card.id) ?? card;
-        return [card.id, { id: card.id, status: job.status, imageUrl: job.imageUrl, outputKind: job.outputKind ?? null, error: job.error, progress: active.get(card.id)?.progress ?? null }];
+        const seed = (job.inputs as Record<string, unknown> | null)?.seed;
+        return [
+          card.id,
+          {
+            id: card.id,
+            status: job.status,
+            imageUrl: job.imageUrl,
+            outputKind: job.outputKind ?? null,
+            error: job.error,
+            progress: active.get(card.id)?.progress ?? null,
+            presetId: job.presetId,
+            seed: typeof seed === "number" ? seed : null,
+          },
+        ];
       }),
     );
     res.json({ ...found, jobs });

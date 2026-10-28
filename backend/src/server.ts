@@ -37,7 +37,7 @@ import { checkGameFileHandler } from "./gameFile.js";
 import { checkPackFileHandler } from "./packFile.js";
 import { getPackHandler, importPackHandler, listPacksHandler } from "./packs.js";
 import { convertDocumentHandler } from "./packConvert.js";
-import { makeModelsHandler, pickHandler, runPackHandler } from "./packRun.js";
+import { editPictureHandler, makeModelsHandler, moreModelHandler, morePictureHandler, pickHandler, runPackHandler } from "./packRun.js";
 import {
   approveHandler,
   createAssetCardsHandler,
@@ -189,6 +189,10 @@ app.post("/api/packs/convert", express.json({ limit: "3mb" }), convertDocumentHa
 app.post("/api/packs/:id/run", express.json(), runPackHandler);
 app.post("/api/packs/:id/models", makeModelsHandler);
 app.post("/api/packs/:id/items/:itemId/pick", express.json(), pickHandler);
+// The fast pick screen (FRG-81): one more picture (N), an edit of a picture (E), one more 3D run (P).
+app.post("/api/packs/:id/items/:itemId/more-picture", morePictureHandler);
+app.post("/api/packs/:id/items/:itemId/edit-picture", express.json(), editPictureHandler);
+app.post("/api/packs/:id/items/:itemId/more-model", moreModelHandler);
 
 // Batches (see batches.ts, FRG-75): a list of board cards that runs one card at a time and can pause.
 // Everyone can see a batch. Only the user who started it can use the buttons.
