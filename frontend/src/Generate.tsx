@@ -6,6 +6,7 @@ import SendToMenu, { ExtendButton } from "./SendToMenu";
 import PresetBadges, { confirmResearchOnly, formatSeconds } from "./PresetBadges";
 import type { Project } from "./App";
 import { ArrowRight, Box, ChevronDown, ChevronUp, Download, Film, Folder, Image, Layers, Maximize, Monitor, Music, Paperclip, Pencil, Play, Scaling, Settings, Shuffle, Sparkles, Tag, Upload, Video, Zap } from "lucide-react";
+import TimeTest from "./TimeTest";
 
 // How often to ask the backend where the job is.
 const PROGRESS_INTERVAL_MS = 1500;
@@ -586,6 +587,8 @@ export default function Generate({ startValues = null, onStartValuesUsed, projec
             );
           })}
         </div>
+        {/* Measure how long each preset takes (FRG-76). */}
+        <TimeTest presetIds={presets.map((p) => p.id)} project={project} />
       </aside>
 
       <form className="create panel" onSubmit={handleSubmit}>
