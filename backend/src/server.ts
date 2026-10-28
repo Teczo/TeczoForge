@@ -34,6 +34,7 @@ import { createProjectHandler, listProjectsHandler, updateProjectHandler } from 
 import { IMAGE_TYPES, MAX_UPLOAD_BYTES, uploadHandler, useOutputHandler } from "./upload.js";
 import { checkSessionSecret, loginHandler, logoutHandler, meHandler, requireLogin } from "./auth.js";
 import { checkGameFileHandler } from "./gameFile.js";
+import { checkPackFileHandler } from "./packFile.js";
 import {
   approveHandler,
   createAssetCardsHandler,
@@ -172,6 +173,9 @@ app.patch("/api/games/:id/assets/:assetId", express.json(), editAssetHandler);
 app.post("/api/games/:id/assets/:assetId/done-by-hand", doneByHandHandler);
 // Export to a Unity-ready folder with asset_manifest.json (FRG-70).
 app.post("/api/games/:id/export", exportGameHandler);
+
+// Packs (see packFile.ts, FRG-77): check a pack .md file and answer with its plan. Same 1 MB limit as game files.
+app.post("/api/packs/check", express.json({ limit: "3mb" }), checkPackFileHandler);
 
 // Batches (see batches.ts, FRG-75): a list of board cards that runs one card at a time and can pause.
 // Everyone can see a batch. Only the user who started it can use the buttons.
