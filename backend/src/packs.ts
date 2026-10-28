@@ -1,11 +1,11 @@
 import type { Request, Response } from "express";
 import type { Collection } from "mongodb";
 import { HttpError } from "./httpError.js";
-import { getPackItemsCollection, getPacksCollection, getProjectsCollection, PACK_ITEM_STATUSES, safeMessage } from "./db.js";
+import { findCards, getPackItemsCollection, getPacksCollection, getProjectsCollection, PACK_ITEM_STATUSES, safeMessage } from "./db.js";
 import type { Pack, PackItem, PackItemStatus } from "./db.js";
 import { checkPackFile, MODEL_PRESETS, readPackFileBody } from "./packFile.js";
 import type { PlannedItem } from "./packFile.js";
-import { JOB_ID_PATTERN, sendError } from "./jobs.js";
+import { activeJobs, JOB_ID_PATTERN, sendError } from "./jobs.js";
 import { addProject } from "./projects.js";
 
 // Packs (FRG-78).
@@ -187,7 +187,8 @@ export async function listPacksHandler(_req: Request, res: Response) {
 }
 
 // GET /api/packs/<id>
-// Answer: { pack, items }: the pack (with its packText) and all its items in file order.
+// Answer: { pack, items, jobs }: the pack (with its packText), all its items in file order, and
+// (FRG-80) every card of its items by id: { id, status, imageUrl, outputKind, error, progress }.
 export async function getPackHandler(req: Request, res: Response) {
   try {
     const id = String(req.params.id);
@@ -198,7 +199,16 @@ export async function getPackHandler(req: Request, res: Response) {
       return { pack, items: await items.find({ packId: id }, { projection: { _id: 0 } }).sort({ order: 1 }).toArray() };
     });
     if (!found) throw new HttpError(404, "There is no pack with this id.");
-    res.json(found);
+    const cardIds = found.items.flatMap((item) => [...item.pictureJobIds, ...item.modelJobIds]);
+    const active = new Map(activeJobs().map((job) => [job.id, job]));
+    const saved = cardIds.length === 0 ? [] : await findCards(cardIds);
+    const jobs = Object.fromEntries(
+      saved.map((card) => {
+        const job = active.get(card.id) ?? card;
+        return [card.id, { id: card.id, status: job.status, imageUrl: job.imageUrl, outputKind: job.outputKind ?? null, error: job.error, progress: active.get(card.id)?.progress ?? null }];
+      }),
+    );
+    res.json({ ...found, jobs });
   } catch (error) {
     sendError(res, error);
   }
