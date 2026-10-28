@@ -5,8 +5,9 @@ import SendToMenu from "./SendToMenu";
 import { defaultValues, Field, ImageBox, ProgressView, startFormValues, toInputs } from "./Generate";
 import PresetBadges, { confirmResearchOnly } from "./PresetBadges";
 import type { FormValues, Preset, Progress, StartValues } from "./Generate";
-import { Play, Sparkles, X } from "lucide-react";
+import { Layers, Play, Sparkles, X } from "lucide-react";
 import type { Project } from "./App";
+import BatchBar, { cardsInBatches, useActiveBatches } from "./BatchBar";
 
 // The board (FRG-22): cards are prompts that are saved but not run yet.
 // Idea and Ready are moved by the user. Generating and Done follow the job status.
@@ -68,6 +69,8 @@ export default function Board({ onOpenInGenerate, project }: BoardProps) {
   const projectId = project === undefined ? undefined : (project?.id ?? null);
   // The project of the board on screen, so a slow answer for the project before is ignored.
   const boardProjectRef = useRef(projectId);
+  // Running and paused batches (FRG-75): a bar for each at the top, and an "In batch" label on their cards.
+  const batches = useActiveBatches();
 
   async function loadBoard() {
     const forProject = boardProjectRef.current;
@@ -213,6 +216,11 @@ export default function Board({ onOpenInGenerate, project }: BoardProps) {
   if (!cards) return <main className="page empty">Loading the board...</main>;
 
   const readyCount = cards.filter((card) => columnOf(card) === "ready").length;
+  // The batches of this board: in this project, or with a card on screen.
+  const boardBatches = batches.filter(
+    (batch) => !projectId || batch.projectId === projectId || batch.cardIds.some((id) => cards.some((card) => card.id === id)),
+  );
+  const inBatch = cardsInBatches(boardBatches);
 
   // Native drag and drop: only drafts can be dragged, and only into Idea or Ready.
   function dropProps(column: ColumnId) {
@@ -247,6 +255,9 @@ export default function Board({ onOpenInGenerate, project }: BoardProps) {
         </div>
       </div>
 
+      {boardBatches.map((batch) => (
+        <BatchBar key={batch.id} batchId={batch.id} />
+      ))}
       {boardError && <p className="message error">{boardError}</p>}
       {message && <p className={`message ${message.error ? "error" : "info"}`}>{message.text}</p>}
 
@@ -268,6 +279,7 @@ export default function Board({ onOpenInGenerate, project }: BoardProps) {
                   presetName={presetName(card)}
                   preset={presets.find((p) => p.id === card.presetId)}
                   busy={busy}
+                  inBatch={inBatch.has(card.id)}
                   onRun={() => runOneCard(card)}
                   onEdit={() => openForm(card, false)}
                   onCopy={() => openForm(card, true)}
@@ -309,6 +321,7 @@ type CardViewProps = {
   presetName: string;
   preset: Preset | undefined; // For the licence badge (FRG-32).
   busy: boolean;
+  inBatch: boolean; // The card waits in a running or paused batch, or is its current card (FRG-75).
   onRun: () => void;
   onEdit: () => void;
   onCopy: () => void;
@@ -343,6 +356,11 @@ function CardView(props: CardViewProps) {
         </div>
       )}
       <h3>{card.title ?? presetName}</h3>
+      {props.inBatch && (
+        <span className="mb-1 inline-flex items-center gap-1 rounded-full bg-sky-500/15 px-2 py-0.5 text-xs font-medium text-sky-300">
+          <Layers size={11} /> In batch
+        </span>
+      )}
       <p className="board-meta">
         {presetName} · by {card.createdBy ?? "Unknown"}
       </p>

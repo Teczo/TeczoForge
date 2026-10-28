@@ -11,6 +11,7 @@ import { loadPreset } from "./presets.js";
 import { sendToBoard } from "./sendTo.js";
 import { addProject } from "./projects.js";
 import { exportGame } from "./gameExport.js";
+import { cardsInActiveBatches, createBatch } from "./batches.js";
 
 // Games (FRG-66).
 // Importing a game design file saves a game, its project (kind "game", same name as the game),
@@ -210,7 +211,7 @@ export async function presetTimesHandler(_req: Request, res: Response) {
 // 1. "Make concept art": 3 cards for the concept asset, queued at once.
 // 2. Approve one finished concept picture (the same Approve as every asset, FRG-69).
 // 3. "Create all asset cards" (only after 2): one card per planned asset, in the Ready column.
-// 4. "Generate all": runs every Ready card of the game, like pressing Generate on each.
+// 4. "Generate all": one batch of the game's Ready cards (batches.ts, FRG-75), so they run one at a time.
 // 5. When a game card's job is done, its asset goes to "review" (see onJobDone below).
 
 const REFERENCE_TYPE = "reference";
@@ -533,9 +534,9 @@ export async function createAssetCardsHandler(req: Request, res: Response) {
 }
 
 // POST /api/games/<id>/generate
-// "Generate all": runs every card of this game that is still in the Ready column, oldest first,
-// through the normal run path (like pressing Generate on each). ComfyUI's own queue runs them.
-// Answer: { queued, errors }.
+// "Generate all": one batch (batches.ts, FRG-75) of every card of this game that is still in the Ready
+// column, oldest first. The batch runs them one at a time and can be paused. Cards already in a
+// running or paused batch are left out. Answer: { queued, errors, batch } (batch is missing when queued is 0).
 export async function generateAllHandler(req: Request, res: Response) {
   try {
     const game = await loadGame(req);
@@ -543,9 +544,22 @@ export async function generateAllHandler(req: Request, res: Response) {
       assets.find({ gameId: game.id, removed: false }, { projection: { _id: 0 } }).toArray(),
     );
     const jobIds = assets.flatMap((asset) => asset.steps.flatMap((step) => step.jobIds));
-    const cards = jobIds.length === 0 ? [] : await findReadyDrafts(jobIds);
-    const { queued, errors } = await runCards(cards.map((card) => ({ id: card.id, title: card.title ?? card.id })));
-    res.json({ queued, errors });
+    const ready = jobIds.length === 0 ? [] : await findReadyDrafts(jobIds);
+    const taken = await cardsInActiveBatches(ready.map((card) => card.id));
+    const cards = ready.filter((card) => !taken.has(card.id));
+    if (cards.length === 0) {
+      const errors = ready.length > 0 ? ["Every Ready card of this game is already in a batch. Use the batch bar to pause or resume it."] : [];
+      res.json({ queued: 0, errors });
+      return;
+    }
+    const batch = await createBatch({
+      name: `${game.name}: Generate all`,
+      cardIds: cards.map((card) => card.id),
+      projectId: game.projectId,
+      owner: { type: "game", id: game.id },
+      createdBy: res.locals.username ?? null, // Set by requireLogin in auth.ts.
+    });
+    res.json({ queued: cards.length, errors: [], batch });
   } catch (error) {
     sendError(res, error);
   }
