@@ -408,20 +408,26 @@ export function checkPackFile(text: string): PackCheckResult {
   return { ok: true, plan: { pack, items, jobTotals: totalJobs(items) } };
 }
 
+// Read the body of a pack file request: { fileName, text }. Throws a 400 or 413 if it is wrong.
+// Used by the check and by the import (packs.ts, FRG-78).
+export function readPackFileBody(body: unknown): { fileName: string | null; text: string } {
+  if (!isObject(body) || typeof body.text !== "string") {
+    throw new HttpError(400, 'Send { "fileName": "...", "text": "..." } with the text of the pack file.');
+  }
+  if (body.fileName !== undefined && body.fileName !== null && typeof body.fileName !== "string") {
+    throw new HttpError(400, "fileName must be text.");
+  }
+  if (Buffer.byteLength(body.text, "utf8") > MAX_GAME_FILE_BYTES) throw new HttpError(413, "This file is too big. The limit is 1 MB.");
+  return { fileName: typeof body.fileName === "string" ? body.fileName : null, text: body.text };
+}
+
 // POST /api/packs/check
 // Body: { "fileName": "...", "text": "..." } (the whole .md file, max 1 MB).
 // Answers { ok: true, plan } or { ok: false, errors }. The file is only checked here, nothing is saved.
 export function checkPackFileHandler(req: Request, res: Response) {
   try {
-    const body = req.body;
-    if (!isObject(body) || typeof body.text !== "string") {
-      throw new HttpError(400, 'Send { "fileName": "...", "text": "..." } with the text of the pack file.');
-    }
-    if (body.fileName !== undefined && body.fileName !== null && typeof body.fileName !== "string") {
-      throw new HttpError(400, "fileName must be text.");
-    }
-    if (Buffer.byteLength(body.text, "utf8") > MAX_GAME_FILE_BYTES) throw new HttpError(413, "This file is too big. The limit is 1 MB.");
-    res.json(checkPackFile(body.text));
+    const { text } = readPackFileBody(req.body);
+    res.json(checkPackFile(text));
   } catch (error) {
     sendError(res, error);
   }

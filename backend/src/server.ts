@@ -35,6 +35,7 @@ import { IMAGE_TYPES, MAX_UPLOAD_BYTES, uploadHandler, useOutputHandler } from "
 import { checkSessionSecret, loginHandler, logoutHandler, meHandler, requireLogin } from "./auth.js";
 import { checkGameFileHandler } from "./gameFile.js";
 import { checkPackFileHandler } from "./packFile.js";
+import { getPackHandler, importPackHandler, listPacksHandler } from "./packs.js";
 import {
   approveHandler,
   createAssetCardsHandler,
@@ -176,6 +177,10 @@ app.post("/api/games/:id/export", exportGameHandler);
 
 // Packs (see packFile.ts, FRG-77): check a pack .md file and answer with its plan. Same 1 MB limit as game files.
 app.post("/api/packs/check", express.json({ limit: "3mb" }), checkPackFileHandler);
+// Import a pack file: save the pack, its project and its items (FRG-78). The list, and one pack with its items.
+app.post("/api/packs/import", express.json({ limit: "3mb" }), importPackHandler);
+app.get("/api/packs", listPacksHandler);
+app.get("/api/packs/:id", getPackHandler);
 
 // Batches (see batches.ts, FRG-75): a list of board cards that runs one card at a time and can pause.
 // Everyone can see a batch. Only the user who started it can use the buttons.

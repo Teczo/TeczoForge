@@ -145,8 +145,8 @@ export async function listProjectsHandler(req: Request, res: Response) {
 }
 
 // Add a new project and return it. A name that is already used answers 400.
-// kind "game": the project of an imported game (FRG-66).
-export async function addProject(name: unknown, createdBy: string | null, kind?: "game"): Promise<Project> {
+// kind "game": the project of an imported game (FRG-66). kind "pack": of an imported pack (FRG-78).
+export async function addProject(name: unknown, createdBy: string | null, kind?: "game" | "pack"): Promise<Project> {
   const now = new Date();
   const project: Project = {
     id: crypto.randomUUID(),
