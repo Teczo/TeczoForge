@@ -37,6 +37,7 @@ import { checkGameFileHandler } from "./gameFile.js";
 import { checkPackFileHandler } from "./packFile.js";
 import { getPackHandler, importPackHandler, listPacksHandler } from "./packs.js";
 import { convertDocumentHandler } from "./packConvert.js";
+import { makeModelsHandler, pickHandler, runPackHandler } from "./packRun.js";
 import {
   approveHandler,
   createAssetCardsHandler,
@@ -184,6 +185,10 @@ app.get("/api/packs", listPacksHandler);
 app.get("/api/packs/:id", getPackHandler);
 // "Import any document" (FRG-79): Claude turns an asset document into a pack file. Nothing is saved.
 app.post("/api/packs/convert", express.json({ limit: "3mb" }), convertDocumentHandler);
+// Run a pack (FRG-80): phase 1 pictures (or full auto), phase 2 3D models, and Pick a result.
+app.post("/api/packs/:id/run", express.json(), runPackHandler);
+app.post("/api/packs/:id/models", makeModelsHandler);
+app.post("/api/packs/:id/items/:itemId/pick", express.json(), pickHandler);
 
 // Batches (see batches.ts, FRG-75): a list of board cards that runs one card at a time and can pause.
 // Everyone can see a batch. Only the user who started it can use the buttons.
