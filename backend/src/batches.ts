@@ -60,9 +60,22 @@ function withBatchLock<T>(work: () => Promise<T>): Promise<T> {
   return result;
 }
 
+// Functions that run when a batch card failed for good, after its retry (FRG-80: packs mark its item).
+// A failed card is not a done job, so onJobDone in jobs.ts does not see it.
+const cardFailedListeners: ((cardId: string) => void)[] = [];
+export function onBatchCardFailed(listener: (cardId: string) => void) {
+  cardFailedListeners.push(listener);
+}
+// Cards that failed for good and are not told yet. They are told after the batch is saved, so a
+// listener reads the saved failedCardIds. Listeners run later, outside the lock.
+let newlyFailed: string[] = [];
+
 async function saveBatch(batch: Batch): Promise<void> {
   batch.updatedAt = new Date();
   await withBatches((batches) => batches.replaceOne({ id: batch.id }, { ...batch }));
+  const failed = newlyFailed;
+  newlyFailed = [];
+  for (const cardId of failed) for (const listener of cardFailedListeners) setImmediate(() => listener(cardId));
 }
 
 async function loadBatch(id: string): Promise<Batch | null> {
@@ -83,7 +96,10 @@ function pause(batch: Batch, note: string | null) {
 // The card failed once more: run it again, or (the second time) mark it failed.
 function countFailure(batch: Batch, cardId: string) {
   batch.retries[cardId] = (batch.retries[cardId] ?? 0) + 1;
-  if (batch.retries[cardId] >= MAX_TRIES) batch.failedCardIds.push(cardId);
+  if (batch.retries[cardId] >= MAX_TRIES) {
+    batch.failedCardIds.push(cardId);
+    newlyFailed.push(cardId);
+  }
 }
 
 // Every card is done or failed, and nothing is running: the batch is done.

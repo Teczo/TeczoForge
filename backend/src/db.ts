@@ -194,6 +194,10 @@ export type Pack = {
   fileName: string | null;
   packText: string; // The whole pack file.
   sourceDocName: string; // The document Claude made the pack file from (FRG-79). Empty for a pack file imported as it is.
+  // How the pack runs (FRG-80): "pictures_first" (someone picks, then starts the 3D models) or
+  // "full_auto" (the first finished picture is picked and the next cards start by themselves).
+  // Missing until the first run.
+  runMode?: "pictures_first" | "full_auto";
   createdBy: string | null;
   createdAt: Date;
   updatedAt: Date;
