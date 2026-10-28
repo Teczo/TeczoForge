@@ -6,6 +6,7 @@ import BatchBar, { useActiveBatches } from "./BatchBar";
 import Media, { outputKind } from "./Media";
 import { ProgressView } from "./Generate";
 import type { Progress } from "./Generate";
+import PickScreen from "./PickScreen";
 
 // The Packs section (FRG-78): the list of packs as tiles, "Import pack file (.md)" with a preview
 // of the plan and the time estimate before anything is saved, and the detail page of one pack.
@@ -49,8 +50,8 @@ type CheckAnswer = { ok: true; plan: PackPlan } | { ok: false; errors: string[] 
 // The answer of POST /api/packs/convert (FRG-79): the made pack file, checked, with warnings.
 type ConvertAnswer = { ok: boolean; packText: string; plan?: PackPlan; errors?: string[]; warnings: string[]; couldNotMap: string[] };
 
-// One saved item, as GET /api/packs/<id> returns it.
-type PackItem = {
+// One saved item, as GET /api/packs/<id> returns it. The pick screen uses it too (FRG-81).
+export type PackItem = {
   id: string;
   itemId: string;
   name: string;
@@ -72,13 +73,15 @@ type PackItem = {
   error: string | null;
 };
 // One card of an item, as GET /api/packs/<id> returns it in "jobs" (FRG-80).
-type PackJob = {
+export type PackJob = {
   id: string;
   status: "draft" | "queued" | "running" | "done" | "failed" | "cancelled";
   imageUrl: string | null;
   outputKind: string | null;
   error: string | null;
   progress: Progress | null;
+  presetId: string | null; // The 3D preset of a 3D result on the pick screen (FRG-81).
+  seed: number | null; // null until the card runs.
 };
 type RunMode = "pictures_first" | "full_auto";
 type PackDetailAnswer = {
@@ -884,6 +887,7 @@ function PackDetail({ id }: { id: string }) {
   const [mode, setMode] = useState<RunMode>("pictures_first");
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<{ text: string; error: boolean } | null>(null);
+  const [picking, setPicking] = useState(false); // The fast pick screen (FRG-81).
   const packBatches = useActiveBatches().filter((batch) => batch.owner.type === "pack" && batch.owner.id === id);
 
   async function load() {
@@ -950,6 +954,8 @@ function PackDetail({ id }: { id: string }) {
   const items = detail?.items ?? [];
   const planned = items.filter((item) => item.status === "planned" && item.kind !== "skip" && !item.editFrom).length;
   const pickedForModels = readyForModels(items).length;
+  const hasResults = items.some((item) => item.pictureJobIds.length > 0 || item.modelJobIds.length > 0);
+  const leftToPick = items.filter((item) => (item.status === "pick_picture" && !item.pickedPictureJobId) || item.status === "pick_model").length;
 
   return (
     <main className="mx-auto w-full max-w-6xl px-8 pt-2 pb-12">
@@ -988,6 +994,22 @@ function PackDetail({ id }: { id: string }) {
           {packBatches.map((batch) => (
             <BatchBar key={batch.id} batchId={batch.id} />
           ))}
+
+          {hasResults && (
+            <div className="mb-4 flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setPicking(true)}
+                className="cursor-pointer rounded-lg border-0 bg-amber-500/90 px-4 py-2 text-sm font-medium text-slate-950 hover:bg-amber-400"
+              >
+                Pick ({leftToPick} left)
+              </button>
+              <span className="text-xs text-slate-500">A full screen to pick with the keyboard: 1-9 pick, N more, E edit, S skip, arrows move.</span>
+            </div>
+          )}
+          {picking && (
+            <PickScreen packId={id} packName={detail.pack.name} items={items} jobs={detail.jobs} onClose={() => setPicking(false)} reload={load} />
+          )}
 
           <div className="mb-6 space-y-3">
             {planned > 0 && (
