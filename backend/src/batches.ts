@@ -2,11 +2,12 @@ import type { Request, Response } from "express";
 import type { Collection } from "mongodb";
 import { HttpError } from "./httpError.js";
 import { findCards, getBatchesCollection, safeMessage } from "./db.js";
-import type { Batch, BatchState } from "./db.js";
+import type { Batch, BatchState, Job } from "./db.js";
 import { activeJobs, CANCELLED_CARD_ERROR, cancelFollowedJob, findAnyJob, isActive, JOB_ID_PATTERN, onJobDone, sendError } from "./jobs.js";
 import { runDraft } from "./drafts.js";
 import { getQueue } from "./comfyui.js";
 import { checkProjectId } from "./projects.js";
+import { batchTimeLeft } from "./estimate.js";
 
 // Batches (FRG-75).
 // ComfyUI's queue cannot pause. So TeczoForge keeps the list of cards itself (a "batch"), and gives
@@ -360,16 +361,22 @@ function checkId(req: Request): string {
 }
 
 // GET /api/batches/<id>
-// Answer: the batch, with "cards" (each card's id, title, status, error and progress, in batch order)
-// and "canControl" (true for the user who started it: only they can use the buttons).
+// Answer: the batch, with "cards" (each card's id, title, status, error and progress, in batch order),
+// "canControl" (true for the user who started it: only they can use the buttons), and "timeLeft"
+// ({ done, left, failed, leftMs, finishAt, unknownCards }, see estimate.ts, FRG-76).
 export async function getBatchHandler(req: Request, res: Response) {
   try {
     const batch = await loadBatch(checkId(req));
     if (!batch) throw new HttpError(404, "There is no batch with this id.");
     const active = new Map(activeJobs().map((job) => [job.id, job]));
     const saved = new Map((await findCards(batch.cardIds)).map((card) => [card.id, card]));
-    const cards = batch.cardIds.map((id) => {
+    const known = new Map<string, Job>();
+    for (const id of batch.cardIds) {
       const card = active.get(id) ?? saved.get(id);
+      if (card) known.set(id, card);
+    }
+    const cards = batch.cardIds.map((id) => {
+      const card = known.get(id);
       return {
         id,
         title: card?.title ?? "(card deleted)",
@@ -378,7 +385,8 @@ export async function getBatchHandler(req: Request, res: Response) {
         progress: active.get(id)?.progress ?? null,
       };
     });
-    res.json({ ...batch, cards, canControl: !!res.locals.username && batch.createdBy === res.locals.username });
+    const timeLeft = await batchTimeLeft(batch, cardsLeft(batch), known);
+    res.json({ ...batch, cards, timeLeft, canControl: !!res.locals.username && batch.createdBy === res.locals.username });
   } catch (error) {
     sendError(res, error);
   }

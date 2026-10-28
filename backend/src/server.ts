@@ -58,6 +58,8 @@ import {
   startBatchRunner,
   stopNowHandler,
 } from "./batches.js";
+import { estimateHandler } from "./estimate.js";
+import { timeTestHandler } from "./timeTest.js";
 
 // Settings come from backend/.env. The defaults match .env.example.
 const PORT = Number(process.env.PORT ?? 4000);
@@ -180,6 +182,10 @@ app.post("/api/batches/:id/pause", pauseBatchHandler);
 app.post("/api/batches/:id/resume", resumeBatchHandler);
 app.post("/api/batches/:id/stop-now", stopNowHandler);
 app.post("/api/batches/:id/end", endBatchHandler);
+
+// Time estimate (see estimate.ts, FRG-76): how long a list of jobs takes, and the Time test that measures each preset.
+app.post("/api/estimate", express.json(), estimateHandler);
+app.post("/api/time-test", express.json(), timeTestHandler);
 
 // Chat with Claude (see chat.ts). Each user only sees their own conversations.
 app.get("/api/chat/status", chatStatusHandler);

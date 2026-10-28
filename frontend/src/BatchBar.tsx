@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { CircleX, Layers, Pause, Play, Square } from "lucide-react";
+import { clockTime, formatDuration } from "./Estimate";
 
 // Batches (FRG-75): a list of board cards that runs by itself, one card at a time (backend/src/batches.ts).
 // The bar shows one batch: its name, how far it is, the card running now, and the buttons.
@@ -14,7 +15,7 @@ export type Batch = {
   id: string;
   name: string;
   projectId: string | null;
-  owner: { type: "game" | "pack" | null; id: string | null };
+  owner: { type: "game" | "pack" | "time-test" | null; id: string | null };
   state: "running" | "paused" | "done" | "ended";
   cardIds: string[];
   doneCardIds: string[];
@@ -23,7 +24,16 @@ export type Batch = {
 
 // GET /api/batches/<id> also has each card and whether I may use the buttons.
 type BatchCard = { id: string; title: string; status: string | null };
-type BatchDetail = Batch & { currentCardId: string | null; note: string | null; createdBy: string | null; cards: BatchCard[]; canControl: boolean };
+// timeLeft (FRG-76): leftMs counts only cards with a known time; unknownCards have none, so it is "at least".
+type TimeLeft = { done: number; left: number; failed: number; leftMs: number; finishAt: string; unknownCards: number };
+type BatchDetail = Batch & {
+  currentCardId: string | null;
+  note: string | null;
+  createdBy: string | null;
+  cards: BatchCard[];
+  canControl: boolean;
+  timeLeft: TimeLeft;
+};
 
 // The running and paused batches, loaded again every few seconds. Used by the board and the game page.
 export function useActiveBatches(): Batch[] {
@@ -132,6 +142,13 @@ export default function BatchBar({ batchId }: { batchId: string }) {
             )}
             {batch.createdBy && <> · started by {batch.createdBy}</>}
           </div>
+          {open && batch.timeLeft.left > 0 && (
+            <div className="text-xs text-slate-300">
+              {batch.timeLeft.unknownCards > 0 ? "at least about" : "about"} {formatDuration(batch.timeLeft.leftMs)} left · ends about{" "}
+              {clockTime(new Date(batch.timeLeft.finishAt))}
+              {batch.state === "paused" && " if you resume now"}
+            </div>
+          )}
         </div>
         {batch.canControl && open && (
           <div className="flex flex-wrap gap-2">

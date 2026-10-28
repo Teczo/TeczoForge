@@ -1,8 +1,9 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import type { ChangeEvent, ReactNode } from "react";
-import { AlertTriangle, ArrowLeft, CheckCircle2, Clock, FileUp, Gamepad2, Hand, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, CheckCircle2, FileUp, Gamepad2, Hand, X } from "lucide-react";
 import Media, { outputKind } from "./Media";
 import BatchBar, { useActiveBatches } from "./BatchBar";
+import EstimateView from "./Estimate";
 
 // The Games section (FRG-67): the list of games as tiles, "Import game design (.md)" with a preview
 // of the plan before anything is saved, and the detail page of one game with its assets.
@@ -54,8 +55,6 @@ type GameDetailAnswer = {
   assets: GameAsset[];
 };
 
-// The average job time per preset (GET /api/games/preset-times). "offline": the times could not be loaded.
-type PresetTimes = Record<string, { averageMs: number; jobs: number }> | "offline";
 
 // The asset types in the order of the format doc.
 const TYPES = ["model", "texture", "sprite", "background", "ui", "icon", "music", "sfx"];
@@ -221,12 +220,11 @@ type ImportPreviewProps = {
 // When it is correct: counts per type, the asset table, a time estimate, and "Create game".
 function ImportPreview({ chosen, onClose, onChooseAnother, onCreated }: ImportPreviewProps) {
   const [answer, setAnswer] = useState<CheckAnswer | null>(null);
-  const [times, setTimes] = useState<PresetTimes | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [saveErrors, setSaveErrors] = useState<string[] | null>(null);
   const [saving, setSaving] = useState(false);
 
-  // Check the file (needs only the backend), and load the job times (needs MongoDB; without it, all times are unknown).
+  // Check the file. The time estimate loads by itself once the plan is known (EstimateView, FRG-76).
   useEffect(() => {
     setAnswer(null);
     setProblem(null);
@@ -247,16 +245,7 @@ function ImportPreview({ chosen, onClose, onChooseAnother, onCreated }: ImportPr
         setProblem(NO_BACKEND);
       }
     }
-    async function loadTimes() {
-      try {
-        const response = await fetch("/api/games/preset-times");
-        setTimes(response.ok ? (await response.json()).presets : "offline");
-      } catch {
-        setTimes("offline");
-      }
-    }
     check(chosen.text);
-    loadTimes();
   }, [chosen]);
 
   useEffect(() => {
@@ -325,7 +314,7 @@ function ImportPreview({ chosen, onClose, onChooseAnother, onCreated }: ImportPr
             </div>
             <PlanSummary plan={plan} />
             <TypeCounts assets={plan.assets} />
-            <TimeEstimate plan={plan} times={times} />
+            <TimeEstimate plan={plan} />
             <PreviewTable assets={plan.assets} />
           </>
         )}
@@ -425,46 +414,14 @@ function TypeCounts({ assets }: { assets: PlannedAsset[] }) {
   );
 }
 
-// How long the generation will take: every step, plus the concept art, times the average time of
-// finished jobs of that preset. A preset with no finished jobs has an unknown time.
-function TimeEstimate({ plan, times }: { plan: GamePlan; times: PresetTimes | null }) {
+// How long the generation will take: every step, plus the concept art, with the time estimate of
+// estimate.ts (FRG-76): recent finished jobs, else estimatedSeconds in preset.json, else not known.
+function TimeEstimate({ plan }: { plan: GamePlan }) {
   const stepsPerPreset = new Map<string, number>();
   for (const asset of [plan.concept, ...plan.assets]) {
     for (const step of asset.steps) stepsPerPreset.set(step.preset, (stepsPerPreset.get(step.preset) ?? 0) + 1);
   }
-  const rows = [...stepsPerPreset].map(([preset, steps]) => {
-    const average = times === null || times === "offline" ? undefined : times[preset]?.averageMs;
-    return { preset, steps, average, total: average === undefined ? undefined : average * steps };
-  });
-  const knownTotal = rows.reduce((sum, row) => sum + (row.total ?? 0), 0);
-  const unknownSteps = rows.filter((row) => row.total === undefined).reduce((sum, row) => sum + row.steps, 0);
-
-  let summary: string;
-  if (times === null) summary = "Working out the time...";
-  else if (times === "offline") summary = "Unknown: the job times need MongoDB, which cannot be reached right now.";
-  else if (unknownSteps === 0) summary = `About ${formatDuration(knownTotal)} of generation.`;
-  else if (knownTotal === 0) summary = "Unknown: none of these presets has a finished job yet.";
-  else summary = `At least ${formatDuration(knownTotal)}, plus ${unknownSteps} step${unknownSteps === 1 ? "" : "s"} with an unknown time.`;
-
-  return (
-    <div className="mb-5">
-      <div className="mb-2 flex items-center gap-2 text-sm font-medium text-slate-200">
-        <Clock size={16} className="text-slate-400" />
-        Time estimate
-      </div>
-      <p className="mt-0 mb-2 text-sm text-slate-400">{summary}</p>
-      <Table head={["Preset", "Steps", "Average", "Total"]}>
-        {rows.map((row) => (
-          <tr key={row.preset} className="border-t border-slate-700/50">
-            <Cell mono>{row.preset}</Cell>
-            <Cell>{row.steps}</Cell>
-            <Cell>{row.average === undefined ? "unknown" : formatDuration(row.average)}</Cell>
-            <Cell>{row.total === undefined ? "unknown" : formatDuration(row.total)}</Cell>
-          </tr>
-        ))}
-      </Table>
-    </div>
-  );
+  return <EstimateView items={[...stepsPerPreset].map(([presetId, count]) => ({ presetId, count }))} />;
 }
 
 function PreviewTable({ assets }: { assets: PlannedAsset[] }) {
@@ -1080,15 +1037,4 @@ function Table({ head, children }: { head: string[]; children: ReactNode }) {
 
 function Cell({ children, mono }: { children: ReactNode; mono?: boolean }) {
   return <td className={`px-3 py-2 text-slate-300 ${mono ? "font-mono text-xs break-all" : ""}`}>{children}</td>;
-}
-
-// "45 s", "12 min", "1 h 20 min".
-function formatDuration(ms: number): string {
-  const seconds = Math.round(ms / 1000);
-  if (seconds < 60) return `${seconds} s`;
-  const minutes = Math.round(seconds / 60);
-  if (minutes < 60) return `${minutes} min`;
-  const hours = Math.floor(minutes / 60);
-  const rest = minutes % 60;
-  return rest === 0 ? `${hours} h` : `${hours} h ${rest} min`;
 }
