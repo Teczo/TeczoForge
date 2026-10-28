@@ -2,30 +2,24 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { Request, Response } from "express";
 import type { Collection } from "mongodb";
 import { HttpError } from "./httpError.js";
-import { getChatUsageCollection, getConversationsCollection, safeMessage } from "./db.js";
+import { getChatUsageCollection, getConversationsCollection } from "./db.js";
 import type { ChatMessage, ChatUsage, Conversation } from "./db.js";
 import { CHAT_SYSTEM_PROMPT } from "./chatPrompt.js";
 import { checkMessageImages, picturesToSend } from "./chatImages.js";
 import { buildChatTools, runChatTool } from "./chatTools.js";
 import { checkProjectId, checkTargetProjectId } from "./projects.js";
+import { CLAUDE_MODEL, claudeClient as client, claudeErrorMessage, fallbackOptions, NOT_SET_UP_MESSAGE, safeLogText } from "./claudeClient.js";
 import type { ChatCard, ChatTools } from "./chatTools.js";
 
 // Chat with Claude (FRG-23). Text only.
 // Claude can make board cards with tools (FRG-24, see chatTools.ts). It never starts a generation.
 // The chat text goes to the Claude API on the internet. Generation stays on this PC.
-// The API key stays here in the backend: it is never sent to the browser and never logged.
+// The API key stays here in the backend: it is never sent to the browser and never logged (claudeClient.ts).
 // Conversations are saved in MongoDB. Each user can only see their own.
 // A reply is streamed to the page with SSE: one open response that sends the text piece by piece.
 
-const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY ?? "";
-const CLAUDE_MODEL = process.env.CLAUDE_MODEL ?? "";
 const DAILY_LIMIT_TEXT = process.env.CHAT_DAILY_TOKEN_LIMIT ?? "";
 
-// Only made when the key and the model are set.
-const client = ANTHROPIC_API_KEY && CLAUDE_MODEL ? new Anthropic({ apiKey: ANTHROPIC_API_KEY }) : null;
-
-const NOT_SET_UP_MESSAGE =
-  "Chat is not set up. Jaya needs to put ANTHROPIC_API_KEY and CLAUDE_MODEL into backend/.env and restart the backend.";
 const OFFLINE_MESSAGE =
   "Chat needs MongoDB, which cannot be reached right now. Generating images and videos still works.";
 
@@ -40,10 +34,6 @@ const LIST_LIMIT = 100;
 // The most tool calls (cards) for one user message.
 const MAX_TOOL_CALLS = 8;
 const ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-// Models that support the API's refusal fallback: if Claude declines a message for safety
-// reasons, the API tries the same request on another model instead of stopping.
-const FALLBACK_MODELS = ["claude-fable-5-1", "claude-opus-5-5", "claude-opus-5", "claude-sonnet-5-5"];
 
 // The token limit per user per day, or 0 for no limit.
 let dailyTokenLimit = 0;
@@ -63,12 +53,6 @@ export function checkChatSetup() {
   } else {
     console.warn("Warning: chat is not set up. Put ANTHROPIC_API_KEY and CLAUDE_MODEL into backend/.env to use it.");
   }
-}
-
-// Text that is safe to log: the key is hidden, in case an error ever repeats it.
-function safeLogText(error: unknown): string {
-  const text = safeMessage(error);
-  return ANTHROPIC_API_KEY ? text.replaceAll(ANTHROPIC_API_KEY, "[key hidden]") : text;
 }
 
 function sendError(res: Response, error: unknown) {
@@ -158,30 +142,6 @@ async function historyFor(messages: ChatMessage[]): Promise<Anthropic.Beta.BetaM
     if (text) blocks.push({ type: "text", text });
     return { role: m.role, content: blocks };
   });
-}
-
-// A plain-English message for an error from the Claude API. The details go to the backend log.
-function claudeErrorMessage(error: unknown): string {
-  console.warn(`Warning: Claude API error. ${safeLogText(error)}`);
-  if (error instanceof Anthropic.AuthenticationError || error instanceof Anthropic.PermissionDeniedError) {
-    return "Chat is not set up correctly: the Claude API did not accept the key in backend/.env.";
-  }
-  if (error instanceof Anthropic.NotFoundError) {
-    return `The Claude model "${CLAUDE_MODEL}" was not found. Check CLAUDE_MODEL in backend/.env.`;
-  }
-  if (error instanceof Anthropic.RateLimitError) {
-    return "The Claude API is busy right now (too many requests). Wait a minute and try again.";
-  }
-  if (error instanceof Anthropic.APIConnectionError) {
-    return "The Claude API cannot be reached. Check the internet connection on System 1, then try again.";
-  }
-  if (error instanceof Anthropic.APIError && (error.status ?? 0) >= 500) {
-    return "The Claude API is having problems right now. Try again in a minute.";
-  }
-  if (error instanceof Anthropic.APIError) {
-    return `The Claude API did not accept the request (HTTP ${error.status}). See the backend log.`;
-  }
-  return "Something went wrong on the server. See the backend log.";
 }
 
 // ---- Routes ----
@@ -397,9 +357,7 @@ export async function sendMessageHandler(req: Request, res: Response) {
         tools: tools.tools,
         messages,
         cache_control: { type: "ephemeral" }, // Reuse the earlier part of the conversation: cheaper and faster.
-        ...(FALLBACK_MODELS.includes(CLAUDE_MODEL)
-          ? { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" as const }
-          : {}),
+        ...fallbackOptions(),
       });
       current = stream;
       roundInput = 0;
