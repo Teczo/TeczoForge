@@ -2,6 +2,10 @@ import { Fragment, useEffect, useRef, useState } from "react";
 import type { ChangeEvent, ReactNode } from "react";
 import { AlertTriangle, ArrowLeft, CheckCircle2, Download, FileText, FileUp, Package, RefreshCw, X } from "lucide-react";
 import EstimateView from "./Estimate";
+import BatchBar, { useActiveBatches } from "./BatchBar";
+import Media, { outputKind } from "./Media";
+import { ProgressView } from "./Generate";
+import type { Progress } from "./Generate";
 
 // The Packs section (FRG-78): the list of packs as tiles, "Import pack file (.md)" with a preview
 // of the plan and the time estimate before anything is saved, and the detail page of one pack.
@@ -59,8 +63,29 @@ type PackItem = {
   realSize: RealSize;
   notes: string;
   status: ItemStatus;
+  // What has been made for it (FRG-80).
+  pictureJobIds: string[];
+  pickedPictureJobId: string | null;
+  autoPicked: boolean;
+  modelJobIds: string[];
+  pickedModelJobId: string | null;
+  error: string | null;
 };
-type PackDetailAnswer = { pack: PackTile & { style: string; fileName: string | null }; items: PackItem[] };
+// One card of an item, as GET /api/packs/<id> returns it in "jobs" (FRG-80).
+type PackJob = {
+  id: string;
+  status: "draft" | "queued" | "running" | "done" | "failed" | "cancelled";
+  imageUrl: string | null;
+  outputKind: string | null;
+  error: string | null;
+  progress: Progress | null;
+};
+type RunMode = "pictures_first" | "full_auto";
+type PackDetailAnswer = {
+  pack: PackTile & { style: string; fileName: string | null; runMode?: RunMode };
+  items: PackItem[];
+  jobs: Record<string, PackJob>;
+};
 
 const KINDS: ItemKind[] = ["model", "picture", "skip"];
 const KIND_LABELS: Record<ItemKind, string> = { model: "3D model", picture: "Picture", skip: "Made outside" };
@@ -664,6 +689,7 @@ type Row = {
   realSize: RealSize;
   notes: string;
   status?: ItemStatus;
+  extra?: ReactNode; // Shown in a row under the item: its pictures and 3D results (FRG-80).
 };
 
 function plannedRow(item: PlannedItem): Row {
@@ -768,26 +794,35 @@ function ItemTable({ rows, showStatus }: { rows: Row[]; showStatus: boolean }) {
                 .map((row) => {
                   const skip = row.kind === "skip";
                   return (
-                    <tr key={row.key} className={`border-t border-slate-700/50 align-top ${skip ? "text-slate-500" : "text-slate-300"}`}>
-                      <Cell mono>{row.itemId}</Cell>
-                      <Cell>{row.name}</Cell>
-                      <Cell>
-                        {KIND_LABELS[row.kind]}
-                        {row.editFrom && <div className="text-xs text-slate-500">edit of {row.editFrom}</div>}
-                      </Cell>
-                      <Cell>{skip ? "-" : row.pictures}</Cell>
-                      <Cell>{modelRunsText(row)}</Cell>
-                      <Cell>{realSizeText(row.realSize)}</Cell>
-                      <Cell>
-                        {skip && <div className="text-xs italic">made outside TeczoForge</div>}
-                        {row.notes || (skip ? "" : "-")}
-                      </Cell>
-                      {showStatus && row.status && (
+                    <Fragment key={row.key}>
+                      <tr className={`border-t border-slate-700/50 align-top ${skip ? "text-slate-500" : "text-slate-300"}`}>
+                        <Cell mono>{row.itemId}</Cell>
+                        <Cell>{row.name}</Cell>
                         <Cell>
-                          <StatusBadge status={row.status} />
+                          {KIND_LABELS[row.kind]}
+                          {row.editFrom && <div className="text-xs text-slate-500">edit of {row.editFrom}</div>}
                         </Cell>
+                        <Cell>{skip ? "-" : row.pictures}</Cell>
+                        <Cell>{modelRunsText(row)}</Cell>
+                        <Cell>{realSizeText(row.realSize)}</Cell>
+                        <Cell>
+                          {skip && <div className="text-xs italic">made outside TeczoForge</div>}
+                          {row.notes || (skip ? "" : "-")}
+                        </Cell>
+                        {showStatus && row.status && (
+                          <Cell>
+                            <StatusBadge status={row.status} />
+                          </Cell>
+                        )}
+                      </tr>
+                      {row.extra && (
+                        <tr>
+                          <td colSpan={head.length} className="px-3 pb-4">
+                            {row.extra}
+                          </td>
+                        </tr>
                       )}
-                    </tr>
+                    </Fragment>
                   );
                 })}
             </Fragment>
@@ -809,29 +844,112 @@ function StatusBadge({ status }: { status: ItemStatus }) {
 
 // ---- The detail page of one pack ----
 
+// How often the pack page loads again (FRG-80), so new pictures and statuses show up by themselves.
+const POLL_MS = 3000;
+
+// The jobs a list of items makes, per preset, for the time estimate (FRG-76).
+type JobItem = { presetId: string; count: number };
+function addJobs(totals: Map<string, number>, presetId: string, count: number) {
+  if (count > 0) totals.set(presetId, (totals.get(presetId) ?? 0) + count);
+}
+function jobList(totals: Map<string, number>): JobItem[] {
+  return [...totals].map(([presetId, count]) => ({ presetId, count }));
+}
+
+// Phase 1 of the planned items (their pictures and edits), and in full auto also their 3D models.
+function phaseOneJobs(items: PackItem[], mode: RunMode): JobItem[] {
+  const totals = new Map<string, number>();
+  for (const item of items) {
+    if (item.status !== "planned" || item.kind === "skip") continue;
+    addJobs(totals, item.editFrom ? "image-edit-klein" : "text-to-image-basic", item.pictures);
+    if (mode === "full_auto") for (const presetId of item.modelPresetIds) addJobs(totals, presetId, item.modelSeeds);
+  }
+  return jobList(totals);
+}
+
+// Model items with a picked picture and no 3D cards yet: phase 2 is for them.
+function readyForModels(items: PackItem[]): PackItem[] {
+  return items.filter((item) => item.kind === "model" && item.status === "pick_picture" && item.pickedPictureJobId && item.modelJobIds.length === 0);
+}
+
+function phaseTwoJobs(items: PackItem[]): JobItem[] {
+  const totals = new Map<string, number>();
+  for (const item of readyForModels(items)) for (const presetId of item.modelPresetIds) addJobs(totals, presetId, item.modelSeeds);
+  return jobList(totals);
+}
+
 function PackDetail({ id }: { id: string }) {
   const [detail, setDetail] = useState<PackDetailAnswer | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [mode, setMode] = useState<RunMode>("pictures_first");
+  const [busy, setBusy] = useState<string | null>(null);
+  const [message, setMessage] = useState<{ text: string; error: boolean } | null>(null);
+  const packBatches = useActiveBatches().filter((batch) => batch.owner.type === "pack" && batch.owner.id === id);
+
+  async function load() {
+    try {
+      const response = await fetch(`/api/packs/${encodeURIComponent(id)}`);
+      const body = await response.json().catch(() => null);
+      if (!body) setError(NO_BACKEND);
+      else if (!response.ok) setError(body.error ?? "Could not load the pack.");
+      else {
+        setDetail(body);
+        setError(null);
+      }
+    } catch {
+      setError(NO_BACKEND);
+    }
+  }
 
   useEffect(() => {
     setDetail(null);
     setError(null);
-    async function load() {
-      try {
-        const response = await fetch(`/api/packs/${encodeURIComponent(id)}`);
-        const body = await response.json().catch(() => null);
-        if (!body) setError(NO_BACKEND);
-        else if (!response.ok) setError(body.error ?? "Could not load the pack.");
-        else setDetail(body);
-      } catch {
-        setError(NO_BACKEND);
-      }
-    }
     load();
+    const timer = setInterval(load, POLL_MS);
+    return () => clearInterval(timer);
   }, [id]);
+
+  // A button: send it, show what happened, and load the pack again.
+  async function post(name: string, url: string, body: unknown, done: (answer: Record<string, unknown>) => string) {
+    setBusy(name);
+    setMessage(null);
+    try {
+      const response = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body ?? {}) });
+      const answer = await response.json().catch(() => null);
+      if (!answer) setMessage({ text: NO_BACKEND, error: true });
+      else if (!response.ok) setMessage({ text: answer.error ?? "That did not work.", error: true });
+      else setMessage({ text: done(answer), error: false });
+    } catch {
+      setMessage({ text: NO_BACKEND, error: true });
+    } finally {
+      setBusy(null);
+      load();
+    }
+  }
+
+  function makePictures() {
+    post("run", `/api/packs/${id}/run`, { mode }, (answer) =>
+      mode === "full_auto"
+        ? `Full auto started with ${answer.cards} picture card(s). Edits and 3D models follow by themselves.`
+        : `Started ${answer.cards} picture card(s) as one batch. Pick a picture for each item when they are done.`,
+    );
+  }
+
+  function makeModels() {
+    post("models", `/api/packs/${id}/models`, {}, (answer) => `Started ${answer.cards} 3D card(s) for ${answer.items} item(s) as one batch.`);
+  }
+
+  function pick(item: PackItem, jobId: string, target: "picture" | "model") {
+    post(`pick-${jobId}`, `/api/packs/${id}/items/${item.id}/pick`, { jobId, target }, () =>
+      target === "model" ? `${item.itemId}: 3D model picked.` : `${item.itemId}: picture picked.`,
+    );
+  }
 
   const counts = Object.fromEntries(Object.keys(STATUS_STYLES).map((status) => [status, 0])) as StatusCounts;
   for (const item of detail?.items ?? []) counts[item.status] += 1;
+  const items = detail?.items ?? [];
+  const planned = items.filter((item) => item.status === "planned" && item.kind !== "skip" && !item.editFrom).length;
+  const pickedForModels = readyForModels(items).length;
 
   return (
     <main className="mx-auto w-full max-w-6xl px-8 pt-2 pb-12">
@@ -850,6 +968,9 @@ function PackDetail({ id }: { id: string }) {
               <h1 className="m-0 text-2xl font-semibold text-slate-100">{detail.pack.name}</h1>
               <CodeChip code={detail.pack.code} />
               <span className="text-sm text-slate-500">{detail.pack.engine === "unreal" ? "For Unreal" : "No engine"}</span>
+              {detail.pack.runMode && (
+                <span className="text-xs text-slate-500">Last run: {detail.pack.runMode === "full_auto" ? "full auto" : "pictures first"}</span>
+              )}
             </div>
             {detail.pack.style && <p className="mt-2 mb-0 max-w-3xl text-sm text-slate-400">Style: {detail.pack.style}</p>}
             <div className="mt-4 flex flex-wrap items-center gap-2 text-xs">
@@ -863,9 +984,192 @@ function PackDetail({ id }: { id: string }) {
               )}
             </div>
           </div>
-          <ItemTable rows={detail.items.map(savedRow)} showStatus />
+
+          {packBatches.map((batch) => (
+            <BatchBar key={batch.id} batchId={batch.id} />
+          ))}
+
+          <div className="mb-6 space-y-3">
+            {planned > 0 && (
+              <div className="rounded-xl border border-slate-700/60 bg-slate-800/40 p-4">
+                <div className="mb-3 flex flex-wrap items-center gap-3">
+                  <span className="text-sm font-semibold text-slate-100">Step 1: Make pictures</span>
+                  <div className="flex overflow-hidden rounded-lg border border-slate-600 text-xs" role="group" aria-label="Run mode">
+                    {(["pictures_first", "full_auto"] as RunMode[]).map((choice) => (
+                      <button
+                        key={choice}
+                        type="button"
+                        onClick={() => setMode(choice)}
+                        aria-pressed={mode === choice}
+                        className={`cursor-pointer border-0 px-3 py-1.5 ${mode === choice ? "bg-teal-600 text-white" : "bg-transparent text-slate-300 hover:bg-slate-700"}`}
+                      >
+                        {choice === "pictures_first" ? "Pictures first" : "Full auto"}
+                      </button>
+                    ))}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={makePictures}
+                    disabled={busy !== null}
+                    className="ml-auto cursor-pointer rounded-lg border-0 bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-500 disabled:cursor-wait disabled:opacity-50"
+                  >
+                    {busy === "run" ? "Starting..." : mode === "full_auto" ? "Run full auto" : `Make pictures for ${planned} item(s)`}
+                  </button>
+                </div>
+                <p className="mt-0 mb-3 text-xs text-slate-400">
+                  {mode === "full_auto"
+                    ? "Everything runs alone: pictures, then the first finished picture of each item is picked, then edits and 3D models. You pick the 3D models at the end."
+                    : "Makes every picture as one batch. Then you pick a picture for each item, and start the 3D models in step 2. Edits start when their source picture is picked."}
+                </p>
+                <EstimateView key={mode} title={mode === "full_auto" ? "Time for everything" : "Time for the pictures"} items={phaseOneJobs(items, mode)} />
+              </div>
+            )}
+
+            {pickedForModels > 0 && (
+              <div className="rounded-xl border border-slate-700/60 bg-slate-800/40 p-4">
+                <div className="mb-3 flex flex-wrap items-center gap-3">
+                  <span className="text-sm font-semibold text-slate-100">Step 2: Make 3D models</span>
+                  <button
+                    type="button"
+                    onClick={makeModels}
+                    disabled={busy !== null}
+                    className="ml-auto cursor-pointer rounded-lg border-0 bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-500 disabled:cursor-wait disabled:opacity-50"
+                  >
+                    {busy === "models" ? "Starting..." : `Make 3D models for ${pickedForModels} picked item(s)`}
+                  </button>
+                </div>
+                <EstimateView title="Time for the 3D models" items={phaseTwoJobs(items)} />
+              </div>
+            )}
+
+            {message && <p className={`m-0 text-sm ${message.error ? "text-red-300" : "text-emerald-300"}`}>{message.text}</p>}
+          </div>
+
+          <ItemTable
+            rows={items.map((item) => ({
+              ...savedRow(item),
+              extra:
+                item.pictureJobIds.length > 0 || item.error ? (
+                  <ItemResults item={item} jobs={detail.jobs} busy={busy} onPick={(jobId, target) => pick(item, jobId, target)} />
+                ) : undefined,
+            }))}
+            showStatus
+          />
         </>
       )}
     </main>
+  );
+}
+
+type ItemResultsProps = {
+  item: PackItem;
+  jobs: Record<string, PackJob>;
+  busy: string | null;
+  onPick: (jobId: string, target: "picture" | "model") => void;
+};
+
+// The pictures of an item with a Pick button under each finished one, then its 3D results.
+// A 3D result opens in the 3D viewer (ModelViewer) with "View 3D", one at a time: a browser can only
+// show a few 3D views at once. The fast pick screen is FRG-81; this is the simple version.
+function ItemResults({ item, jobs, busy, onPick }: ItemResultsProps) {
+  const [viewing, setViewing] = useState<string | null>(null);
+  return (
+    <div className="space-y-3">
+      {item.error && <p className="m-0 text-xs text-red-300">{item.error}</p>}
+      {item.pictureJobIds.length > 0 && (
+        <div className="flex flex-wrap gap-3">
+          {item.pictureJobIds.map((jobId) => (
+            <ResultTile
+              key={jobId}
+              job={jobs[jobId]}
+              picked={item.pickedPictureJobId === jobId}
+              autoPicked={item.pickedPictureJobId === jobId && item.autoPicked}
+              size={160}
+              open
+              busy={busy === `pick-${jobId}`}
+              onPick={() => onPick(jobId, "picture")}
+            />
+          ))}
+        </div>
+      )}
+      {item.modelJobIds.length > 0 && (
+        <div className="flex flex-wrap gap-3">
+          {item.modelJobIds.map((jobId) => (
+            <ResultTile
+              key={jobId}
+              job={jobs[jobId]}
+              picked={item.pickedModelJobId === jobId}
+              autoPicked={false}
+              size={viewing === jobId ? 320 : 160}
+              open={viewing === jobId}
+              onView={() => setViewing(viewing === jobId ? null : jobId)}
+              busy={busy === `pick-${jobId}`}
+              onPick={() => onPick(jobId, "model")}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+type ResultTileProps = {
+  job: PackJob | undefined;
+  picked: boolean;
+  autoPicked: boolean;
+  size: number;
+  open?: boolean; // Show it in full: always for pictures, for a 3D model only after "View 3D".
+  onView?: () => void; // 3D results only: open or close the viewer.
+  busy: boolean;
+  onPick: () => void;
+};
+
+// One result: the picture or 3D model when it is done, else its state. Pick under a finished one.
+function ResultTile({ job, picked, autoPicked, size, open, onView, busy, onPick }: ResultTileProps) {
+  const style = { width: size, height: size };
+  let body: ReactNode;
+  if (!job) body = <div className="flex items-center justify-center text-xs text-slate-500" style={style}>Card deleted</div>;
+  else if (job.status === "done" && job.imageUrl)
+    body = <Media url={job.imageUrl} kind={outputKind(job)} mode={open ? "full" : "thumbnail"} alt="" style={{ ...style, objectFit: "cover" }} />;
+  else if (job.status === "queued" || job.status === "running")
+    body = (
+      <div className="flex items-center p-2" style={style}>
+        <ProgressView progress={job.progress} onCancel={null} cancelling={false} />
+      </div>
+    );
+  else if (job.error) body = <div className="overflow-auto p-2 text-xs text-red-300" style={style}>Failed: {job.error}</div>;
+  else body = <div className="flex items-center justify-center text-xs text-slate-500" style={style}>Waiting in the batch</div>;
+
+  return (
+    <div className={`overflow-hidden rounded-xl border ${picked ? "border-teal-400" : "border-slate-700/60"} bg-slate-900/40`} style={{ width: size }}>
+      {body}
+      <div className="flex items-center gap-2 px-2 py-1.5 text-xs">
+        {picked ? (
+          <span className="flex items-center gap-1 text-teal-300">
+            <CheckCircle2 size={13} /> {autoPicked ? "Auto-picked" : "Picked"}
+          </span>
+        ) : (
+          job?.status === "done" && (
+            <button
+              type="button"
+              onClick={onPick}
+              disabled={busy}
+              className="cursor-pointer rounded-md border border-slate-600 bg-transparent px-2 py-0.5 text-xs text-slate-200 hover:bg-slate-700 disabled:cursor-wait disabled:opacity-50"
+            >
+              {busy ? "Picking..." : "Pick"}
+            </button>
+          )
+        )}
+        {onView && job?.status === "done" && (
+          <button
+            type="button"
+            onClick={onView}
+            className="ml-auto cursor-pointer rounded-md border border-slate-600 bg-transparent px-2 py-0.5 text-xs text-slate-200 hover:bg-slate-700"
+          >
+            {open ? "Close 3D" : "View 3D"}
+          </button>
+        )}
+      </div>
+    </div>
   );
 }
