@@ -888,6 +888,7 @@ function PackDetail({ id }: { id: string }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<{ text: string; error: boolean } | null>(null);
   const [picking, setPicking] = useState(false); // The fast pick screen (FRG-81).
+  const [exportReport, setExportReport] = useState<ExportReport | null>(null); // FRG-82.
   const packBatches = useActiveBatches().filter((batch) => batch.owner.type === "pack" && batch.owner.id === id);
 
   async function load() {
@@ -937,6 +938,24 @@ function PackDetail({ id }: { id: string }) {
         ? `Full auto started with ${answer.cards} picture card(s). Edits and 3D models follow by themselves.`
         : `Started ${answer.cards} picture card(s) as one batch. Pick a picture for each item when they are done.`,
     );
+  }
+
+  // "Export" (FRG-82): the backend writes the folder for Unreal and answers with a report.
+  async function exportPack() {
+    setBusy("export");
+    setMessage(null);
+    setExportReport(null);
+    try {
+      const response = await fetch(`/api/packs/${id}/export`, { method: "POST" });
+      const answer = await response.json().catch(() => null);
+      if (!answer) setMessage({ text: NO_BACKEND, error: true });
+      else if (!response.ok) setMessage({ text: answer.error ?? "The export did not work.", error: true });
+      else setExportReport(answer as ExportReport);
+    } catch {
+      setMessage({ text: NO_BACKEND, error: true });
+    } finally {
+      setBusy(null);
+    }
   }
 
   function makeModels() {
@@ -995,18 +1014,30 @@ function PackDetail({ id }: { id: string }) {
             <BatchBar key={batch.id} batchId={batch.id} />
           ))}
 
-          {hasResults && (
-            <div className="mb-4 flex items-center gap-3">
-              <button
-                type="button"
-                onClick={() => setPicking(true)}
-                className="cursor-pointer rounded-lg border-0 bg-amber-500/90 px-4 py-2 text-sm font-medium text-slate-950 hover:bg-amber-400"
-              >
-                Pick ({leftToPick} left)
-              </button>
-              <span className="text-xs text-slate-500">A full screen to pick with the keyboard: 1-9 pick, N more, E edit, S skip, arrows move.</span>
-            </div>
-          )}
+          <div className="mb-4 flex flex-wrap items-center gap-3">
+            {hasResults && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setPicking(true)}
+                  className="cursor-pointer rounded-lg border-0 bg-amber-500/90 px-4 py-2 text-sm font-medium text-slate-950 hover:bg-amber-400"
+                >
+                  Pick ({leftToPick} left)
+                </button>
+                <span className="text-xs text-slate-500">A full screen to pick with the keyboard: 1-9 pick, N more, E edit, S skip, arrows move.</span>
+              </>
+            )}
+            <button
+              type="button"
+              onClick={exportPack}
+              disabled={busy !== null}
+              title="Write every picked result into one folder, with forge_manifest.json and forge_record.md"
+              className="ml-auto cursor-pointer rounded-lg border border-slate-600 bg-transparent px-4 py-2 text-sm text-slate-200 hover:bg-slate-700 disabled:cursor-wait disabled:opacity-50"
+            >
+              {busy === "export" ? "Exporting..." : detail.pack.engine === "unreal" ? "Export for Unreal" : "Export"}
+            </button>
+          </div>
+          {exportReport && <ExportSummary report={exportReport} />}
           {picking && (
             <PickScreen packId={id} packName={detail.pack.name} items={items} jobs={detail.jobs} onClose={() => setPicking(false)} reload={load} />
           )}
@@ -1192,6 +1223,29 @@ function ResultTile({ job, picked, autoPicked, size, open, onView, busy, onPick 
           </button>
         )}
       </div>
+    </div>
+  );
+}
+
+// The answer of POST /api/packs/<id>/export (PackExportReport in backend/src/packExport.ts).
+type ExportReport = { folder: string; written: string[]; overwritten: string[]; missing: string[]; problems: string[] };
+
+// Where the export is, and what it did: files written and overwritten, and items still missing (FRG-82).
+function ExportSummary({ report }: { report: ExportReport }) {
+  return (
+    <div className="mb-4 space-y-2 rounded-xl border border-slate-700/60 bg-slate-800/40 p-4 text-sm">
+      <div className="text-slate-300">
+        Folder: <span className="font-mono text-xs break-all text-slate-100 select-all">{report.folder}</span>
+      </div>
+      <div className="text-slate-400">
+        {report.written.length} new file(s) written, {report.overwritten.length} file(s) overwritten. Nothing in the folder was deleted.
+      </div>
+      {report.missing.length === 0 ? (
+        <div className="text-emerald-300">Every item is in the folder (items made outside TeczoForge are listed in the manifest).</div>
+      ) : (
+        <div className="text-amber-300">Still missing (not done yet): {report.missing.join(", ")}</div>
+      )}
+      {report.problems.length > 0 && <ErrorList title="Some picked files could not be found." errors={report.problems} />}
     </div>
   );
 }
