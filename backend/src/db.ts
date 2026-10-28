@@ -179,6 +179,36 @@ export type GameAsset = {
   removed: boolean;
 };
 
+// ---- Batches (FRG-75) ----
+
+// running: cards start one after the other. paused: no new card starts. done: every card is done
+// or failed. ended: stopped for good with "End batch"; cards not run stay on the board.
+export type BatchState = "running" | "paused" | "done" | "ended";
+
+// A list of board cards that runs by itself, one card at a time (see batches.ts).
+export type Batch = {
+  id: string; // A UUID.
+  name: string;
+  projectId: string | null;
+  owner: { type: "game" | "pack" | null; id: string | null }; // Who made it: a game, a pack (FRG-80), or a person.
+  state: BatchState;
+  cardIds: string[]; // In the order they run.
+  currentCardId: string | null; // The card running now (or the one a paused batch still waits for).
+  retries: Record<string, number>; // Key: card id. How many times the card failed.
+  failedCardIds: string[]; // Failed twice. A failed card never stops the batch.
+  doneCardIds: string[];
+  note: string | null; // Why it paused, in plain English.
+  createdBy: string | null; // Only this user can pause, resume, stop or end it.
+  createdAt: Date;
+  updatedAt: Date;
+  pausedAt: Date | null;
+  finishedAt: Date | null;
+};
+
+export async function getBatchesCollection(): Promise<Collection<Batch>> {
+  return (await getDatabase()).collection<Batch>("batches");
+}
+
 // The project that always exists. Made when the backend starts, if it is missing (FRG-39).
 export const UNSORTED_PROJECT_NAME = "Unsorted";
 
@@ -335,6 +365,11 @@ export function findReadyDrafts(ids: string[]): Promise<Job[]> {
   return withJobs((jobs) =>
     jobs.find({ id: { $in: ids }, status: "draft", column: "ready" }, { projection: { _id: 0 } }).sort({ createdAt: 1 }).toArray(),
   );
+}
+
+// These cards and jobs, in any order (a batch, FRG-75). Ids that are not found are left out.
+export function findCards(ids: string[]): Promise<Job[]> {
+  return withJobs((jobs) => jobs.find({ id: { $in: ids } }, { projection: { _id: 0 } }).toArray());
 }
 
 // Turn a draft into a job, in one step, so it can never run twice.
@@ -583,6 +618,10 @@ export async function checkDatabase(): Promise<boolean> {
     await games.createIndex({ code: 1 }, { unique: true });
     await (await getGameAssetsCollection()).createIndex({ gameId: 1, order: 1 });
     await (await getGameAssetsCollection()).createIndex({ "steps.jobIds": 1 }); // The asset of a finished job (FRG-68).
+    // Batches (FRG-75): one batch by id, and the list by state, newest first.
+    const batches = await getBatchesCollection();
+    await batches.createIndex({ id: 1 });
+    await batches.createIndex({ state: 1, createdAt: -1 });
     await ensureUnsortedProject(projects);
     await moveOldJobsToUnsorted(jobs);
     await moveOldConversationsToUnsorted(conversations);

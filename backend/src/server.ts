@@ -48,6 +48,16 @@ import {
   presetTimesHandler,
   variantHandler,
 } from "./games.js";
+import {
+  createBatchHandler,
+  endBatchHandler,
+  getBatchHandler,
+  listBatchesHandler,
+  pauseBatchHandler,
+  resumeBatchHandler,
+  startBatchRunner,
+  stopNowHandler,
+} from "./batches.js";
 
 // Settings come from backend/.env. The defaults match .env.example.
 const PORT = Number(process.env.PORT ?? 4000);
@@ -161,6 +171,16 @@ app.post("/api/games/:id/assets/:assetId/done-by-hand", doneByHandHandler);
 // Export to a Unity-ready folder with asset_manifest.json (FRG-70).
 app.post("/api/games/:id/export", exportGameHandler);
 
+// Batches (see batches.ts, FRG-75): a list of board cards that runs one card at a time and can pause.
+// Everyone can see a batch. Only the user who started it can use the buttons.
+app.post("/api/batches", express.json(), createBatchHandler);
+app.get("/api/batches", listBatchesHandler);
+app.get("/api/batches/:id", getBatchHandler);
+app.post("/api/batches/:id/pause", pauseBatchHandler);
+app.post("/api/batches/:id/resume", resumeBatchHandler);
+app.post("/api/batches/:id/stop-now", stopNowHandler);
+app.post("/api/batches/:id/end", endBatchHandler);
+
 // Chat with Claude (see chat.ts). Each user only sees their own conversations.
 app.get("/api/chat/status", chatStatusHandler);
 app.get("/api/chat/conversations", listConversationsHandler);
@@ -211,4 +231,6 @@ app.listen(PORT, HOST, () => {
   connectDatabase(recoverJobs);
   startProgressListener();
   startJobChecker();
+  // The first check pauses the batches that were running when the backend stopped.
+  startBatchRunner();
 });
