@@ -24,7 +24,8 @@ import { checkTargetProjectId, projectForNewItem } from "./projects.js";
 // 6. Board cards (drafts.ts) are jobs too. A card's job that fails or is cancelled goes back
 //    to the Ready column as a draft, with the reason on the card (FRG-22).
 // Unfinished jobs are also kept in memory, so jobs still work when MongoDB is offline.
-// ComfyUI's queue is the only queue. The backend only follows it.
+// ComfyUI's queue runs the jobs. A batch (batches.ts, FRG-75) gives ComfyUI one card at a time,
+// so it can pause. Single jobs still go straight to ComfyUI. The backend follows ComfyUI's queue.
 
 // Finished images and videos are saved here: data/outputs at the root of the repo.
 export const OUTPUTS_DIR = path.join(import.meta.dirname, "..", "..", "data", "outputs");
@@ -105,12 +106,17 @@ export function save(live: LiveJob): Promise<void> {
   return live.saving;
 }
 
-// Games (FRG-68): games.ts gives the function that runs when a job is done, so a game asset whose
-// card finished goes to "review". It is set this way because games.ts uses this file, not the other way round.
-let jobDoneListener: ((job: Job) => void) | null = null;
+// Functions that run when a job is done. Games (FRG-68): a game asset whose card finished goes to
+// "review". Batches (FRG-75): the next card starts. They are given this way because those files use
+// this file, not the other way round.
+const jobDoneListeners: ((job: Job) => void)[] = [];
 export function onJobDone(listener: (job: Job) => void) {
-  jobDoneListener = listener;
+  jobDoneListeners.push(listener);
 }
+
+// The note a cancelled card gets when it goes back to Ready. A batch (FRG-75) uses it to tell a
+// cancelled card from a failed one.
+export const CANCELLED_CARD_ERROR = "The job was cancelled. Press Generate to run it again.";
 
 // The job is done, failed or cancelled: save it, and forget it after a while.
 export async function finish(live: LiveJob, status: "done" | "failed" | "cancelled", fields: Partial<Job>) {
@@ -122,7 +128,7 @@ export async function finish(live: LiveJob, status: "done" | "failed" | "cancell
   // A board card (it has a title) that did not finish goes back to Ready as a draft,
   // with the reason on the card. It is not followed any more: drafts live in MongoDB.
   if (job.title !== undefined && status !== "done") {
-    const reason = status === "cancelled" ? "The job was cancelled. Press Generate to run it again." : job.error;
+    const reason = status === "cancelled" ? CANCELLED_CARD_ERROR : job.error;
     Object.assign(job, { status: "draft", column: "ready", promptId: null, durationMs: 0, error: reason });
     await save(live);
     if (liveJobs.get(job.id) === live) liveJobs.delete(job.id);
@@ -130,7 +136,7 @@ export async function finish(live: LiveJob, status: "done" | "failed" | "cancell
   }
 
   await save(live);
-  if (status === "done" && jobDoneListener) jobDoneListener(job);
+  if (status === "done") for (const listener of jobDoneListeners) listener(job);
   // Only forget this run: the same card may have been run again since.
   setTimeout(() => {
     if (liveJobs.get(job.id) === live) liveJobs.delete(job.id);
@@ -515,6 +521,15 @@ async function cancelJob(live: LiveJob, username: string | null): Promise<string
 
   await finish(live, "cancelled", { cancelledBy: username, cancelledAt: new Date() });
   return null;
+}
+
+// Cancel a job the backend is following, with the same steps as POST /api/jobs/<id>/cancel, but
+// without the check of who started it: the caller checks that. Used by "Stop now" of a batch (FRG-75).
+// Returns why it could not be cancelled, or null when it was.
+export async function cancelFollowedJob(id: string, username: string | null): Promise<string | null> {
+  const live = liveJobs.get(id);
+  if (!live || !isActive(live.job.status)) return "This card is not running any more.";
+  return withLock(() => cancelJob(live, username));
 }
 
 // POST /api/jobs/<id>/cancel

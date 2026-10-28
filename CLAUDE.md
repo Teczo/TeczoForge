@@ -87,7 +87,8 @@ Browser  --->  Backend (Express)  --->  ComfyUI (127.0.0.1:8188)
 1. The browser talks ONLY to our backend. It never talks to ComfyUI.
 2. The backend sends a workflow to ComfyUI and watches its progress.
 3. When ComfyUI finishes, the backend copies the result to `data/outputs/` and saves a record in MongoDB.
-4. ComfyUI has its own job queue. Our app does not need a second queue. It only tracks job status.
+4. ComfyUI's queue runs the jobs. TeczoForge also has a small batch list (`batches.ts`, FRG-75):
+   it gives ComfyUI one batch job at a time, so a batch can pause. Single jobs still go straight to ComfyUI.
 
 ComfyUI API. Check these against the installed ComfyUI version (0.39.0) before use:
 - `POST /prompt` : start a job. Body is a workflow in "API format".
