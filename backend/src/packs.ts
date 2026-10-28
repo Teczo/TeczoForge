@@ -69,13 +69,21 @@ function itemRecord(packId: string, item: PlannedItem, order: number): PackItem 
   };
 }
 
+// The longest document name kept as sourceDocName (FRG-79).
+const MAX_SOURCE_DOC_NAME = 200;
+
 // POST /api/packs/import
-// Body: { "fileName": "...", "text": "..." } (the whole .md file, max 1 MB).
+// Body: { "fileName": "...", "text": "...", "sourceDocName": "<optional>" } (the whole .md file, max 1 MB).
+// sourceDocName (FRG-79): the document Claude made the pack file from ("Import any document").
 // Answers 201 { ok: true, pack, items }, or 400 { ok: false, errors: [...] } when the file is wrong,
 // the pack code is already used, or a project already has the pack's name.
 export async function importPackHandler(req: Request, res: Response) {
   try {
     const { fileName, text } = readPackFileBody(req.body);
+    const sourceDocName: unknown = req.body.sourceDocName ?? "";
+    if (typeof sourceDocName !== "string" || sourceDocName.length > MAX_SOURCE_DOC_NAME) {
+      throw new HttpError(400, `sourceDocName must be text of at most ${MAX_SOURCE_DOC_NAME} characters.`);
+    }
     const result = checkPackFile(text);
     if (!result.ok) {
       res.status(400).json(result);
@@ -108,7 +116,7 @@ export async function importPackHandler(req: Request, res: Response) {
       ...plan.pack,
       fileName,
       packText: text,
-      sourceDocName: "",
+      sourceDocName,
       createdBy,
       createdAt: now,
       updatedAt: now,
