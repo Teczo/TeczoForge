@@ -56,7 +56,7 @@ Anything not on this list: say what and why, then stop and ask.
 ### Ports and addresses
 
 - Backend: port `4000` (env var `PORT`). Listens on `127.0.0.1` until ticket FRG-15.
-- Frontend dev server: port `5173` (Vite default). It proxies `/api` to the backend.
+- Frontend dev server: port `5180` (fixed, strictPort; AquaTwin uses 5173). It proxies `/api` to the backend.
 - ComfyUI: `http://127.0.0.1:8188` (env var `COMFYUI_URL`).
 - Every backend route starts with `/api`.
 
@@ -165,7 +165,7 @@ Fill this in when the ticket that creates each part is done.
 
 - Start everything (Jaya does this): double-click `start-teczoforge.bat` in the repo root.
   It starts ComfyUI (skipped if already running), waits for it, starts the backend and
-  frontend in their own windows, and opens `http://localhost:5173`. Close the windows to stop.
+  frontend in their own windows, and opens `http://localhost:5180`. Close the windows to stop.
 - Start ComfyUI (Jaya does this): see `docs/comfyui-setup.md`
 - Backend dev: `cd backend`, then `npm run dev`
 - Frontend dev: `cd frontend`, then `npm run dev`

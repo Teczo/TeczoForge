@@ -1,6 +1,6 @@
 # ComfyUI setup on System 1
 
-Last checked: 2026-10-07
+Last checked: 2026-11-04
 
 ## Install
 
@@ -56,6 +56,9 @@ All inside `C:\AI\ComfyUI_windows_portable\ComfyUI\models\`.
 | `wan2.2_i2v_lightx2v_4steps_lora_v1_low_noise.safetensors` | `loras\` | 1.14 GB |
 | `flux-2-klein-4b-fp8.safetensors` | `diffusion_models\` | 4.07 GB |
 | `flux2-vae.safetensors` | `vae\` | 336.2 MB |
+| `wan2.2_s2v_14B_fp8_scaled.safetensors` | `diffusion_models\` | 16.39 GB |
+| `wav2vec2_large_english_fp16.safetensors` | `audio_encoders\` | 631 MB |
+| `wan2.2_t2v_lightx2v_4steps_lora_v1.1_high_noise.safetensors` | `loras\` | 1.23 GB |
 
 Note: the Download button in ComfyUI saves files through the browser.
 Check that each file ends up in the folder listed above.
@@ -154,6 +157,22 @@ Date: 2026-10-12. Preset `presets/image-edit-klein/` ("Edit Image").
 - Result: klein changed only the sky (and its reflection in the water). The boat, water and trees stayed the same.
 - Z-Image image to image redraws the whole picture from a full description. On the same picture the sky only turned
   a little pink, and the boat was redrawn. For "change one thing" requests, klein is the better choice.
+
+## Avatar: Wan 2.2 S2V (sound to video)
+
+Date added: 2026-11-04. For the Avatar feature (FRG-83 to FRG-89).
+
+- Three new files, listed in the model table above. Moved from Downloads with `move-s2v-models.bat`.
+- The other files S2V needs were already installed: `umt5_xxl_fp8_e4m3fn_scaled` and `wan_2.1_vae`.
+- The LoRA is the **text-to-video** 4-step LightX2V LoRA (v1.1, high noise). The ComfyUI S2V template uses it.
+  It is not the same file as the two image-to-video LoRAs.
+- ComfyUI 0.39.0 has the S2V nodes built in (`WanSoundImageToVideo`, `WanSoundImageToVideoExtend`,
+  `AudioEncoderLoader`, `AudioEncoderEncode`). No custom nodes needed.
+- Template: "Wan 2.2 14B Sound to Video" (`video_wan2_2_14B_s2v`).
+- One S2V part makes 77 frames at 16 fps (about 4.8 s). Longer videos need "extend" parts in the workflow.
+- The voice model (wav2vec2) is trained on English. Lip sync may be weaker for other languages.
+- Measurements: (FRG-83 fills this in)
+
 
 ## Problems found during setup
 

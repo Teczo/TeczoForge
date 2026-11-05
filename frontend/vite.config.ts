@@ -12,7 +12,10 @@ export default defineConfig(({ mode }) => {
     server: {
       // Open on this PC only, until ticket FRG-15.
       host: "127.0.0.1",
-      port: 5173,
+      // 5180, not 5173: AquaTwin uses 5173 on this PC.
+      port: 5180,
+      // Stop with an error if 5180 is busy. Do not move to another port.
+      strictPort: true,
       // Send every /api request to the backend.
       proxy: {
         "/api": backendUrl,
