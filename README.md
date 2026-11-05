@@ -26,7 +26,7 @@ weak or risky, and what is coming next. It is written for brainstorming improvem
 ## 2. Architecture
 
 ```
-Browser (React, port 5173)
+Browser (React, port 5180)
    │  only talks to /api
    ▼
 Backend (Express, 127.0.0.1:4000) ──► ComfyUI (127.0.0.1:8188)   HTTP + one WebSocket for progress

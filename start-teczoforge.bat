@@ -28,4 +28,4 @@ echo Starting frontend...
 start "TeczoForge frontend" /D "%APP_DIR%frontend" cmd /k npm run dev
 
 timeout /t 5 /nobreak >nul
-start "" http://localhost:5173
+start "" http://localhost:5180
