@@ -171,7 +171,27 @@ Date added: 2026-11-04. For the Avatar feature (FRG-83 to FRG-89).
 - Template: "Wan 2.2 14B Sound to Video" (`video_wan2_2_14B_s2v`).
 - One S2V part makes 77 frames at 16 fps (about 4.8 s). Longer videos need "extend" parts in the workflow.
 - The voice model (wav2vec2) is trained on English. Lip sync may be weaker for other languages.
-- Measurements: (FRG-83 fills this in)
+
+### Measurements (FRG-83)
+
+Date: 2026-11-05. Measured by Claude Code: each exported workflow was sent to the ComfyUI API as it is, with only the
+photo, voice and a new seed filled in. 640 x 640, 16 fps. VRAM is the whole GPU (`nvidia-smi`), sampled every 0.5 s.
+Frames and lengths were read from each output file with ffmpeg tools. Tamil and Malay were not tested (Jaya's choice).
+
+| Workflow | Voice | Run | Time | GPU memory before | Peak GPU memory | Frames | Video length | Audio length | Lip sync (Jaya) |
+|---|---|---|---|---|---|---|---|---|---|
+| `workflow.json` | English, 5.0 s | Run 1, including model loading | 36.0 s | 1.8 GB | 28.6 GB | 78 | 4.875 s | 4.875 s | Waiting for Jaya |
+| `workflow.json` | English, 5.0 s | Run 2 | 31.8 s | 22.7 GB | 27.0 GB | 78 | 4.875 s | 4.875 s | Waiting for Jaya |
+| `workflow-10s.json` | English, 14.0 s | One run | 66.1 s | 22.8 GB | 27.7 GB | 158 | 9.875 s | 9.875 s | Waiting for Jaya |
+| `workflow-15s.json` | English, 14.0 s | One run | 99.9 s | 22.3 GB | 27.1 GB | 238 | 14.875 s | 13.990 s | Waiting for Jaya |
+
+- Every output `.mp4` has a sound track (AAC). The output node is `113` (SaveVideo).
+- A voice longer than the video is cut to the video length. The 5.0 s voice became 4.875 s and the 14.0 s voice became 9.875 s.
+- A voice shorter than the video is not stretched or looped. In the 15 s run the audio is 0.885 s shorter than the video,
+  so the end of the video has no voice.
+- The real frame counts are 78, 158 and 238: one part gives 78 frames, and each Extend part adds 80.
+- The 14.0 s voice is the first 14 s of a longer ElevenLabs file, cut during a pause.
+- The prompt was kept as exported ("The man is playing the guitar...").
 
 
 ## Problems found during setup
