@@ -1,0 +1,19 @@
+{
+  "name": "Avatar (Fast)",
+  "description": "Wan 2.2 S2V 14B with the 4-step LightX2V speed-up. Pick a face photo and a voice file. Makes a talking video with lip sync, with the voice as its sound. 640 x 640, 16 fps.",
+  "promptGuide": "Describe the person and how they talk, in one or two short sentences: mood, head and hand movement, camera (static or slow push in). Do not describe the words; they come from the voice.",
+  "sendToLabel": "Make it talk",
+  "model": "Wan 2.2 S2V",
+  "licence": "Apache 2.0",
+  "clientWork": "yes",
+  "experimental": true,
+  "type": "avatar",
+  "fps": 16,
+  "inputs": [
+    { "key": "image", "label": "Face photo", "kind": "image", "node": "52", "field": "image" },
+    { "key": "audio", "label": "Voice", "kind": "audio", "node": "58", "field": "audio" },
+    { "key": "prompt", "label": "Prompt", "kind": "text", "node": "6", "field": "text" },
+    { "key": "seed", "label": "Seed", "kind": "seed", "node": "3", "field": "seed" }
+  ],
+  "output": { "node": "113" }
+}
