@@ -11,8 +11,9 @@ const MAX_TEXT_LENGTH = 2000;
 const MIN_NUMBER = 1;
 const MAX_NUMBER = 4096;
 // The preset types the app knows (the sidebar groups on the Generate page). "audio" is the
-// Music group (FRG-30). Another type still loads, with a warning, and shows under "Other".
-export const PRESET_TYPES = ["image", "video", "audio", "3d", "edit", "upscale"];
+// Music group (FRG-30). "avatar" makes a talking video (FRG-84). Another type still loads, with a
+// warning, and shows under "Other".
+export const PRESET_TYPES = ["image", "video", "audio", "3d", "edit", "upscale", "avatar"];
 // "stages" in preset.json can be at most this.
 const MAX_STAGES = 10;
 // "fps" in preset.json can be at most this (FRG-52).
@@ -24,6 +25,8 @@ const MAX_ESTIMATED_SECONDS = 7200;
 // An image input is the file name from POST /api/upload, for example "teczoforge-1791361258118-a1b2c3.png".
 // ComfyUI may add " (1)" if the name is taken. Nothing else is allowed (no folders, no "..").
 export const IMAGE_NAME_PATTERN = /^[A-Za-z0-9_-]+( \(\d+\))?\.(png|jpe?g|webp)$/i;
+// An audio input is the file name from POST /api/upload-audio. The same rules as an image name (FRG-84).
+export const AUDIO_NAME_PATTERN = /^[A-Za-z0-9_-]+( \(\d+\))?\.(wav|mp3|flac)$/i;
 
 // One allowed value of an input, with the text the page shows for it (FRG-32).
 export type InputOption = { value: string | number; label: string };
@@ -32,7 +35,7 @@ export type InputOption = { value: string | number; label: string };
 type PresetInput = {
   key: string;
   label: string;
-  kind: "text" | "seed" | "number" | "image";
+  kind: "text" | "seed" | "number" | "image" | "audio";
   node: string;
   field: string;
   default?: number | string;
@@ -443,6 +446,16 @@ function checkValue(input: PresetInput, value: unknown): string | number {
     }
     if (!IMAGE_NAME_PATTERN.test(value)) {
       throw new HttpError(400, `${input.label} is not a valid uploaded image. Pick the image again.`);
+    }
+    return value;
+  }
+
+  if (input.kind === "audio") {
+    if (typeof value !== "string" || value === "") {
+      throw new HttpError(400, `${input.label} is required. Pick a voice file.`);
+    }
+    if (!AUDIO_NAME_PATTERN.test(value)) {
+      throw new HttpError(400, `${input.label} is not a valid uploaded voice file. Pick the file again.`);
     }
     return value;
   }
