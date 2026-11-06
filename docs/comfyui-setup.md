@@ -180,10 +180,10 @@ Frames and lengths were read from each output file with ffmpeg tools. Tamil and 
 
 | Workflow | Voice | Run | Time | GPU memory before | Peak GPU memory | Frames | Video length | Audio length | Lip sync (Jaya) |
 |---|---|---|---|---|---|---|---|---|---|
-| `workflow.json` | English, 5.0 s | Run 1, including model loading | 36.0 s | 1.8 GB | 28.6 GB | 78 | 4.875 s | 4.875 s | Waiting for Jaya |
-| `workflow.json` | English, 5.0 s | Run 2 | 31.8 s | 22.7 GB | 27.0 GB | 78 | 4.875 s | 4.875 s | Waiting for Jaya |
-| `workflow-10s.json` | English, 14.0 s | One run | 66.1 s | 22.8 GB | 27.7 GB | 158 | 9.875 s | 9.875 s | Waiting for Jaya |
-| `workflow-15s.json` | English, 14.0 s | One run | 99.9 s | 22.3 GB | 27.1 GB | 238 | 14.875 s | 13.990 s | Waiting for Jaya |
+| `workflow.json` | English, 5.0 s | Run 1, including model loading | 36.0 s | 1.8 GB | 28.6 GB | 78 | 4.875 s | 4.875 s | Accurate |
+| `workflow.json` | English, 5.0 s | Run 2 | 31.8 s | 22.7 GB | 27.0 GB | 78 | 4.875 s | 4.875 s | Accurate |
+| `workflow-10s.json` | English, 14.0 s | One run | 66.1 s | 22.8 GB | 27.7 GB | 158 | 9.875 s | 9.875 s | Accurate |
+| `workflow-15s.json` | English, 14.0 s | One run | 99.9 s | 22.3 GB | 27.1 GB | 238 | 14.875 s | 13.990 s | Accurate |
 
 - Every output `.mp4` has a sound track (AAC). The output node is `113` (SaveVideo).
 - A voice longer than the video is cut to the video length. The 5.0 s voice became 4.875 s and the 14.0 s voice became 9.875 s.
@@ -192,6 +192,11 @@ Frames and lengths were read from each output file with ffmpeg tools. Tamil and 
 - The real frame counts are 78, 158 and 238: one part gives 78 frames, and each Extend part adds 80.
 - The 14.0 s voice is the first 14 s of a longer ElevenLabs file, cut during a pause.
 - The prompt was kept as exported ("The man is playing the guitar...").
+- Jaya's words, for all runs together: "the lip sync is accurate. the body movement is good."
+- Framing problem. Jaya: "the framing cuts the face in half", from the top of the nose to the torso, with the hair missing.
+  Cause: `WanSoundImageToVideo` centre-crops the photo to the 640 x 640 video. The test photo is 899 x 1474, so about
+  288 pixels are lost from the top and from the bottom, and the top of the head is in the part lost at the top.
+  A square photo with the face near the middle avoids this. A plain centre crop of the photo matches the video frame.
 
 
 ## Problems found during setup
