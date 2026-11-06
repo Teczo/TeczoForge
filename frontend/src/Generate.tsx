@@ -5,8 +5,9 @@ import type { OutputKind } from "./Media";
 import SendToMenu, { ExtendButton } from "./SendToMenu";
 import PresetBadges, { confirmResearchOnly, formatSeconds } from "./PresetBadges";
 import type { Project } from "./App";
-import { ArrowRight, Box, ChevronDown, ChevronUp, Download, Film, Folder, Image, Layers, Maximize, Monitor, Music, Paperclip, Pencil, Play, Scaling, Settings, Shuffle, Sparkles, Tag, Upload, Video, Zap } from "lucide-react";
+import { ArrowRight, Box, ChevronDown, ChevronUp, Download, Film, Folder, Image, Layers, Maximize, Monitor, Music, Paperclip, Pencil, Play, Scaling, Settings, Shuffle, Sparkles, Tag, Upload, UserRound, Video, Zap } from "lucide-react";
 import TimeTest from "./TimeTest";
+import VoicePicker from "./VoicePicker";
 
 // How often to ask the backend where the job is.
 const PROGRESS_INTERVAL_MS = 1500;
@@ -67,6 +68,8 @@ export type Preset = {
   stages: number;
   estimatedSeconds: number | null;
   totalLengths: number[]; // "Make a longer video" (FRG-56): total lengths in seconds. Empty: single clips only.
+  promptGuide: string; // How to write a good prompt. The prompt box of an avatar preset shows it (FRG-86).
+  audioFit: { input: string; seconds: number } | null; // How much of the voice the video uses (FRG-85).
 };
 
 // The form keeps every value as text, the way the input boxes give it.
@@ -86,7 +89,7 @@ export function toInputs(preset: Preset, values: FormValues): Record<string, str
   for (const input of preset.inputs) {
     const value = values[input.key] ?? "";
     if (input.kind === "text") inputs[input.key] = value;
-    else if (input.kind === "image" && value !== "") inputs[input.key] = value; // The uploaded file name.
+    else if ((input.kind === "image" || input.kind === "audio") && value !== "") inputs[input.key] = value; // The uploaded file name.
     else if ((input.kind === "number" || input.kind === "seed") && value.trim() !== "") inputs[input.key] = Number(value);
   }
   return inputs;
@@ -155,10 +158,13 @@ function promptLines(text: string): string[] {
 // A group with no presets is shown as "Soon". So a new preset folder with, for example,
 // "type": "upscale" turns on the Upscale item by itself, with no code change.
 type Category = { id: string; label: string; Icon: (p: { size?: number }) => ReactNode; matches: (p: Preset) => boolean };
+// The Avatar link in the sidebar (#/avatar) opens this group (FRG-86).
+const AVATAR: Category = { id: "avatar", label: "Avatar", Icon: UserRound, matches: (p) => p.type === "avatar" };
 const CATEGORIES: Category[] = [
   { id: "image", label: "Image", Icon: Image, matches: (p) => p.type === "image" },
   { id: "video", label: "Video", Icon: Video, matches: (p) => p.type === "video" && !hasImageInput(p) },
   { id: "image-to-video", label: "Image to Video", Icon: Film, matches: (p) => p.type === "video" && hasImageInput(p) },
+  AVATAR,
   { id: "music", label: "Music", Icon: Music, matches: (p) => p.type === "audio" }, // FRG-30
   { id: "3d", label: "3D", Icon: Box, matches: (p) => p.type === "3d" },
   { id: "edit", label: "Edit / Inpaint", Icon: Pencil, matches: (p) => p.type === "edit" },
@@ -222,9 +228,11 @@ type GenerateProps = {
   // The project chosen in the header (FRG-41). New jobs go into it.
   // undefined while loading, null if the projects could not be loaded: then the backend uses "Unsorted".
   project?: Project | null;
+  // The address is #/avatar: show the Avatar category (FRG-86).
+  avatar?: boolean;
 };
 
-export default function Generate({ startValues = null, onStartValuesUsed, project }: GenerateProps) {
+export default function Generate({ startValues = null, onStartValuesUsed, project, avatar = false }: GenerateProps) {
   const [presets, setPresets] = useState<Preset[] | null>(null);
   const [presetsError, setPresetsError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -280,8 +288,8 @@ export default function Generate({ startValues = null, onStartValuesUsed, projec
               setNotice(`Filled in from the gallery. Press Generate to make it again.`);
             }
           } else {
-            // Start with the first Image preset, like the top item of the left menu.
-            const first = firstPresetOf(CATEGORIES[0], list) ?? list[0];
+            // Start with the first Image preset, like the top item of the left menu. #/avatar: the first avatar preset.
+            const first = (avatar ? firstPresetOf(AVATAR, list) : undefined) ?? firstPresetOf(CATEGORIES[0], list) ?? list[0];
             setPresetId(first.id);
             setValues(defaultValues(first));
             if (startValues) setNotice(`The preset "${startValues.presetId}" no longer exists, so nothing was filled in.`);
@@ -438,6 +446,28 @@ export default function Generate({ startValues = null, onStartValuesUsed, projec
     setClipPrompts("");
   }
 
+  // The Avatar or Generate link was clicked while this page is open (FRG-86): go to that category.
+  useEffect(() => {
+    if (!presets || !preset) return;
+    const inAvatar = categoryOf(preset) === AVATAR;
+    if (avatar && !inAvatar) {
+      const first = firstPresetOf(AVATAR, presets);
+      if (first) choosePreset(first.id);
+    } else if (!avatar && inAvatar) {
+      const first = firstPresetOf(CATEGORIES[0], presets) ?? presets[0];
+      choosePreset(first.id);
+    }
+  }, [avatar]);
+
+  // The other way round: another way changed the preset (the left menu, "Send to", "Use again").
+  // Keep the address, and so the highlighted sidebar link, the same as the category.
+  useEffect(() => {
+    if (!preset) return;
+    const inAvatar = categoryOf(preset) === AVATAR;
+    if (inAvatar && window.location.hash === "#/generate") window.location.replace("#/avatar");
+    if (!inAvatar && window.location.hash === "#/avatar") window.location.replace("#/generate");
+  }, [presetId]);
+
   // Start the job. The backend answers at once with its id; the effect above follows it.
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -522,9 +552,10 @@ export default function Generate({ startValues = null, onStartValuesUsed, projec
   // A video length (FRG-52) shows with these too, not in Advanced Settings.
   const choiceInputs = preset.inputs.filter((input) => (input.kind === "text" && input.options) || input.unit === "seconds");
   const imageInputs = preset.inputs.filter((input) => input.kind === "image");
+  const audioInputs = preset.inputs.filter((input) => input.kind === "audio");
   // Advanced Settings, in the mockup's order: size (and other numbers), then Steps, then the seed.
   const seedInputs = preset.inputs.filter((input) => input.kind === "seed");
-  const numberInputs = preset.inputs.filter((input) => !["text", "image", "seed"].includes(input.kind) && input.unit !== "seconds");
+  const numberInputs = preset.inputs.filter((input) => !["text", "image", "audio", "seed"].includes(input.kind) && input.unit !== "seconds");
   const estimate = estimatedTime(preset, values);
   // "Make a longer video" (FRG-56): the clips it makes, and the time for all of them.
   const longer = totalLength > 0 && preset.totalLengths.includes(totalLength);
@@ -534,9 +565,9 @@ export default function Generate({ startValues = null, onStartValuesUsed, projec
   const prompt = textInputs[0];
   const promptLength = prompt ? (values[prompt.key] ?? "").length : 0;
 
-  // Every text input (like the prompt) and every image must be filled in.
+  // Every text input (like the prompt), every image and every voice must be filled in.
   const missingRequired = preset.inputs.some(
-    (input) => (input.kind === "text" || input.kind === "image") && (values[input.key] ?? "").trim() === "",
+    (input) => (input.kind === "text" || input.kind === "image" || input.kind === "audio") && (values[input.key] ?? "").trim() === "",
   );
   const tooLong = textInputs.some((input) => (values[input.key] ?? "").length > MAX_TEXT_LENGTH);
 
@@ -544,7 +575,7 @@ export default function Generate({ startValues = null, onStartValuesUsed, projec
   const setValue = (key: string) => (value: string) => setValues((current) => ({ ...current, [key]: value }));
 
   // What the result panel shows: the shown result's kind, or what this preset makes.
-  const shownKind: OutputKind = shown ? shown.kind : outputKind({ outputKind: preset.type, imageUrl: null });
+  const shownKind: OutputKind = shown ? shown.kind : outputKind({ outputKind: preset.type === "avatar" ? "video" : preset.type, imageUrl: null });
 
   return (
     <div className="studio">
@@ -615,6 +646,17 @@ export default function Generate({ startValues = null, onStartValuesUsed, projec
             />
           ))}
 
+          {audioInputs.map((input) => (
+            <VoicePicker
+              key={`${preset.id}/${input.key}`}
+              input={input}
+              value={values[input.key] ?? ""}
+              disabled={running}
+              fitSeconds={preset.audioFit?.input === input.key ? preset.audioFit.seconds : null}
+              onChange={setValue(input.key)}
+            />
+          ))}
+
           {textInputs.map((input, index) => (
             <textarea
               key={`${preset.id}/${input.key}`}
@@ -625,6 +667,8 @@ export default function Generate({ startValues = null, onStartValuesUsed, projec
               placeholder={
                 index > 0
                   ? input.label
+                  : preset.type === "avatar"
+                    ? preset.promptGuide || "Describe the person and how they talk"
                   : preset.type === "video"
                     ? "Describe the motion, for example: the camera slowly zooms in while leaves blow past"
                     : preset.type === "audio"
@@ -701,7 +745,7 @@ export default function Generate({ startValues = null, onStartValuesUsed, projec
               <Paperclip size={19} />
             </button>
             <div className="select-wrap">
-              {preset.type === "video" ? <Video size={18} /> : preset.type === "audio" ? <Music size={18} /> : <Image size={18} />}
+              {preset.type === "avatar" ? <UserRound size={18} /> : preset.type === "video" ? <Video size={18} /> : preset.type === "audio" ? <Music size={18} /> : <Image size={18} />}
               <select
                 className="select"
                 value={presetId}
