@@ -8,6 +8,7 @@ import type { Job } from "./db.js";
 import { findAnyJob, finish, follow, jobProjectId, OUTPUTS_DIR, save, sendError } from "./jobs.js";
 import type { LiveJob } from "./jobs.js";
 import { findVideoJob, requireFfmpeg, runFfmpeg, videoPathOf } from "./lastFrame.js";
+import { loadPreset } from "./presets.js";
 
 // Chains of clips and "Join all" (FRG-55).
 // A chain is a first clip and the clips made from it with "Extend" (FRG-54): each extension has
@@ -17,6 +18,9 @@ import { findVideoJob, requireFfmpeg, runFfmpeg, videoPathOf } from "./lastFrame
 // at the joins. The result is re-encoded like the other videos: MP4, H.264, yuv420p, no sound.
 // A join runs in the backend with ffmpeg, not in ComfyUI's queue, but it is a normal job
 // (saved first, followed with GET /api/jobs/<id>, a gallery item when done). One join at a time.
+
+// Joining makes a video with no sound, so avatar videos are refused (FRG-87).
+export const AVATAR_JOIN_REFUSED = "Avatar videos cannot be joined. Joining removes the sound.";
 
 const MAX_CLIPS = 10;
 const MAX_SECONDS = 60;
@@ -39,6 +43,17 @@ async function probeVideo(file: string): Promise<VideoFacts> {
     width: Number(stream[1]),
     height: Number(stream[2]),
   };
+}
+
+// An avatar video has a fitted voice, or was made with an avatar preset. A preset folder that is gone
+// says nothing, like a joined video that has no preset.
+async function isAvatarJob(job: Job): Promise<boolean> {
+  if (job.audioUsed) return true;
+  try {
+    return (await loadPreset(job.presetId)).preset.type === "avatar";
+  } catch {
+    return false;
+  }
 }
 
 // Seconds of the joined video: every frame of the first clip, and all but the first frame of the others.
@@ -114,6 +129,7 @@ export function takeJoinSlot(): boolean {
 // 60 seconds together. Returns the video files and the frame count of the joined video.
 // "Make a longer video" (FRG-56) uses it too.
 export async function prepareJoin(clips: Job[]): Promise<{ files: string[]; totalFrames: number }> {
+  if ((await Promise.all(clips.map(isAvatarJob))).includes(true)) throw new HttpError(400, AVATAR_JOIN_REFUSED);
   if (clips.length < 2) throw new HttpError(400, "This clip is not part of a chain. Extend it first, then join.");
   if (clips.length > MAX_CLIPS) {
     throw new HttpError(400, `This chain has ${clips.length} clips. Join works for at most ${MAX_CLIPS} clips.`);

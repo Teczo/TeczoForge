@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import Media, { outputKind } from "./Media";
+import Media, { outputKind, useAvatarCheck } from "./Media";
 import { confirmResearchOnly } from "./PresetBadges";
 import SendToMenu from "./SendToMenu";
 import { CardForm } from "./Board";
@@ -29,6 +29,7 @@ type Card = {
   error: string | null;
   imageUrl: string | null;
   outputKind?: string; // image, video, audio or 3d (FRG-29). Missing on older jobs.
+  audioUsed?: string; // An avatar video has sound (FRG-87).
   progress: Progress | null;
   inputFiles?: string[]; // Kept start images, "data/inputs/<name>" (FRG-25).
 };
@@ -46,6 +47,7 @@ export default function ChatCard({ card: ref, presets, onOpenInGenerate }: ChatC
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState<FormState | null>(null);
+  const isAvatar = useAvatarCheck();
 
   async function load() {
     try {
@@ -131,7 +133,7 @@ export default function ChatCard({ card: ref, presets, onOpenInGenerate }: ChatC
       {active && <ProgressView progress={card.progress} onCancel={null} cancelling={false} />}
       {card?.status === "done" && card.imageUrl && (
         <div className="chat-card-result">
-          <Media url={card.imageUrl} kind={outputKind(card)} mode="full" alt={prompt} />
+          <Media url={card.imageUrl} kind={outputKind(card)} mode="full" alt={prompt} sound={isAvatar(card)} />
         </div>
       )}
       {problem && <p className="message error">{problem}</p>}

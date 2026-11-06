@@ -25,9 +25,10 @@ export function loadPresets(): Promise<Preset[]> {
 
 const OFFLINE = "Could not reach the backend. Make sure it is running, then try again.";
 
-// Can this video be extended? Only if its preset takes a start image (FRG-54).
+// Can this video be extended? Only if its preset takes a start image (FRG-54). An avatar video
+// cannot: the new clip and joining would lose its sound (FRG-87).
 function canExtend(presets: Preset[], presetId: string | null | undefined): boolean {
-  return presets.some((p) => p.id === presetId && p.inputs.some((input) => input.kind === "image"));
+  return presets.some((p) => p.id === presetId && p.type !== "avatar" && p.inputs.some((input) => input.kind === "image"));
 }
 
 // "Extend" (FRG-54): the backend saves the clip's last frame as a start image and answers with the

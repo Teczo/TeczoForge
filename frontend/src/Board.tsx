@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { DragEvent, FormEvent } from "react";
-import Media, { outputKind } from "./Media";
+import Media, { outputKind, useAvatarCheck } from "./Media";
 import SendToMenu from "./SendToMenu";
 import { defaultValues, Field, ImageBox, ProgressView, startFormValues, toInputs } from "./Generate";
 import PresetBadges, { confirmResearchOnly } from "./PresetBadges";
@@ -29,6 +29,7 @@ type Card = {
   error: string | null;
   imageUrl: string | null;
   outputKind?: string; // image, video, audio or 3d (FRG-29). Missing on older jobs.
+  audioUsed?: string; // An avatar video has sound (FRG-87).
   createdBy: string | null;
   progress?: Progress | null;
 };
@@ -337,6 +338,8 @@ function CardView(props: CardViewProps) {
   const isDraft = card.status === "draft";
   const prompt = String(card.inputs.prompt ?? "");
   const shortPrompt = prompt.length > PROMPT_PREVIEW_LENGTH ? `${prompt.slice(0, PROMPT_PREVIEW_LENGTH)}...` : prompt;
+  const isAvatar = useAvatarCheck();
+  const avatar = isAvatar(card); // An avatar video gets the player with sound (FRG-87).
 
   return (
     <article
@@ -347,8 +350,8 @@ function CardView(props: CardViewProps) {
     >
       {card.status === "done" && card.imageUrl && (
         <div className="board-thumb">
-          <Media url={card.imageUrl} kind={outputKind(card)} mode="thumbnail" alt={prompt} />
-          {outputKind(card) === "video" && (
+          <Media url={card.imageUrl} kind={outputKind(card)} mode={avatar ? "full" : "thumbnail"} alt={prompt} sound={avatar} />
+          {outputKind(card) === "video" && !avatar && (
             <span className="video-tag">
               <Play size={10} className="fill-current" /> Video
             </span>

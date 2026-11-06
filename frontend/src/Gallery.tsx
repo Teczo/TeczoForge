@@ -4,10 +4,10 @@ import PresetBadges from "./PresetBadges";
 import type { Attachment } from "./Chat";
 import type { Project } from "./App";
 import { MoveToProject } from "./ProjectDialogs";
-import Media, { outputKind } from "./Media";
+import Media, { outputKind, useAvatarCheck } from "./Media";
 import SendToMenu, { ExtendButton } from "./SendToMenu";
 import ChainView from "./ChainView";
-import { ArrowLeft, ArrowRight, Download, Folder, MessageSquare, Play, Repeat } from "lucide-react";
+import { ArrowLeft, ArrowRight, Download, Folder, MessageSquare, Play, Repeat, Volume2 } from "lucide-react";
 
 // How many results the gallery shows: the newest ones.
 const GALLERY_LIMIT = 100;
@@ -25,7 +25,10 @@ type Job = {
   durationMs: number;
   createdAt: string;
   createdBy?: string | null; // Missing on jobs from before team logins (FRG-16).
-  inputFiles?: string[]; // Kept start images, for example "data/inputs/<name>" (FRG-25).
+  inputFiles?: string[]; // Kept start images and voices, for example "data/inputs/<name>" (FRG-25, FRG-84).
+  audioOriginal?: string; // The voice the user picked (FRG-85).
+  audioUsed?: string; // The voice fitted to the video, a file in data/inputs (FRG-85).
+  audioCut?: boolean; // The voice was longer than the video (FRG-85).
   sourceJobId?: string; // "Send to": the job whose result is the start image (FRG-26).
   parentJobId?: string; // "Extend": the clip this one continues from its last frame (FRG-54).
   chainRootId?: string; // The first clip of its chain (FRG-54). Set on a first clip once it is extended.
@@ -67,6 +70,7 @@ export default function Gallery({ onUseAgain, onUseInChat, openJobId = null, pro
   const [notice, setNotice] = useState<string | null>(null); // For example "Moved to Client X." (FRG-43)
   const [selected, setSelected] = useState<Job | null>(null);
   const projectId = project === undefined ? undefined : (project?.id ?? null);
+  const isAvatar = useAvatarCheck();
 
   // Load the job history when the page opens, and again when the project changes (FRG-41).
   useEffect(() => {
@@ -179,7 +183,7 @@ export default function Gallery({ onUseAgain, onUseInChat, openJobId = null, pro
               <Media url={job.imageUrl!} kind={outputKind(job)} mode="thumbnail" alt={String(job.inputs.prompt ?? "")} />
               {outputKind(job) === "video" && (
                 <span className="video-tag">
-                  <Play size={10} className="fill-current" /> {job.sourceJobIds ? `Joined (${job.sourceJobIds.length} clips)` : "Video"}
+                  {isAvatar(job) ? <Volume2 size={10} aria-label="With sound" /> : <Play size={10} className="fill-current" />} {job.sourceJobIds ? `Joined (${job.sourceJobIds.length} clips)` : "Video"}
                 </span>
               )}
               <span className="tile-info">
@@ -217,6 +221,11 @@ function Detail({ job, onBack, onUseAgain, onUseInChat, onSendToGenerate, projec
   const { prompt, seed, width, height } = job.inputs;
   const [chatError, setChatError] = useState<string | null>(null);
   const [moving, setMoving] = useState(false);
+  const isAvatar = useAvatarCheck();
+  const avatar = isAvatar(job);
+  // An avatar job (FRG-87): inputFiles has both the photo and the voice.
+  const photos = (job.inputFiles ?? []).filter((file) => /\.(png|jpe?g|webp)$/i.test(file));
+  const voice = job.audioUsed ?? job.audioOriginal;
 
   // "Move to project" (FRG-43): only this job's project changes. Its file stays where it is.
   async function moveTo(project: Project): Promise<string | null> {
@@ -284,7 +293,24 @@ function Detail({ job, onBack, onUseAgain, onUseInChat, onSendToGenerate, projec
       </div>
       <div className="detail">
         <div className="detail-media panel">
-          {job.inputFiles?.length ? (
+          {avatar ? (
+            // Photo + Voice -> Video (FRG-87).
+            <div className="start-result">
+              <figure>
+                {photos.map((file) => (
+                  <img key={file} src={inputUrl(file)} alt="Photo" />
+                ))}
+                {voice && <audio className="mt-2 h-9 w-full" src={inputUrl(voice)} controls preload="metadata" />}
+                {job.audioCut && <p className="preset-note">The voice was cut to fit the video.</p>}
+                <figcaption>Photo + Voice</figcaption>
+              </figure>
+              <ArrowRight size={26} />
+              <figure>
+                <Media url={job.imageUrl!} kind={outputKind(job)} mode="full" alt={String(prompt ?? "")} sound />
+                <figcaption>Video</figcaption>
+              </figure>
+            </div>
+          ) : job.inputFiles?.length ? (
             // A job with a start image: show Start image -> Result.
             <div className="start-result">
               <figure>
@@ -420,7 +446,7 @@ function Detail({ job, onBack, onUseAgain, onUseInChat, onSendToGenerate, projec
         </div>
       </div>
       {/* A clip in a chain made with "Extend" (FRG-55). ChainView shows nothing for a single clip. */}
-      {job.id && (job.parentJobId || job.chainRootId) && <ChainView jobId={job.id} onOpenInGenerate={onSendToGenerate} />}
+      {job.id && !avatar && (job.parentJobId || job.chainRootId) && <ChainView jobId={job.id} onOpenInGenerate={onSendToGenerate} />}
     </>
   );
 }
