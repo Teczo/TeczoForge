@@ -92,6 +92,9 @@ export async function extendHandler(req: Request, res: Response) {
     const parent = await findVideoJob(String(req.params.id));
     // Check the preset before the frame is saved, so a refused clip leaves no file behind.
     const { preset } = await loadPreset(parent.presetId);
+    if (preset.type === "avatar" || parent.audioUsed) {
+      throw new HttpError(400, "Avatar videos cannot be extended. The new clip would not keep the voice.");
+    }
     const imageInput = preset.inputs.find((input) => input.kind === "image");
     if (!imageInput) {
       throw new HttpError(400, `This video was made with "${preset.name}", which has no start image, so it cannot be extended.`);

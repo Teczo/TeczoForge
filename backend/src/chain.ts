@@ -6,7 +6,7 @@ import type { Job } from "./db.js";
 import { findAnyJob, finish, follow, isActive, jobProjectId, newJob, onResumeChain, queueJob, save, sendError, withLock } from "./jobs.js";
 import type { LiveJob } from "./jobs.js";
 import { extractLastFrame, requireFfmpeg } from "./lastFrame.js";
-import { joinInto, prepareJoin, takeJoinSlot } from "./join.js";
+import { AVATAR_JOIN_REFUSED, joinInto, prepareJoin, takeJoinSlot } from "./join.js";
 
 // "Make a longer video" (FRG-56). The user picks a total length once (preset.json "totalLengths").
 // One chain job is saved first, with its state in MongoDB (job.chain). Then the backend:
@@ -49,6 +49,7 @@ export async function createChainHandler(req: Request, res: Response) {
   try {
     const { presetId, inputs, totalSeconds, prompts, projectId } = req.body ?? {};
     const { preset, workflow } = await loadPreset(presetId);
+    if (preset.type === "avatar") throw new HttpError(400, AVATAR_JOIN_REFUSED);
     const lengths = preset.totalLengths ?? [];
     if (lengths.length === 0) throw new HttpError(400, `The preset "${preset.name}" cannot make a longer video.`);
     if (!lengths.includes(totalSeconds)) throw new HttpError(400, `Total length must be ${orList(lengths)} seconds.`);
