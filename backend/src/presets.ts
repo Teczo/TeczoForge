@@ -74,6 +74,9 @@ export type Preset = {
   // "Make a longer video" (FRG-56): the total lengths in seconds the user can choose, for example
   // [10, 15, 20]. Needs an image input and an input with "unit": "seconds" (the clip length).
   totalLengths?: number[];
+  // Make the voice fit the video (FRG-85): the audio input, and the real video length of the
+  // workflow in seconds. A longer voice is cut, and a shorter one gets silence at the end.
+  audioFit?: { input: string; seconds: number };
 };
 
 // A ComfyUI workflow in API format: node id -> node.
@@ -175,6 +178,14 @@ function checkPreset(folder: string, raw: Preset): Preset {
     ) {
       warn(`"totalLengths" must be a list of whole numbers of seconds from 1 to ${MAX_TOTAL_LENGTH}. It is ignored.`);
       delete preset.totalLengths;
+    }
+  }
+  if (preset.audioFit !== undefined) {
+    const { input, seconds } = (preset.audioFit ?? {}) as { input?: unknown; seconds?: unknown };
+    const hasInput = preset.inputs.some((item) => item.key === input && item.kind === "audio");
+    if (!hasInput || typeof seconds !== "number" || !Number.isFinite(seconds) || seconds <= 0 || seconds > MAX_TOTAL_LENGTH) {
+      warn(`"audioFit" must be like { "input": "<an audio input>", "seconds": 4.875 }, with seconds above 0, up to ${MAX_TOTAL_LENGTH}. It is ignored.`);
+      delete preset.audioFit;
     }
   }
   return preset;

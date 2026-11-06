@@ -7,7 +7,7 @@ import { HttpError } from "./httpError.js";
 import { uploadImage } from "./comfyui.js";
 import { audioInfo, imageInfo, keepInput } from "./inputs.js";
 import { OUTPUTS_DIR, sendError } from "./jobs.js";
-import { requireFfmpeg, runFfmpeg } from "./lastFrame.js";
+import { durationInLog, requireFfmpeg, runFfmpeg } from "./lastFrame.js";
 
 // Biggest picture or voice file we accept.
 export const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
@@ -56,11 +56,7 @@ async function audioSeconds(data: Buffer, fileName: string): Promise<number | nu
   const tempPath = path.join(tmpdir(), fileName);
   await writeFile(tempPath, data);
   try {
-    const log = await runFfmpeg(["-nostdin", "-hide_banner", "-i", tempPath, "-t", "0", "-f", "null", "-"]);
-    const match = /Duration: (\d+):(\d+):(\d+(?:\.\d+)?)/.exec(log);
-    if (!match) return null;
-    const seconds = Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3]);
-    return seconds > 0 ? seconds : null;
+    return durationInLog(await runFfmpeg(["-nostdin", "-hide_banner", "-i", tempPath, "-t", "0", "-f", "null", "-"]));
   } catch (error) {
     console.warn(`Warning: ffmpeg could not read an uploaded voice file. ${(error as Error).message}`);
     return null;

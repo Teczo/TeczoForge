@@ -55,6 +55,7 @@ Backend (Express, 127.0.0.1:4000) ──► ComfyUI (127.0.0.1:8188)   HTTP + on
   | `experimental` | `true` | A small **Test** label. |
   | `stages` | `2` | Sampler passes (1 to 10, default 1). With 2 or more, progress shows **Pass 1 of 2** and one bar for the whole job that never goes back. A pass starts when ComfyUI reports progress from another node. |
   | `estimatedSeconds` | `270` | A typical run time (1 to 7200). Shown as "Usually takes about 4 min 30 s". The time estimate (FRG-76) uses it when the preset has no finished jobs yet. |
+  | `audioFit` | `{ "input": "audio", "seconds": 4.875 }` | Makes the voice fit the video (FRG-85). `seconds` is the real video length of the workflow. A longer voice is cut and the start of the job answers with a warning; a shorter one gets silence at the end. The job saves `audioOriginal`, `audioUsed` and `audioCut`. |
 
   On inputs: `min`, `max` and `step` (kind `number` only), and `options` (kind `number` or `text`),
   for example `"options": [{ "value": 768, "label": "Small" }, { "value": 1024, "label": "Medium" }]`.
