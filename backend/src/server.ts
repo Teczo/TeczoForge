@@ -31,7 +31,7 @@ import { createChainHandler } from "./chain.js";
 import { extendHandler, sendToHandler, usedInHandler } from "./sendTo.js";
 import { listPresets } from "./presets.js";
 import { createProjectHandler, listProjectsHandler, updateProjectHandler } from "./projects.js";
-import { IMAGE_TYPES, MAX_UPLOAD_BYTES, uploadHandler, useOutputHandler } from "./upload.js";
+import { AUDIO_TYPES, IMAGE_TYPES, MAX_UPLOAD_BYTES, uploadAudioHandler, uploadHandler, useOutputHandler } from "./upload.js";
 import { checkSessionSecret, loginHandler, logoutHandler, meHandler, requireLogin } from "./auth.js";
 import { checkGameFileHandler } from "./gameFile.js";
 import { checkPackFileHandler } from "./packFile.js";
@@ -121,6 +121,8 @@ app.get("/api/presets", async (_req, res) => {
 
 // Upload a picture for an "image" input. The body is the picture itself (no extra package needed).
 app.post("/api/upload", express.raw({ type: IMAGE_TYPES, limit: MAX_UPLOAD_BYTES }), uploadHandler);
+// Upload a voice file for an "audio" input (FRG-84). The same way: the body is the file itself.
+app.post("/api/upload-audio", express.raw({ type: AUDIO_TYPES, limit: MAX_UPLOAD_BYTES }), uploadAudioHandler);
 
 // Jobs (see jobs.ts): start one from a preset and the user's values (answers at once),
 // a page of the job history, one job with its progress, and cancel my own job.
@@ -231,8 +233,16 @@ app.use(
     },
   }),
 );
-// Serve kept start images from data/inputs (FRG-25). Behind the login, like outputs.
-app.use("/api/inputs", express.static(INPUTS_DIR));
+// Serve kept start images and voice files from data/inputs (FRG-25, FRG-84). Behind the login, like outputs.
+app.use(
+  "/api/inputs",
+  express.static(INPUTS_DIR, {
+    setHeaders: (res, filePath) => {
+      const contentType = contentTypeOf(filePath);
+      if (contentType) res.setHeader("Content-Type", contentType);
+    },
+  }),
+);
 // "Use in chat": copy a finished picture into data/inputs as a start image (FRG-25).
 app.post("/api/inputs/from-output", express.json(), useOutputHandler);
 

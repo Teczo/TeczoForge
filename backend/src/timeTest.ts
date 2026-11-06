@@ -64,7 +64,10 @@ async function addFollowUpCards(picture: Job) {
   // Not a Time test picture, or the follow-up cards were already added, or the test was ended.
   if (!batch || batch.cardIds.length > 1 || batch.state === "ended") return;
 
-  const presets = (await listPresets()).filter((preset) => preset.inputs.some((input) => input.kind === "image"));
+  // A preset that needs a voice file is left out: the Time test has no voice to give it (FRG-84).
+  const presets = (await listPresets()).filter(
+    (preset) => preset.inputs.some((input) => input.kind === "image") && !preset.inputs.some((input) => input.kind === "audio"),
+  );
   const cardIds: string[] = [];
   for (const preset of presets) {
     try {

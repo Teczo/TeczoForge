@@ -2,13 +2,13 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { HttpError } from "./httpError.js";
 import { getInputImage, uploadImage } from "./comfyui.js";
-import { buildWorkflow, IMAGE_NAME_PATTERN } from "./presets.js";
+import { AUDIO_NAME_PATTERN, buildWorkflow, IMAGE_NAME_PATTERN } from "./presets.js";
 import type { Preset, Workflow } from "./presets.js";
 
-// Start images (FRG-25, audit R4).
-// Every uploaded picture is also kept in data/inputs, with the same name it has in ComfyUI.
+// Start images (FRG-25, audit R4) and voice files (FRG-84).
+// Every uploaded file is also kept in data/inputs, with the same name it has in ComfyUI.
 // ComfyUI's input folder may be cleaned, so before a job is queued the backend checks that the
-// picture is still there, and uploads it again from data/inputs if it is not.
+// file is still there, and uploads it again from data/inputs if it is not.
 
 // data/inputs at the root of the repo.
 export const INPUTS_DIR = path.join(import.meta.dirname, "..", "..", "data", "inputs");
@@ -61,9 +61,28 @@ export function imageInfo(data: Buffer): ImageInfo | null {
   return null;
 }
 
-// The path of a kept start image, after checking the name (no folders, no "..").
+// What kind of sound file this is, read from the first bytes (FRG-84). Returns null if it is not
+// a WAV, FLAC or MP3 file, so a renamed file of another kind is refused.
+export function audioInfo(data: Buffer): { extension: "wav" | "flac" | "mp3"; mediaType: string } | null {
+  if (data.length >= 12 && data.subarray(0, 4).toString("latin1") === "RIFF" && data.subarray(8, 12).toString("latin1") === "WAVE") {
+    return { extension: "wav", mediaType: "audio/wav" };
+  }
+  if (data.length >= 4 && data.subarray(0, 4).toString("latin1") === "fLaC") {
+    return { extension: "flac", mediaType: "audio/flac" };
+  }
+  // MP3: an ID3 tag, or straight away a frame start.
+  if (data.length >= 3 && data.subarray(0, 3).toString("latin1") === "ID3") {
+    return { extension: "mp3", mediaType: "audio/mpeg" };
+  }
+  if (data.length >= 2 && data[0] === 0xff && [0xfb, 0xf3, 0xf2].includes(data[1])) {
+    return { extension: "mp3", mediaType: "audio/mpeg" };
+  }
+  return null;
+}
+
+// The path of a kept start image or voice file, after checking the name (no folders, no "..").
 export function inputFilePath(name: string): string {
-  if (!IMAGE_NAME_PATTERN.test(name)) throw new HttpError(400, "This is not a valid image name.");
+  if (!IMAGE_NAME_PATTERN.test(name) && !AUDIO_NAME_PATTERN.test(name)) throw new HttpError(400, "This is not a valid file name.");
   return path.join(INPUTS_DIR, name);
 }
 
@@ -82,21 +101,22 @@ export async function readKeptInput(name: string): Promise<Buffer | null> {
   }
 }
 
-// The kept start images of a job, as paths from the repo root, for example "data/inputs/teczoforge-1-a1b2c3.png".
+// The kept start images and voice files of a job, as paths from the repo root, for example
+// "data/inputs/teczoforge-1-a1b2c3.png".
 export async function inputFilesFor(preset: Preset, values: Record<string, unknown>): Promise<string[]> {
   const files: string[] = [];
   for (const input of preset.inputs) {
     const value = values[input.key];
-    if (input.kind === "image" && typeof value === "string" && (await readKeptInput(value))) {
+    if ((input.kind === "image" || input.kind === "audio") && typeof value === "string" && (await readKeptInput(value))) {
       files.push(`data/inputs/${value}`);
     }
   }
   return files;
 }
 
-// Make sure ComfyUI has this picture in its input folder. Returns the name to use in the workflow.
+// Make sure ComfyUI has this file in its input folder. Returns the name to use in the workflow.
 // Missing in ComfyUI: upload it again from data/inputs. Missing in data/inputs: keep a copy now.
-async function ensureInComfyUI(name: string): Promise<string> {
+async function ensureInComfyUI(name: string, label: string): Promise<string> {
   const inComfyUI = await getInputImage(name);
   if (inComfyUI) {
     if (!(await readKeptInput(name))) await keepInput(name, inComfyUI);
@@ -104,15 +124,15 @@ async function ensureInComfyUI(name: string): Promise<string> {
   }
   const kept = await readKeptInput(name);
   if (!kept) {
-    throw new HttpError(400, `The start image "${name}" is no longer in ComfyUI and there is no saved copy. Pick the image again.`);
+    throw new HttpError(400, `The ${label} "${name}" is no longer in ComfyUI and there is no saved copy. Pick the file again.`);
   }
-  const info = imageInfo(kept);
-  console.log(`Start image "${name}" was missing in ComfyUI. Uploading it again from data/inputs.`);
-  return uploadImage(kept, name, info?.mediaType ?? "application/octet-stream");
+  const mediaType = imageInfo(kept)?.mediaType ?? audioInfo(kept)?.mediaType ?? "application/octet-stream";
+  console.log(`The ${label} "${name}" was missing in ComfyUI. Uploading it again from data/inputs.`);
+  return uploadImage(kept, name, mediaType);
 }
 
-// Before a job is queued: make sure every start image is in ComfyUI. If ComfyUI gave a picture
-// a new name, build the workflow again with that name.
+// Before a job is queued: make sure every start image and voice file is in ComfyUI. If ComfyUI gave
+// a file a new name, build the workflow again with that name.
 export async function ensureStartImages(
   preset: Preset,
   workflow: Workflow,
@@ -122,8 +142,8 @@ export async function ensureStartImages(
   let renamed = false;
   for (const input of preset.inputs) {
     const value = values[input.key];
-    if (input.kind !== "image" || typeof value !== "string") continue;
-    const name = await ensureInComfyUI(value);
+    if ((input.kind !== "image" && input.kind !== "audio") || typeof value !== "string") continue;
+    const name = await ensureInComfyUI(value, input.kind === "audio" ? "voice file" : "start image");
     if (name !== value) {
       values[input.key] = name;
       renamed = true;
