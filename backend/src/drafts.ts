@@ -2,9 +2,10 @@ import type { Request, Response } from "express";
 import { HttpError } from "./httpError.js";
 import { buildWorkflow, loadPreset } from "./presets.js";
 import { ensureStartImages, inputFilesFor } from "./inputs.js";
+import { fitVoice } from "./audioFit.js";
 import { claimDraft, deleteDraft, findBoardJob, insertDraft, listBoardJobs, updateDraft } from "./db.js";
 import type { DraftColumn, Job } from "./db.js";
-import { activeJobs, follow, JOB_ID_PATTERN, queueJob, sendError } from "./jobs.js";
+import { activeJobs, follow, JOB_ID_PATTERN, queueJob, sendError, startWarning } from "./jobs.js";
 import type { LiveJob } from "./jobs.js";
 import { projectForNewItem } from "./projects.js";
 
@@ -198,6 +199,7 @@ export async function runDraft(id: string): Promise<{ live: LiveJob; failedStatu
   //    Start images must be in ComfyUI's input folder; a missing one is uploaded again (FRG-25).
   let built;
   let inputFiles: string[];
+  let fitted;
   try {
     const { preset, workflow } = await loadPreset(draft.presetId);
     const saved = (draft.inputs ?? {}) as Record<string, unknown>;
@@ -206,6 +208,7 @@ export async function runDraft(id: string): Promise<{ live: LiveJob; failedStatu
     }
     built = await ensureStartImages(preset, workflow, buildWorkflow(preset, workflow, draft.inputs));
     inputFiles = await inputFilesFor(preset, built.usedValues);
+    fitted = await fitVoice(preset, workflow, built); // Make the voice fit the video (FRG-85).
   } catch (error) {
     if (error instanceof HttpError) await updateDraft(id, { error: error.message });
     throw error;
@@ -217,6 +220,7 @@ export async function runDraft(id: string): Promise<{ live: LiveJob; failedStatu
     status: "queued",
     inputs: built.usedValues,
     ...(inputFiles.length > 0 ? { inputFiles } : {}),
+    ...fitted.fields,
     promptId: null,
     error: null,
     createdAt: new Date(), // The job starts now. This also keeps the time taken right.
@@ -225,7 +229,8 @@ export async function runDraft(id: string): Promise<{ live: LiveJob; failedStatu
 
   // 3. Send it to ComfyUI.
   const live = follow(job);
-  return { live, failedStatus: await queueJob(live, built.workflow) };
+  live.voiceWarning = fitted.warning;
+  return { live, failedStatus: await queueJob(live, fitted.workflow) };
 }
 
 // POST /api/drafts/<id>/run
@@ -235,10 +240,10 @@ export async function runDraftHandler(req: Request, res: Response) {
   try {
     const { live, failedStatus } = await runDraft(checkId(req));
     if (failedStatus !== null) {
-      res.status(failedStatus).json({ jobId: live.job.id, error: live.job.error, warning: live.warning });
+      res.status(failedStatus).json({ jobId: live.job.id, error: live.job.error, warning: startWarning(live) });
       return;
     }
-    res.json({ jobId: live.job.id, warning: live.warning });
+    res.json({ jobId: live.job.id, warning: startWarning(live) });
   } catch (error) {
     sendError(res, error);
   }

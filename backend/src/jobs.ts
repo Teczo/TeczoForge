@@ -5,6 +5,7 @@ import type { Request, Response } from "express";
 import { HttpError } from "./httpError.js";
 import { buildWorkflow, loadPreset } from "./presets.js";
 import { ensureStartImages, inputFilesFor } from "./inputs.js";
+import { fitVoice } from "./audioFit.js";
 import type { Workflow } from "./presets.js";
 import { downloadOutput, getFinishedOutput, getQueue, interruptJob, queueWorkflow, removeFromQueue } from "./comfyui.js";
 import { findActiveJobs, findJob, knownUnsortedProjectId, listJobs, markChainRoot, moveJobToProject, safeMessage, saveJob } from "./db.js";
@@ -65,6 +66,7 @@ export type LiveJob = {
   lastAnswerAt: number; // When ComfyUI last answered about it.
   finishing: boolean; // Copying the result into data/outputs.
   warning: string | undefined; // Set when the last save to MongoDB did not work.
+  voiceWarning?: string; // Set when the voice was cut to fit the video (FRG-85).
   saving: Promise<void>; // Saves run one after the other, so the last save has the newest status.
   stages: number; // Sampler passes, from preset.json (FRG-32). 1 until the preset is read.
   percent: number; // The highest percent shown so far, so the bar never goes back.
@@ -415,6 +417,7 @@ export async function newJob(request: {
   let inputFiles: string[];
   let project: string;
   let parent: Job | undefined;
+  let fitted;
   {
     const { preset, workflow } = await loadPreset(presetId);
     built = await ensureStartImages(preset, workflow, buildWorkflow(preset, workflow, inputs ?? {}));
@@ -427,6 +430,8 @@ export async function newJob(request: {
     }
     // A job made from another job's result goes into that job's project (FRG-26, FRG-54).
     project = await jobProjectId(projectId, sourceJobId ?? parentJobId);
+    // Last, so a refused job leaves no fitted voice behind (FRG-85).
+    fitted = await fitVoice(preset, workflow, built);
   }
 
   // 2. Save the job first, so it is not lost if the backend stops.
@@ -447,11 +452,18 @@ export async function newJob(request: {
     ...(sourceJobId ? { sourceJobId } : {}),
     // The first clip of a chain is its own chain root (FRG-54).
     ...(parent ? { parentJobId: parent.id, chainRootId: parent.chainRootId ?? parent.id } : {}),
+    ...fitted.fields,
   });
+  live.voiceWarning = fitted.warning;
   await save(live);
   // The parent was the first clip: mark it, also in the copy in memory if it is still there.
   if (parent && !parent.chainRootId && (await markChainRoot(parent.id))) parent.chainRootId = parent.id;
-  return { live, workflow: built.workflow };
+  return { live, workflow: fitted.workflow };
+}
+
+// The "warning" of the answer that starts a job: the voice was cut (FRG-85), and/or the save failed.
+export function startWarning(live: LiveJob): string | undefined {
+  return [live.voiceWarning, live.warning].filter(Boolean).join(" ") || undefined;
 }
 
 // Send a saved, queued job to ComfyUI. If ComfyUI does not accept it, the job fails, and the
@@ -473,10 +485,10 @@ export async function queueJob(live: LiveJob, workflow: Workflow): Promise<numbe
 export async function sendToComfyUI(live: LiveJob, workflow: Workflow, res: Response) {
   const status = await queueJob(live, workflow);
   if (status !== null) {
-    res.status(status).json({ jobId: live.job.id, error: live.job.error, warning: live.warning });
+    res.status(status).json({ jobId: live.job.id, error: live.job.error, warning: startWarning(live) });
     return;
   }
-  res.json({ jobId: live.job.id, warning: live.warning });
+  res.json({ jobId: live.job.id, warning: startWarning(live) });
 }
 
 // Why a finished job cannot be cancelled.
