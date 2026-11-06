@@ -99,6 +99,7 @@ export type PresetSummary = {
   stages: number;
   estimatedSeconds: number | null;
   totalLengths: number[]; // Empty: the preset makes single clips only (FRG-56).
+  audioFit: { input: string; seconds: number } | null; // The page warns before Generate if a voice is longer (FRG-86).
   inputs: {
     key: string;
     label: string;
@@ -307,6 +308,7 @@ export async function listPresets(): Promise<PresetSummary[]> {
         stages: preset.stages ?? 1,
         estimatedSeconds: preset.estimatedSeconds ?? null,
         totalLengths: preset.totalLengths ?? [],
+        audioFit: preset.audioFit ?? null,
         inputs: preset.inputs.map(({ key, label, kind, default: defaultValue, min, max, step, options, unit, note }) => ({
           key,
           label,
