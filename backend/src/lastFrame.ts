@@ -52,6 +52,14 @@ export function runFfmpeg(
   });
 }
 
+// The length in seconds from the "Duration:" line ffmpeg writes, or null if there is none (FRG-84, FRG-85).
+export function durationInLog(log: string): number | null {
+  const match = /Duration: (\d+):(\d+):(\d+(?:\.\d+)?)/.exec(log);
+  if (!match) return null;
+  const seconds = Number(match[1]) * 3600 + Number(match[2]) * 60 + Number(match[3]);
+  return seconds > 0 ? seconds : null;
+}
+
 // The video file of a finished job, after checking that it is a plain file name in data/outputs.
 export function videoPathOf(imageUrl: string | null): string {
   const fileName = (imageUrl ?? "").replace(/^\/api\/outputs\//, "");

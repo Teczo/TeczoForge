@@ -10,6 +10,7 @@
   "type": "avatar",
   "fps": 16,
   "estimatedSeconds": 32,
+  "audioFit": { "input": "audio", "seconds": 4.875 },
   "inputs": [
     { "key": "image", "label": "Face photo", "kind": "image", "node": "52", "field": "image" },
     { "key": "audio", "label": "Voice", "kind": "audio", "node": "58", "field": "audio" },
