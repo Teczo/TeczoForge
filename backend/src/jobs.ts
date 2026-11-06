@@ -95,7 +95,7 @@ export function follow(job: Job): LiveJob {
   liveJobs.set(job.id, live);
   // How many sampler passes this preset makes. Not waited for: progress only needs it later.
   loadPreset(job.presetId)
-    .then(({ preset }) => (live.stages = preset.stages ?? 1))
+    .then(({ preset }) => (live.stages = job.stages ?? preset.stages ?? 1))
     .catch(() => {});
   return live;
 }

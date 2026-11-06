@@ -77,7 +77,14 @@ export type Preset = {
   // Make the voice fit the video (FRG-85): the audio input, and the real video length of the
   // workflow in seconds. A longer voice is cut, and a shorter one gets silence at the end.
   audioFit?: { input: string; seconds: number };
+  // One exported workflow per video length (FRG-89). A value cannot add nodes, so "input" (a number
+  // input with options and no node or field) only picks the file. Its value 0 is "Fit to voice".
+  // stages: the sampler passes of that file. Default 1.
+  workflowFiles?: { input: string; files: WorkflowFile[] };
+  workflows?: Map<number, Workflow>; // The loaded files, by value. Not in preset.json; set by loadWorkflowFiles.
 };
+
+export type WorkflowFile = { value: number; file: string; seconds: number; stages?: number };
 
 // A ComfyUI workflow in API format: node id -> node.
 export type Workflow = Record<string, { inputs: Record<string, unknown> }>;
@@ -100,6 +107,8 @@ export type PresetSummary = {
   estimatedSeconds: number | null;
   totalLengths: number[]; // Empty: the preset makes single clips only (FRG-56).
   audioFit: { input: string; seconds: number } | null; // The page warns before Generate if a voice is longer (FRG-86).
+  // The lengths to choose from (FRG-89). The file names stay in the backend.
+  workflowFiles: { input: string; files: { value: number; seconds: number }[] } | null;
   inputs: {
     key: string;
     label: string;
@@ -281,6 +290,69 @@ function checkSecondsInput(folder: string, input: PresetInput, fps: number | und
   return true;
 }
 
+// Load the files of "workflowFiles" (FRG-89). Any problem gives one warning, and the preset carries
+// on with only workflow.json, without the input that picks the file.
+async function loadWorkflowFiles(folder: string, folderPath: string, preset: Preset): Promise<void> {
+  const list = preset.workflowFiles;
+  if (list === undefined) return;
+  const problem = await workflowFilesProblem(folderPath, preset);
+  if (problem === null) return;
+  warnOnce(folder, `"workflowFiles": ${problem} Only workflow.json is used.`);
+  preset.inputs = preset.inputs.filter((input) => input.key !== list?.input);
+  delete preset.workflowFiles;
+  delete preset.workflows;
+}
+
+// Checks every file and fills preset.workflows. Returns what is wrong, or null.
+async function workflowFilesProblem(folderPath: string, preset: Preset): Promise<string | null> {
+  const { input: key, files } = preset.workflowFiles!;
+  const picker = preset.inputs.find((input) => input.key === key);
+  if (!picker || picker.kind !== "number" || !picker.options || picker.node !== undefined || picker.field !== undefined) {
+    return `"${key}" must be a number input with options and no node or field.`;
+  }
+  if (!preset.audioFit) return `it needs "audioFit".`;
+  if (!Array.isArray(files) || files.length === 0) return `"files" must be a list.`;
+  const workflows = new Map<number, Workflow>();
+  for (const entry of files) {
+    if (!Number.isInteger(entry?.value) || entry.value < 1 || !/^[A-Za-z0-9_-]+\.json$/.test(String(entry.file))) {
+      return `each file needs a "value" above 0 and a plain file name.`;
+    }
+    if (typeof entry.seconds !== "number" || entry.seconds <= 0 || entry.seconds > MAX_TOTAL_LENGTH) {
+      return `"${entry.file}" needs "seconds" above 0, up to ${MAX_TOTAL_LENGTH}.`;
+    }
+    if (entry.stages !== undefined && (!Number.isInteger(entry.stages) || entry.stages < 1 || entry.stages > MAX_STAGES)) {
+      return `"${entry.file}" has bad "stages".`;
+    }
+    let workflow: Workflow;
+    try {
+      workflow = JSON.parse(await readFile(path.join(folderPath, entry.file), "utf8"));
+    } catch {
+      return `"${entry.file}" is missing or is not valid JSON.`;
+    }
+    for (const input of preset.inputs) {
+      if (input.key === key) continue;
+      if (!workflow[input.node] || !(input.field in workflow[input.node].inputs)) {
+        return `"${entry.file}" has no node "${input.node}" field "${input.field}".`;
+      }
+    }
+    if (!workflow[preset.output?.node]) return `"${entry.file}" has no output node.`;
+    workflows.set(entry.value, workflow);
+  }
+  // Every button must have a file. 0 is "Fit to voice".
+  for (const option of picker.options) {
+    if (option.value !== 0 && !workflows.has(option.value as number)) return `the option ${option.value} has no file.`;
+  }
+  preset.workflows = workflows;
+  return null;
+}
+
+// "Fit to voice" (FRG-89): the shortest file that holds the voice. Too long for all: the longest.
+export function fileForVoice(files: WorkflowFile[], voiceSeconds: number | null): WorkflowFile {
+  const sorted = [...files].sort((a, b) => a.seconds - b.seconds);
+  if (voiceSeconds === null) return sorted.at(-1)!;
+  return sorted.find((file) => file.seconds >= voiceSeconds) ?? sorted.at(-1)!;
+}
+
 // Every folder in presets/ that has a preset.json and a workflow.json, sorted by name.
 // A broken folder is skipped with a warning in the log, so one bad preset does not hide the others.
 export async function listPresets(): Promise<PresetSummary[]> {
@@ -293,6 +365,7 @@ export async function listPresets(): Promise<PresetSummary[]> {
       const folderPath = path.join(PRESETS_DIR, folder.name);
       await access(path.join(folderPath, "workflow.json"));
       const preset = checkPreset(folder.name, JSON.parse(await readFile(path.join(folderPath, "preset.json"), "utf8")));
+      await loadWorkflowFiles(folder.name, folderPath, preset);
       presets.push({
         id: folder.name, // The folder name is the id used by POST /api/jobs.
         name: preset.name ?? folder.name,
@@ -309,6 +382,9 @@ export async function listPresets(): Promise<PresetSummary[]> {
         estimatedSeconds: preset.estimatedSeconds ?? null,
         totalLengths: preset.totalLengths ?? [],
         audioFit: preset.audioFit ?? null,
+        workflowFiles: preset.workflowFiles
+          ? { input: preset.workflowFiles.input, files: preset.workflowFiles.files.map(({ value, seconds }) => ({ value, seconds })) }
+          : null,
         inputs: preset.inputs.map(({ key, label, kind, default: defaultValue, min, max, step, options, unit, note }) => ({
           key,
           label,
@@ -347,15 +423,21 @@ export async function loadPreset(presetId: unknown): Promise<{ preset: Preset; w
     throw new HttpError(404, `Unknown preset: ${presetId}`);
   }
 
-  return { preset: checkPreset(presetId, JSON.parse(presetText)), workflow: JSON.parse(workflowText) };
+  const preset = checkPreset(presetId, JSON.parse(presetText));
+  await loadWorkflowFiles(presetId, folder, preset);
+  return { preset, workflow: JSON.parse(workflowText) };
 }
 
 // Check the user's values and put them into a copy of the workflow.
 // Also returns the values used, including defaults and the random seed.
+// With "workflowFiles" (FRG-89) the workflow is the chosen file: fileValue, else the value of the
+// input that picks it. "Fit to voice" (0) needs the voice length, so fitVoice passes fileValue;
+// until then the longest file is used to check the values.
 export function buildWorkflow(
   preset: Preset,
   workflow: Workflow,
   values: unknown,
+  fileValue?: number,
 ): { workflow: Workflow; usedValues: Record<string, string | number> } {
   if (typeof values !== "object" || values === null || Array.isArray(values)) {
     throw new HttpError(400, "inputs must be an object, for example { \"prompt\": \"a red car\" }.");
@@ -370,12 +452,20 @@ export function buildWorkflow(
     }
   }
 
-  const result: Workflow = structuredClone(workflow);
   const usedValues: Record<string, string | number> = {};
+  let source = workflow;
+  const list = preset.workflowFiles;
+  const picker = preset.inputs.find((input) => input.key === list?.input);
+  if (list && picker && preset.workflows) {
+    const chosen = fileValue ?? (checkValue(picker, userValues[picker.key]) as number);
+    source = preset.workflows.get(chosen === 0 ? fileForVoice(list.files, null).value : chosen) ?? workflow;
+  }
+  const result: Workflow = structuredClone(source);
 
   for (const input of preset.inputs) {
     const value = checkValue(input, userValues[input.key]);
     usedValues[input.key] = value;
+    if (input === picker) continue; // It only picks the file.
 
     // Node ids like "57:27" are plain text keys.
     const node = result[input.node];
