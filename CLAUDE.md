@@ -116,6 +116,7 @@ presets/text-to-image-basic/
 
 Rules:
 - In `preset.json`, `node` and `field` say where a value goes inside `workflow.json`.
+- Input kinds: `text`, `seed`, `number`, `image`, `audio` (FRG-84).
 - Node IDs can contain a colon, for example `57:27`. Treat them as plain text keys.
 - Adding a new preset must NOT need code changes. Only a new folder.
 - Jaya creates and tests workflows in ComfyUI. Do not invent workflow files or node IDs.
@@ -134,6 +135,7 @@ Rules:
    If ComfyUI is not running when you need it, stop and ask Jaya to start it.
 7. Do not delete anything inside `data/` without asking.
 8. Validate every user input in the backend before it goes into a workflow.
+   Audio uploads: WAV, MP3 or FLAC only, checked by the first bytes, at most 20 MB and 30 seconds.
 
 ## 8. Git rules
 
@@ -158,6 +160,7 @@ Follow these steps for EVERY ticket. This avoids merge conflicts.
 - Phase 3 (FRG-12 to FRG-14): image upload, image-to-video preset, video output.
 - Phase 4 (FRG-15 to FRG-17): use from other PCs, team login, remote access with Tailscale.
 - Later: text-to-video, image editing, upscaling, camera motion presets, consistent characters (LoRA), projects and folders.
+- Later: Avatar: recording a voice in the browser, text-to-speech.
 
 ## 10. Commands
 
