@@ -56,6 +56,9 @@ function modelNote(preset: PresetSummary): string {
 
 // The tool for one preset, or null if chat cannot fill all its inputs.
 function toolFor(preset: PresetSummary): Anthropic.Beta.BetaTool | null {
+  // Chat cannot get a voice file, so a preset that needs one has no tool (FRG-84).
+  if (preset.inputs.some((input) => input.kind === "audio")) return null;
+
   const name = TOOL_PREFIX + preset.id;
   if (name.length > MAX_TOOL_NAME_LENGTH) {
     console.warn(`Warning: preset "${preset.id}" has a name too long for a chat tool, so chat cannot use it.`);

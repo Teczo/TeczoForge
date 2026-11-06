@@ -40,16 +40,20 @@ function checkColumn(column: unknown): DraftColumn {
 // without a seed gets a new random seed each time it runs.
 // With allowEmptyText, a text input may still be empty (a "Send to" card, FRG-26): the user writes
 // it later with Edit. Running the card checks everything again, so it cannot run without it.
+// A voice file may always still be empty (FRG-84): runDraft refuses to run the card without one.
 async function checkInputs(presetId: unknown, inputs: unknown, allowEmptyText = false): Promise<Record<string, unknown>> {
   const { preset, workflow } = await loadPreset(presetId);
   const values = (inputs ?? {}) as Record<string, unknown>;
   let toCheck: unknown = values;
-  if (allowEmptyText && typeof values === "object" && !Array.isArray(values)) {
-    // Check the other values with a stand-in for each empty text.
+  if (typeof values === "object" && !Array.isArray(values)) {
+    // Check the other values with a stand-in for each empty text or voice file.
     const filled = { ...values };
     for (const input of preset.inputs) {
-      if (input.kind === "text" && (filled[input.key] ?? "") === "") {
+      if ((filled[input.key] ?? "") !== "") continue;
+      if (allowEmptyText && input.kind === "text") {
         filled[input.key] = input.options?.[0]?.value ?? "(to be written)"; // A text with choices (FRG-32).
+      } else if (input.kind === "audio") {
+        filled[input.key] = "voice-to-be-added.wav";
       }
     }
     toCheck = filled;
@@ -196,6 +200,10 @@ export async function runDraft(id: string): Promise<{ live: LiveJob; failedStatu
   let inputFiles: string[];
   try {
     const { preset, workflow } = await loadPreset(draft.presetId);
+    const saved = (draft.inputs ?? {}) as Record<string, unknown>;
+    if (preset.inputs.some((input) => input.kind === "audio" && (saved[input.key] ?? "") === "")) {
+      throw new HttpError(400, "Add a voice file first.");
+    }
     built = await ensureStartImages(preset, workflow, buildWorkflow(preset, workflow, draft.inputs));
     inputFiles = await inputFilesFor(preset, built.usedValues);
   } catch (error) {
