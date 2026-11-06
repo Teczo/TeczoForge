@@ -1,6 +1,7 @@
-import { lazy, Suspense, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import type { CSSProperties, KeyboardEvent, MouseEvent } from "react";
 import { Box, Download, Music, Pause, Play } from "lucide-react";
+import { loadPresets } from "./SendToMenu";
 
 // The 3D viewer (FRG-27) uses the large "three" package. It is loaded only the first time a
 // model is shown in full, so pages without a 3D result stay small.
@@ -22,14 +23,25 @@ export function outputKind(job: { outputKind?: string | null; imageUrl: string |
   return "image";
 }
 
-// Only one sound plays at a time (FRG-30): when any audio on the page starts, pause the others.
+// Tells which jobs are avatar videos, which have sound (FRG-87): the preset type is "avatar", or the
+// job has a fitted voice. The second way also works if the preset folder is gone.
+export function useAvatarCheck(): (job: { presetId?: string | null; audioUsed?: string }) => boolean {
+  const [avatarIds, setAvatarIds] = useState<string[]>([]);
+  useEffect(() => {
+    loadPresets().then((list) => setAvatarIds(list.filter((p) => p.type === "avatar").map((p) => p.id)));
+  }, []);
+  return (job) => Boolean(job.audioUsed) || avatarIds.includes(job.presetId ?? "");
+}
+
+// Only one sound plays at a time (FRG-30): when any audio, or a video with sound (FRG-87), starts,
+// pause the others. Muted videos are left alone.
 // "play" does not bubble, so it is caught on the way down (the last argument, true).
 document.addEventListener(
   "play",
   (event) => {
-    if (!(event.target instanceof HTMLAudioElement)) return;
-    for (const audio of document.querySelectorAll("audio")) {
-      if (audio !== event.target) audio.pause();
+    if (!(event.target instanceof HTMLMediaElement) || event.target.muted) return;
+    for (const media of document.querySelectorAll<HTMLMediaElement>("audio, video")) {
+      if (media !== event.target && !media.muted) media.pause();
     }
   },
   true,
@@ -43,12 +55,14 @@ type MediaProps = {
   // "full": a video plays with controls, a sound shows the player (result and detail view).
   // "thumbnail": a video shows its first frame, a sound a tile with a small play button (grids).
   mode: "full" | "thumbnail";
+  // An avatar video (FRG-87): in "full" it has sound on, and does not start or loop by itself.
+  sound?: boolean;
 };
 
 // Shows a picture with <img>, a video with <video>, a sound with the browser's audio player
 // (FRG-30), and a 3D model in the 3D viewer (FRG-27). In grids a 3D model is a tile with an
 // icon and the file name.
-export default function Media({ url, kind, alt, style, mode }: MediaProps) {
+export default function Media({ url, kind, alt, style, mode, sound = false }: MediaProps) {
   const fileName = url.split("/").pop() ?? url;
   if (kind === "audio") {
     return mode === "full" ? (
@@ -86,7 +100,10 @@ export default function Media({ url, kind, alt, style, mode }: MediaProps) {
     // preload="metadata" loads only enough to show the first frame.
     return <video src={url} title={alt} muted playsInline preload="metadata" style={style} />;
   }
-  return <video src={url} title={alt} controls autoPlay loop muted playsInline style={style} />;
+  // The key makes a new player if "sound" is only known after the presets load, so a video that
+  // already started muted does not carry on playing out loud.
+  if (sound) return <video key="sound" src={url} title={alt} controls playsInline preload="metadata" style={style} />;
+  return <video key="muted" src={url} title={alt} controls autoPlay loop muted playsInline style={style} />;
 }
 
 // The large view of a sound: the browser's player (play, seek, volume), the file name, its

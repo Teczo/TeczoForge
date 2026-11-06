@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
-import Media, { outputKind } from "./Media";
+import Media, { outputKind, useAvatarCheck } from "./Media";
 import type { OutputKind } from "./Media";
 import SendToMenu, { ExtendButton } from "./SendToMenu";
 import PresetBadges, { confirmResearchOnly, formatSeconds } from "./PresetBadges";
 import type { Project } from "./App";
-import { ArrowRight, Box, ChevronDown, ChevronUp, Download, Film, Folder, Image, Layers, Maximize, Monitor, Music, Paperclip, Pencil, Play, Scaling, Settings, Shuffle, Sparkles, Tag, Upload, UserRound, Video, Zap } from "lucide-react";
+import { ArrowRight, Box, ChevronDown, ChevronUp, Download, Film, Folder, Image, Layers, Maximize, Monitor, Music, Paperclip, Pencil, Play, Scaling, Settings, Shuffle, Sparkles, Tag, Upload, UserRound, Video, Volume2, Zap } from "lucide-react";
 import TimeTest from "./TimeTest";
 import VoicePicker from "./VoicePicker";
 
@@ -35,6 +35,7 @@ type JobAnswer = {
   error: string | null;
   progress: Progress | null;
   warning?: string;
+  audioUsed?: string; // An avatar video has sound (FRG-87).
 };
 
 // One preset from GET /api/presets (see backend/src/presets.ts).
@@ -209,7 +210,7 @@ const QUICK_PROMPTS = [
 
 // A finished result shown on the right: made just now, or from the job history.
 // jobId: for "Send to" (FRG-26). kind: image, video, audio or 3d (FRG-29).
-type Result = { url: string; kind: OutputKind; alt: string; jobId?: string; presetId?: string | null };
+type Result = { url: string; kind: OutputKind; alt: string; jobId?: string; presetId?: string | null; audioUsed?: string };
 
 // The result panel's title for each kind of result.
 const RESULT_TITLES: Record<OutputKind, string> = {
@@ -257,6 +258,7 @@ export default function Generate({ startValues = null, onStartValuesUsed, projec
   const [warning, setWarning] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(true);
   const stageRef = useRef<HTMLDivElement>(null);
+  const isAvatar = useAvatarCheck();
 
   // Load the presets once, when the page opens. A new preset folder shows up after a refresh.
   useEffect(() => {
@@ -311,11 +313,11 @@ export default function Generate({ startValues = null, onStartValuesUsed, projec
         const response = await fetch(`/api/jobs?status=done&limit=${RECENT_COUNT}`);
         if (!response.ok) return;
         const body: {
-          jobs: { id?: string; presetId: string | null; imageUrl: string | null; outputKind?: string; inputs: Record<string, unknown> }[];
+          jobs: { id?: string; presetId: string | null; imageUrl: string | null; outputKind?: string; inputs: Record<string, unknown>; audioUsed?: string }[];
         } = await response.json();
         const results: Result[] = body.jobs
           .filter((job) => job.imageUrl)
-          .map((job) => ({ url: job.imageUrl!, kind: outputKind(job), alt: String(job.inputs.prompt ?? ""), jobId: job.id, presetId: job.presetId }));
+          .map((job) => ({ url: job.imageUrl!, kind: outputKind(job), alt: String(job.inputs.prompt ?? ""), jobId: job.id, presetId: job.presetId, audioUsed: job.audioUsed }));
         setRecent(results);
         setShown((current) => current ?? results[0] ?? null);
       } catch {
@@ -377,6 +379,7 @@ export default function Generate({ startValues = null, onStartValuesUsed, projec
             alt: String(body.inputs.prompt ?? ""),
             jobId: currentJobId,
             presetId: body.presetId,
+            audioUsed: body.audioUsed,
           };
           setShown(result);
           setRecent((current) => [result, ...current.filter((r) => r.url !== result.url)].slice(0, RECENT_COUNT));
@@ -690,7 +693,8 @@ export default function Generate({ startValues = null, onStartValuesUsed, projec
             />
           ))}
 
-          {preset.totalLengths.length > 0 && (
+          {/* Not for avatar videos: joining removes the sound (FRG-87). */}
+          {preset.totalLengths.length > 0 && preset.type !== "avatar" && (
             <div>
               <span className="field-label">Total length</span>
               <div className="choice-buttons" role="group" aria-label="Total length">
@@ -908,7 +912,7 @@ export default function Generate({ startValues = null, onStartValuesUsed, projec
 
         <div className="stage" ref={stageRef}>
           {shown ? (
-            <Media key={shown.url} url={shown.url} kind={shown.kind} mode="full" alt={shown.alt} />
+            <Media key={shown.url} url={shown.url} kind={shown.kind} mode="full" alt={shown.alt} sound={isAvatar(shown)} />
           ) : (
             <div className="stage-empty">
               <Image size={56} />
@@ -938,7 +942,7 @@ export default function Generate({ startValues = null, onStartValuesUsed, projec
                 <Media url={result.url} kind={result.kind} mode="thumbnail" alt={result.alt} />
                 {result.kind === "video" && (
                   <span className="video-tag">
-                    <Play size={10} className="fill-current" /> Video
+                    {isAvatar(result) ? <Volume2 size={10} aria-label="With sound" /> : <Play size={10} className="fill-current" />} Video
                   </span>
                 )}
               </button>
