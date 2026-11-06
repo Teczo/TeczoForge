@@ -11,10 +11,30 @@
   "fps": 16,
   "estimatedSeconds": 32,
   "audioFit": { "input": "audio", "seconds": 4.875 },
+  "workflowFiles": {
+    "input": "duration",
+    "files": [
+      { "value": 5, "file": "workflow.json", "seconds": 4.875, "stages": 1 },
+      { "value": 10, "file": "workflow-10s.json", "seconds": 9.875, "stages": 2 },
+      { "value": 15, "file": "workflow-15s.json", "seconds": 14.875, "stages": 3 }
+    ]
+  },
   "inputs": [
     { "key": "image", "label": "Face photo", "kind": "image", "node": "52", "field": "image" },
     { "key": "audio", "label": "Voice", "kind": "audio", "node": "58", "field": "audio" },
     { "key": "prompt", "label": "Prompt", "kind": "text", "node": "6", "field": "text" },
+    {
+      "key": "duration",
+      "label": "Duration",
+      "kind": "number",
+      "default": 0,
+      "options": [
+        { "value": 5, "label": "5 s" },
+        { "value": 10, "label": "10 s" },
+        { "value": 15, "label": "15 s" },
+        { "value": 0, "label": "Fit to voice" }
+      ]
+    },
     { "key": "seed", "label": "Seed", "kind": "seed", "node": "3", "field": "seed" }
   ],
   "output": { "node": "113" }

@@ -5,7 +5,7 @@ import type { Job } from "./db.js";
 import { HttpError } from "./httpError.js";
 import { inputFilePath } from "./inputs.js";
 import { durationInLog, requireFfmpeg, runFfmpeg } from "./lastFrame.js";
-import { buildWorkflow } from "./presets.js";
+import { buildWorkflow, fileForVoice } from "./presets.js";
 import type { Preset, Workflow } from "./presets.js";
 
 // Make the voice fit the video (FRG-85). One S2V part makes a fixed number of frames, so a preset
@@ -18,7 +18,16 @@ import type { Preset, Workflow } from "./presets.js";
 const CUT_MARGIN_SECONDS = 0.05;
 
 type Built = { workflow: Workflow; usedValues: Record<string, string | number> };
-type Fitted = { workflow: Workflow; fields: Pick<Job, "audioOriginal" | "audioUsed" | "audioCut">; warning: string | undefined };
+type Fitted = { workflow: Workflow; fields: Pick<Job, "audioOriginal" | "audioUsed" | "audioCut" | "stages">; warning: string | undefined };
+
+// The length of the voice in seconds, or null if ffmpeg cannot read it. Decodes nothing.
+async function voiceLength(file: string): Promise<number | null> {
+  try {
+    return durationInLog(await runFfmpeg(["-nostdin", "-hide_banner", "-i", file, "-t", "0", "-f", "null", "-"]));
+  } catch {
+    return null;
+  }
+}
 
 // Call this after ensureStartImages, so the voice is in data/inputs.
 // Returns the workflow to send, the fields to save on the job, and a warning if the voice was cut.
@@ -26,9 +35,19 @@ type Fitted = { workflow: Workflow; fields: Pick<Job, "audioOriginal" | "audioUs
 export async function fitVoice(preset: Preset, workflow: Workflow, built: Built): Promise<Fitted> {
   if (!preset.audioFit) return { workflow: built.workflow, fields: {}, warning: undefined };
 
-  const { input, seconds } = preset.audioFit;
+  const { input } = preset.audioFit;
   const original = String(built.usedValues[input]);
   requireFfmpeg("Fitting the voice to the video");
+
+  // The workflow file for this job (FRG-89). Its length replaces the one in audioFit.
+  const list = preset.workflowFiles;
+  const chosen = list ? Number(built.usedValues[list.input]) : undefined;
+  const file = !list
+    ? undefined
+    : chosen === 0
+      ? fileForVoice(list.files, await voiceLength(inputFilePath(original)))
+      : list.files.find((item) => item.value === chosen);
+  const seconds = file?.seconds ?? preset.audioFit.seconds;
 
   // Our own file name. One ffmpeg run does both: apad adds silence up to the length, and -t cuts at it.
   const fileName = `teczoforge-${Date.now()}-${randomBytes(3).toString("hex")}.wav`;
@@ -62,8 +81,8 @@ export async function fitVoice(preset: Preset, workflow: Workflow, built: Built)
   const cut = voiceSeconds !== null && voiceSeconds > seconds + CUT_MARGIN_SECONDS;
   return {
     // The workflow gets the fitted voice. The values and the seed stay the same.
-    workflow: buildWorkflow(preset, workflow, { ...built.usedValues, [input]: audioUsed }).workflow,
-    fields: { audioOriginal: original, audioUsed, ...(cut ? { audioCut: true } : {}) },
+    workflow: buildWorkflow(preset, workflow, { ...built.usedValues, [input]: audioUsed }, file?.value).workflow,
+    fields: { audioOriginal: original, audioUsed, ...(cut ? { audioCut: true } : {}), ...(file ? { stages: file.stages ?? 1 } : {}) },
     warning: cut ? `The voice was ${voiceSeconds!.toFixed(1)} s. Only the first ${seconds.toFixed(1)} s is used.` : undefined,
   };
 }
