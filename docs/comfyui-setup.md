@@ -196,7 +196,10 @@ Frames and lengths were read from each output file with ffmpeg tools. Tamil and 
 - Framing problem. Jaya: "the framing cuts the face in half", from the top of the nose to the torso, with the hair missing.
   Cause: `WanSoundImageToVideo` centre-crops the photo to the 640 x 640 video. The test photo is 899 x 1474, so about
   288 pixels are lost from the top and from the bottom, and the top of the head is in the part lost at the top.
-  A square photo with the face near the middle avoids this. A plain centre crop of the photo matches the video frame.
+  A plain centre crop of the photo matches the video frame.
+- Framing re-test: the same photo, cropped by hand to a square from its top edge (898 x 898), with `workflow.json` and the
+  5.0 s voice. The whole head and face stay in the frame (checked on one frame at 2 s). 32.1 s, 22.3 GB before, 26.5 GB peak,
+  78 frames, 4.875 s video, 4.875 s audio. So square photos are not cut. Tall photos need cropping first.
 
 
 ## Problems found during setup
