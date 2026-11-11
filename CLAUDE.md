@@ -35,6 +35,7 @@ ComfyUI does the real generation work. This app is a simple, friendly layer on t
 | Database | MongoDB Atlas (cloud) | Address from env var `MONGODB_URI`. First used in FRG-7. |
 | Generation engine | ComfyUI | Installed separately on System 1. Not part of this repo. |
 | File storage | Local disk | Outputs in `data/outputs/`. |
+| Translation engine | llama.cpp llama-server | Installed separately on System 1. Not part of this repo. Feature plan: `docs/japanese-translate.md`. |
 
 Rules:
 - Frontend and backend stay in separate folders with separate `package.json` files.
@@ -58,6 +59,7 @@ Anything not on this list: say what and why, then stop and ask.
 - Backend: port `4000` (env var `PORT`). Listens on `127.0.0.1` until ticket FRG-15.
 - Frontend dev server: port `5180` (fixed, strictPort; AquaTwin uses 5173). It proxies `/api` to the backend.
 - ComfyUI: `http://127.0.0.1:8188` (env var `COMFYUI_URL`).
+- llama-server: `http://127.0.0.1:8190` (env var `TRANSLATE_PORT`). Only the backend talks to it.
 - Every backend route starts with `/api`.
 
 ## 4. Folder layout
@@ -98,6 +100,7 @@ ComfyUI API. Check these against the installed ComfyUI version (0.39.0) before u
 - `GET /queue` : jobs waiting and running.
 - `GET /system_stats` : simple check that ComfyUI is running.
 - `POST /interrupt` : stop the running job.
+- `POST /free` : unload models from the GPU. Used only by the translation feature (section 7, rule 10).
 - WebSocket `/ws?clientId=...` : live progress messages.
 
 ## 6. Presets (the main idea of the app)
@@ -136,6 +139,12 @@ Rules:
 7. Do not delete anything inside `data/` without asking.
 8. Validate every user input in the backend before it goes into a workflow.
    Audio uploads: WAV, MP3 or FLAC only, checked by the first bytes, at most 20 MB and 30 seconds.
+9. The backend may start and stop `llama-server.exe` (path from `LLAMA_SERVER_PATH`).
+   It must listen on `127.0.0.1` only. Do not install or update llama.cpp. Do not download model files.
+10. The backend may call ComfyUI `POST /free` to ask it to unload its models before a translation.
+    This is the only way the app may change ComfyUI's state. (This is an exception to rule 6.)
+11. Translation documents are private client data. They never go to the Claude API or any
+    internet service. Do not write document text into logs.
 
 ## 8. Git rules
 
