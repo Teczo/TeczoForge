@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
-import { Archive, Image, LayoutDashboard, MessageSquare, MoreHorizontal, Pencil, Plus, X } from "lucide-react";
+import { Archive, Image, LayoutDashboard, MessageSquare, MoreHorizontal, Pencil, Plus } from "lucide-react";
 import type { Project } from "./App";
 import { changeProject, UNSORTED_NAME } from "./ProjectDialogs";
+import { Badge, btn, FIELD, LABEL, Loading, Modal, Notice, PageHeader } from "./ui";
 
 // The Projects page (FRG-50): every project as a tile, and "Create project".
 // A click on a tile makes it the current project and opens the Chat page.
@@ -74,23 +75,17 @@ export default function ProjectsPage({ currentProjectId, onOpen, onChanged }: Pr
   }
 
   return (
-    <main className="mx-auto w-full max-w-6xl px-8 pt-2 pb-12">
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
-        <h1 className="m-0 text-2xl font-semibold text-slate-100">Projects</h1>
-        <button
-          type="button"
-          onClick={() => setCreating(true)}
-          disabled={!!error && !tiles}
-          className="flex cursor-pointer items-center gap-2 rounded-xl border-0 bg-teal-600/90 px-4 py-2.5 text-sm font-medium text-white shadow-sm shadow-teal-900/20 transition-colors hover:bg-teal-500 disabled:cursor-not-allowed disabled:opacity-50"
-        >
+    <main className="mx-auto w-full max-w-6xl px-8 pt-8 pb-16">
+      <PageHeader title="Projects">
+        <button type="button" onClick={() => setCreating(true)} disabled={!!error && !tiles} className={btn("primary")}>
           <Plus size={16} />
           Create project
         </button>
-      </div>
+      </PageHeader>
 
       {/* MongoDB offline, or the backend is not running: the backend's message instead of tiles. */}
-      {error && <p className="message error">{error}</p>}
-      {!tiles && !error && <p className="text-sm text-slate-500">Loading the projects...</p>}
+      {error && <Notice tone="danger">{error}</Notice>}
+      {!tiles && !error && <Loading>Loading the projects...</Loading>}
 
       {tiles && (
         <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-5">
@@ -146,8 +141,8 @@ function Tile({ tile, current, onOpen, onRename, onArchive }: TileProps) {
 
   return (
     <div
-      className={`relative overflow-hidden rounded-2xl border bg-slate-800/60 transition-colors ${
-        current ? "border-teal-500/70 ring-2 ring-teal-500/30" : "border-slate-700/60 hover:border-slate-600"
+      className={`relative overflow-hidden rounded-[14px] border bg-card transition-colors ${
+        current ? "border-line-strong ring-3 ring-focus-ring" : "border-line hover:border-line-strong"
       }`}
     >
       <button
@@ -156,26 +151,26 @@ function Tile({ tile, current, onOpen, onRename, onArchive }: TileProps) {
         title={`Open "${tile.name}"`}
         className="block w-full cursor-pointer border-0 bg-transparent p-0 text-left"
       >
-        <div className="flex aspect-video items-center justify-center bg-slate-900/60">
+        <div className="flex aspect-video items-center justify-center bg-frame">
           {showCover ? (
             <img src={tile.cover!} alt="" className="h-full w-full object-cover" onError={() => setCoverFailed(true)} />
           ) : (
-            <span className="text-4xl font-semibold text-slate-600">{tile.name.charAt(0).toUpperCase()}</span>
+            <span className="text-4xl font-medium text-ink-3">{tile.name.charAt(0).toUpperCase()}</span>
           )}
         </div>
         <div className="px-4 pt-3 pb-4">
           <div className="flex items-center gap-2 pr-6">
-            <span className="truncate text-sm font-semibold text-slate-100">{tile.name}</span>
+            <span className="truncate text-sm font-medium text-ink">{tile.name}</span>
             {current && (
-              <span className="shrink-0 rounded-full bg-teal-500/15 px-2 py-0.5 text-[11px] font-medium text-teal-300">Current</span>
+              <Badge tone="accent">Current</Badge>
             )}
           </div>
-          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-400">
+          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-2">
             <Count icon={<Image size={13} />} value={tile.jobCount} one="file" many="files" />
             <Count icon={<MessageSquare size={13} />} value={tile.chatCount} one="chat" many="chats" />
             <Count icon={<LayoutDashboard size={13} />} value={tile.cardCount} one="card" many="cards" />
           </div>
-          <div className="mt-2 text-xs text-slate-500" title={new Date(tile.lastActivityAt).toLocaleString()}>
+          <div className="mt-2 text-xs text-ink-3" title={new Date(tile.lastActivityAt).toLocaleString()}>
             {timeAgo(tile.lastActivityAt)}
           </div>
         </div>
@@ -193,12 +188,12 @@ function Tile({ tile, current, onOpen, onRename, onArchive }: TileProps) {
               event.stopPropagation();
               setMenuOpen(!menuOpen);
             }}
-            className="flex cursor-pointer items-center rounded-lg border-0 bg-slate-900/70 p-1.5 text-slate-300 backdrop-blur-sm transition-colors hover:bg-slate-700 hover:text-white"
+            className="flex cursor-pointer items-center rounded-lg border border-line bg-card p-1 text-ink-2 transition-colors hover:bg-hover hover:text-ink"
           >
             <MoreHorizontal size={16} />
           </button>
           {menuOpen && (
-            <div className="absolute top-full right-0 z-20 mt-1 w-36 rounded-xl border border-slate-600 bg-slate-700 py-1.5 shadow-2xl">
+            <div className="absolute top-full right-0 z-20 mt-1 w-36 overflow-hidden rounded-xl border border-line bg-card py-1 shadow-float">
               <MenuItem icon={<Pencil size={14} />} label="Rename" onClick={onRename} />
               <MenuItem icon={<Archive size={14} />} label="Archive" onClick={onArchive} />
             </div>
@@ -223,9 +218,9 @@ function MenuItem({ icon, label, onClick }: { icon: ReactNode; label: string; on
     <button
       type="button"
       onClick={onClick}
-      className="flex w-full cursor-pointer items-center gap-2.5 border-0 bg-transparent px-3.5 py-2 text-left text-sm text-slate-200 transition-colors hover:bg-slate-600"
+      className="flex w-full cursor-pointer items-center gap-2.5 border-0 bg-transparent px-3.5 py-2 text-left text-sm text-ink transition-colors hover:bg-hover"
     >
-      <span className="text-slate-400">{icon}</span>
+      <span className="text-ink-2">{icon}</span>
       {label}
     </button>
   );
@@ -270,53 +265,38 @@ function CreateProjectDialog({ onClose, onCreated }: { onClose: () => void; onCr
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4" onClick={onClose}>
-      <form
-        onSubmit={create}
-        onClick={(event) => event.stopPropagation()}
-        className="w-full max-w-sm rounded-2xl border border-slate-700 bg-slate-800 p-5 shadow-2xl"
-      >
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="m-0 text-base font-semibold text-slate-100">Create project</h2>
-          <button
-            type="button"
-            onClick={onClose}
-            title="Close"
-            className="flex cursor-pointer items-center rounded-lg border-0 bg-transparent p-1.5 text-slate-400 hover:bg-slate-700 hover:text-slate-200"
-          >
-            <X size={16} />
-          </button>
-        </div>
-        <label className="block text-xs font-medium text-slate-400">
-          Name
+    <Modal title="Create project" onClose={onClose}>
+      <form onSubmit={create}>
+        <label className="block">
+          <span className={LABEL}>Name</span>
           <input
             ref={inputRef}
             value={name}
             onChange={(event) => setName(event.target.value)}
             maxLength={MAX_NAME_LENGTH}
             placeholder="For example: Summer campaign"
-            className="mt-1.5 block w-full rounded-lg border border-slate-600 bg-slate-900/60 px-3 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-500 focus:border-teal-500/60"
+            className={`${FIELD} h-9`}
           />
         </label>
-        {error && <p className="mt-3 mb-0 text-sm text-red-400">{error}</p>}
+        {error && <p className="mt-3 mb-0 text-sm text-danger">{error}</p>}
         <div className="mt-5 flex justify-end gap-2">
           <button
             type="button"
             onClick={onClose}
-            className="cursor-pointer rounded-lg border border-slate-600 bg-transparent px-4 py-2 text-sm text-slate-300 hover:bg-slate-700"
+            className={btn("secondary")}
           >
             Cancel
           </button>
           <button
             type="submit"
             disabled={busy || name.trim() === ""}
-            className="cursor-pointer rounded-lg border-0 bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-500 disabled:cursor-not-allowed disabled:opacity-50"
+            className={btn("primary")}
           >
             {busy ? "Creating..." : "Create"}
           </button>
         </div>
       </form>
-    </div>
+    </Modal>
   );
 }
 

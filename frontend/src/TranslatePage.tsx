@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChangeEvent, DragEvent } from "react";
 import { AlertTriangle, Check, Copy, Download, ImagePlus, Pencil, RefreshCw } from "lucide-react";
+import { btn, CARD, EmptyState, FIELD, Loading, Notice, PageHeader } from "./ui";
 
 // The Translate page (FRG-92, plan: docs/japanese-translate.md section 13).
 // The user adds photos of handwritten Japanese documents. For each photo the backend makes the
@@ -199,19 +200,17 @@ export default function TranslatePage() {
   }
 
   return (
-    <main className="mx-auto w-full max-w-7xl px-8 pt-2 pb-12">
-      <h1 className="m-0 mb-6 text-2xl font-semibold text-slate-100">Translate</h1>
+    <main className="mx-auto w-full max-w-7xl px-8 pt-8 pb-16">
+      <PageHeader title="Translate" />
 
       {error && (
-        <p className="mb-4 rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm whitespace-pre-line text-red-200">{error}</p>
+        <Notice tone="danger" className="mb-4 whitespace-pre-line">{error}</Notice>
       )}
-      {!status && !error && <p className="text-sm text-slate-500">Loading...</p>}
+      {!status && !error && <Loading>Loading...</Loading>}
 
       {/* Not set up: the reason, and nothing else. */}
       {status && !status.setUp && (
-        <p className="rounded-xl border border-slate-700/60 bg-slate-800/60 px-4 py-3 text-sm text-slate-300">
-          {status.problem ?? "Translation is not set up."}
-        </p>
+        <Notice>{status.problem ?? "Translation is not set up."}</Notice>
       )}
 
       {setUp && (
@@ -224,8 +223,8 @@ export default function TranslatePage() {
             }}
             onDragLeave={() => setDragOver(false)}
             onDrop={onDrop}
-            className={`mb-6 flex flex-wrap items-center gap-4 rounded-2xl border-2 border-dashed px-5 py-5 transition-colors ${
-              dragOver ? "border-teal-400 bg-teal-500/10" : "border-slate-700 bg-slate-800/40"
+            className={`mb-6 flex flex-wrap items-center gap-4 rounded-2xl border border-dashed px-5 py-5 transition-colors ${
+              dragOver ? "border-accent bg-accent-soft" : "border-line-strong bg-sidebar"
             }`}
           >
             <input ref={fileInput} type="file" accept="image/png,image/jpeg,image/webp" multiple onChange={onPickFiles} className="hidden" />
@@ -233,23 +232,21 @@ export default function TranslatePage() {
               type="button"
               onClick={() => fileInput.current?.click()}
               disabled={uploading !== null}
-              className="flex cursor-pointer items-center gap-2 rounded-xl border-0 bg-teal-600/90 px-4 py-2.5 text-sm font-medium text-white shadow-sm shadow-teal-900/20 transition-colors hover:bg-teal-500 disabled:cursor-wait disabled:opacity-60"
+              className={`${btn("primary")} disabled:cursor-wait`}
             >
               <ImagePlus size={16} />
               Add photos
             </button>
-            <span className="text-sm text-slate-400">
+            <span className="text-sm text-ink-2">
               {uploading ?? "Or drop photos here. PNG, JPEG or WebP. Photos of handwritten Japanese documents."}
             </span>
           </div>
 
           {status.gpuBusy && (
-            <p className="mt-0 mb-6 rounded-xl border border-amber-400/40 bg-amber-400/10 px-4 py-3 text-sm text-amber-100">
-              The GPU is busy with a generation job. Translation starts when it finishes.
-            </p>
+            <Notice tone="warning" className="mb-6">The GPU is busy with a generation job. Translation starts when it finishes.</Notice>
           )}
 
-          {docs && docs.length === 0 && <p className="text-sm text-slate-500">No documents yet. Add a photo to start.</p>}
+          {docs && docs.length === 0 && <EmptyState icon={<ImagePlus size={18} />} title="No documents yet" text="Add a photo to start." />}
 
           {docs && docs.length > 0 && (
             <div className="flex items-start gap-6">
@@ -261,20 +258,20 @@ export default function TranslatePage() {
                       type="button"
                       onClick={() => setPickedId(doc.id)}
                       className={`flex w-full cursor-pointer items-center gap-3 rounded-xl border p-2 text-left transition-colors ${
-                        doc.id === pickedId ? "border-teal-500/70 bg-slate-700/50" : "border-slate-700/60 bg-slate-800/60 hover:border-slate-600"
+                        doc.id === pickedId ? "border-line-strong bg-hover" : "border-line bg-card hover:bg-hover"
                       }`}
                     >
                       <img
                         src={`/api/translate/documents/${doc.id}/image`}
                         alt=""
                         loading="lazy"
-                        className="h-14 w-14 shrink-0 rounded-lg bg-slate-900 object-cover"
+                        className="h-14 w-14 shrink-0 rounded-lg bg-frame object-cover"
                       />
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm font-medium text-slate-100">{doc.originalName}</span>
+                        <span className="block truncate text-sm font-medium text-ink">{doc.originalName}</span>
                         <span className={`block text-xs ${statusColour(doc.status)}`}>{STATUS_WORDS[doc.status]}</span>
                         {doc.warnings.length > 0 && (
-                          <span className="mt-0.5 flex items-center gap-1 text-xs text-amber-300">
+                          <span className="mt-0.5 flex items-center gap-1 text-xs text-warning">
                             <AlertTriangle size={12} />
                             {doc.warnings.length} {doc.warnings.length === 1 ? "warning" : "warnings"}
                           </span>
@@ -298,9 +295,9 @@ export default function TranslatePage() {
 }
 
 function statusColour(status: DocStatus): string {
-  if (status === "done") return "text-teal-300";
-  if (status === "failed") return "text-red-300";
-  return "text-slate-400";
+  if (status === "done") return "text-success";
+  if (status === "failed") return "text-danger";
+  return "text-ink-2";
 }
 
 // The photo, the two texts and the buttons of one document.
@@ -319,14 +316,14 @@ function Result({
   const finished = isFinished(doc.status);
 
   return (
-    <div className="rounded-2xl border border-slate-700/60 bg-slate-800/60 p-5">
+    <div className={`${CARD} p-5`}>
       <div className="mb-4 flex flex-wrap items-center gap-3">
-        <h2 className="m-0 min-w-0 flex-1 truncate text-lg font-semibold text-slate-100">{doc.originalName}</h2>
+        <h2 className="m-0 min-w-0 flex-1 truncate text-lg font-medium text-ink">{doc.originalName}</h2>
         <span className={`text-sm ${statusColour(doc.status)}`}>{STATUS_WORDS[doc.status]}</span>
         <a
           href={`/api/translate/documents/${doc.id}/text`}
           download
-          className={`flex items-center gap-2 rounded-lg border border-slate-600 px-3 py-1.5 text-sm text-slate-200 no-underline transition-colors hover:bg-slate-700/60 ${
+          className={`${btn("secondary", "sm")} ${
             doc.status === "done" ? "" : "pointer-events-none opacity-40"
           }`}
         >
@@ -337,7 +334,7 @@ function Result({
           type="button"
           onClick={onTryAgain}
           disabled={!finished}
-          className="flex cursor-pointer items-center gap-2 rounded-lg border border-slate-600 bg-transparent px-3 py-1.5 text-sm text-slate-200 transition-colors hover:bg-slate-700/60 disabled:cursor-not-allowed disabled:opacity-40"
+          className={btn("secondary", "sm")}
         >
           <RefreshCw size={14} />
           Try again
@@ -345,18 +342,18 @@ function Result({
       </div>
 
       {/* The photo: big, scrolls inside its box, a click opens it full size in a new tab. */}
-      <a href={imageUrl} target="_blank" rel="noreferrer" title="Open the photo full size" className="mb-4 block max-h-[70vh] overflow-auto rounded-xl bg-slate-900">
+      <a href={imageUrl} target="_blank" rel="noreferrer" title="Open the photo full size" className="mb-4 block max-h-[70vh] overflow-auto rounded-xl bg-frame">
         <img src={imageUrl} alt={`Photo: ${doc.originalName}`} className="block w-full" />
       </a>
 
       {doc.status === "failed" && (
-        <p className="mb-4 rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+        <p className="mb-4 rounded-xl border border-danger-line bg-danger-soft px-4 py-3 text-sm text-danger">
           {doc.error ?? "This document failed."}
         </p>
       )}
 
       {doc.warnings.length > 0 && (
-        <div className="mb-4 rounded-xl border border-amber-400/40 bg-amber-400/10 px-4 py-3 text-sm text-amber-100">
+        <div className="mb-4 rounded-xl border border-warning-line bg-warning-soft px-4 py-3 text-sm text-warning">
           {doc.warnings.map((warning) => (
             <div key={warning} className="flex items-start gap-2">
               <AlertTriangle size={14} className="mt-0.5 shrink-0" />
@@ -366,7 +363,7 @@ function Result({
         </div>
       )}
 
-      <p className="mt-0 mb-4 text-sm text-slate-400">
+      <p className="mt-0 mb-4 text-sm text-ink-2">
         Machine reading of handwriting makes mistakes. Check the Japanese text against the photo.
       </p>
 
@@ -382,7 +379,7 @@ function Result({
       <TextBox title="Translation" text={detail?.english ?? ""} waiting={!finished} />
 
       {finished && (
-        <p className="mt-4 mb-0 text-xs text-slate-500">
+        <p className="mt-4 mb-0 text-xs text-ink-3">
           Model: {doc.model} · Image tokens: {doc.imageTokens} · {doc.seconds} seconds
         </p>
       )}
@@ -421,20 +418,20 @@ function TextBox({
   if (draft !== null) {
     return (
       <section className="mt-4">
-        <h3 className="m-0 mb-2 text-sm font-semibold text-slate-200">{title}</h3>
+        <h3 className="m-0 mb-2 text-sm font-medium text-ink">{title}</h3>
         <textarea
           lang={lang}
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
           rows={Math.min(Math.max(draft.split("\n").length + 1, 6), 30)}
-          className="block w-full resize-y rounded-xl border border-teal-500/60 bg-slate-900/60 px-4 py-3 text-[15px] leading-relaxed text-slate-100"
+          className={`${FIELD} resize-y px-4 py-3 text-[15px] leading-relaxed`}
         />
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <button
             type="button"
             onClick={() => void save()}
             disabled={saving || draft.trim() === ""}
-            className="cursor-pointer rounded-lg border-0 bg-teal-600/90 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-teal-500 disabled:cursor-not-allowed disabled:opacity-50"
+            className={btn("primary", "sm")}
           >
             Save and translate again
           </button>
@@ -442,11 +439,11 @@ function TextBox({
             type="button"
             onClick={() => setDraft(null)}
             disabled={saving}
-            className="cursor-pointer rounded-lg border border-slate-600 bg-transparent px-3 py-1.5 text-sm text-slate-200 transition-colors hover:bg-slate-700/60 disabled:opacity-50"
+            className={btn("secondary", "sm")}
           >
             Cancel
           </button>
-          <span className="text-xs text-slate-500">The photo is not read again. Only the translation is made again.</span>
+          <span className="text-xs text-ink-3">The photo is not read again. Only the translation is made again.</span>
         </div>
       </section>
     );
@@ -466,13 +463,13 @@ function TextBox({
   return (
     <section className="mt-4">
       <div className="mb-2 flex items-center justify-between">
-        <h3 className="m-0 mr-auto text-sm font-semibold text-slate-200">{title}</h3>
+        <h3 className="m-0 mr-auto text-sm font-medium text-ink">{title}</h3>
         {onSave && (
           <button
             type="button"
             onClick={() => setDraft(text)}
             disabled={text === ""}
-            className="mr-2 flex cursor-pointer items-center gap-1.5 rounded-lg border border-slate-600 bg-transparent px-2.5 py-1 text-xs text-slate-200 transition-colors hover:bg-slate-700/60 disabled:cursor-not-allowed disabled:opacity-40"
+            className={`${btn("secondary", "xs")} mr-2`}
           >
             <Pencil size={12} />
             Edit
@@ -482,14 +479,14 @@ function TextBox({
           type="button"
           onClick={() => void copy()}
           disabled={text === ""}
-          className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-slate-600 bg-transparent px-2.5 py-1 text-xs text-slate-200 transition-colors hover:bg-slate-700/60 disabled:cursor-not-allowed disabled:opacity-40"
+          className={btn("secondary", "xs")}
         >
           {copied ? <Check size={12} /> : <Copy size={12} />}
           {copied ? "Copied" : "Copy"}
         </button>
       </div>
-      <div lang={lang} className="min-h-12 rounded-xl bg-slate-900/60 px-4 py-3 text-[15px] leading-relaxed whitespace-pre-wrap text-slate-100">
-        {text !== "" ? text : <span className="text-slate-500">{waiting ? "Not ready yet..." : "No text."}</span>}
+      <div lang={lang} className="min-h-12 rounded-xl border border-line bg-sidebar px-4 py-3 text-[15px] leading-relaxed whitespace-pre-wrap text-ink">
+        {text !== "" ? text : <span className="text-ink-3">{waiting ? "Not ready yet..." : "No text."}</span>}
       </div>
     </section>
   );

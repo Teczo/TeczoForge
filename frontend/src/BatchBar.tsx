@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { CircleX, Layers, Pause, Play, Square } from "lucide-react";
 import { clockTime, formatDuration } from "./Estimate";
+import { Badge, btn } from "./ui";
+import type { Tone } from "./ui";
 
 // Batches (FRG-75): a list of board cards that runs by itself, one card at a time (backend/src/batches.ts).
 // The bar shows one batch: its name, how far it is, the card running now, and the buttons.
@@ -66,11 +68,11 @@ export function cardsInBatches(batches: Batch[]): Set<string> {
   );
 }
 
-const STATE_STYLES: Record<Batch["state"], { label: string; className: string }> = {
-  running: { label: "Running", className: "bg-sky-500/15 text-sky-300" },
-  paused: { label: "Paused", className: "bg-amber-500/15 text-amber-300" },
-  done: { label: "Done", className: "bg-emerald-500/15 text-emerald-300" },
-  ended: { label: "Ended", className: "bg-slate-600/40 text-slate-300" },
+const STATE_STYLES: Record<Batch["state"], { label: string; tone: Tone }> = {
+  running: { label: "Running", tone: "info" },
+  paused: { label: "Paused", tone: "warning" },
+  done: { label: "Done", tone: "success" },
+  ended: { label: "Ended", tone: "neutral" },
 };
 
 export default function BatchBar({ batchId }: { batchId: string }) {
@@ -125,25 +127,25 @@ export default function BatchBar({ batchId }: { batchId: string }) {
   const style = STATE_STYLES[batch.state];
 
   return (
-    <div className="mb-4 rounded-xl border border-slate-700/60 bg-slate-800/40 px-4 py-3">
+    <div className="mb-4 rounded-xl border border-line bg-card px-4 py-3">
       <div className="flex flex-wrap items-center gap-3">
-        <Layers size={18} className="shrink-0 text-slate-400" />
+        <Layers size={18} className="shrink-0 text-ink-2" />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm font-semibold text-slate-100">{batch.name}</span>
-            <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${style.className}`}>{style.label}</span>
+            <span className="text-sm font-medium text-ink">{batch.name}</span>
+            <Badge tone={style.tone}>{style.label}</Badge>
           </div>
-          <div className="text-xs text-slate-400">
-            {batch.doneCardIds.length} of {total} done{failed > 0 && <span className="text-red-300">, {failed} failed</span>}
+          <div className="text-xs text-ink-2">
+            {batch.doneCardIds.length} of {total} done{failed > 0 && <span className="text-danger">, {failed} failed</span>}
             {current && (
               <>
-                {" · "}Now: <span className="text-slate-200">{current.title}</span>
+                {" · "}Now: <span className="text-ink">{current.title}</span>
               </>
             )}
             {batch.createdBy && <> · started by {batch.createdBy}</>}
           </div>
           {open && batch.timeLeft.left > 0 && (
-            <div className="text-xs text-slate-300">
+            <div className="text-xs text-ink-2">
               {batch.timeLeft.unknownCards > 0 ? "at least about" : "about"} {formatDuration(batch.timeLeft.leftMs)} left · ends about{" "}
               {clockTime(new Date(batch.timeLeft.finishAt))}
               {batch.state === "paused" && " if you resume now"}
@@ -162,8 +164,8 @@ export default function BatchBar({ batchId }: { batchId: string }) {
           </div>
         )}
       </div>
-      {batch.note && <p className="mt-2 mb-0 text-xs text-amber-300">{batch.note}</p>}
-      {error && <p className="mt-2 mb-0 text-xs text-red-300">{error}</p>}
+      {batch.note && <p className="mt-2 mb-0 text-xs text-warning">{batch.note}</p>}
+      {error && <p className="mt-2 mb-0 text-xs text-danger">{error}</p>}
     </div>
   );
 }
@@ -174,7 +176,7 @@ function BarButton({ label, icon, onClick, disabled }: { label: string; icon: Re
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-slate-600 bg-slate-700/60 px-3 py-1.5 text-xs font-medium text-slate-100 hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+      className={btn("secondary", "xs")}
     >
       {icon}
       {label}
