@@ -4,6 +4,15 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>TeczoForge</title>
+    <!-- Set the theme before the page is drawn, so there is no flash. Light is the default.
+         Dark is used only if the user chose it (see src/theme.ts, same key). -->
+    <script>
+      try {
+        if (localStorage.getItem("teczoforge.theme") === "dark") {
+          document.documentElement.setAttribute("data-theme", "dark");
+        }
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>

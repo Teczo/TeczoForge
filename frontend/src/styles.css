@@ -1,28 +1,6 @@
-/* TeczoForge look and feel for the older pages. Plain CSS; new UI uses Tailwind classes.
-   Colors and sizes live in the variables below, so they are easy to change.
-   They are the colour set of the sidebar and chat (FRG-51): Tailwind's slate greys and teal. */
-
-:root {
-  --bg: #0f172a; /* slate-900, the main area */
-  --panel: #1e293b; /* slate-800, like the sidebar and the chat input box */
-  --panel-2: #283548; /* between slate-800 and slate-700: raised parts and hover */
-  --field: #151e31; /* slate-900/60 on slate-800, like the sidebar's project picker */
-  --border: #2b384c; /* slate-700/60 on slate-800 */
-  --border-strong: #334155; /* slate-700 */
-  --text: #e2e8f0; /* slate-200 */
-  --text-dim: #94a3b8; /* slate-400 */
-  --text-faint: #64748b; /* slate-500 */
-  --accent: #2dd4bf; /* teal-400, like the open page in the sidebar */
-  --accent-soft: rgba(20, 184, 166, 0.12); /* teal-500 */
-  --green: #10b981; /* emerald-500, like "Online" */
-  --red: #f87171; /* red-400 */
-  --gradient: linear-gradient(90deg, #0d9488, #14b8a6); /* teal-600 to teal-500, like "New chat" */
-  --radius: 1rem; /* rounded-2xl */
-  --radius-sm: 0.75rem; /* rounded-xl */
-  /* Height of the status bar at the top of the main area (FRG-46). Pages use it for their sticky parts. */
-  --header-h: 56px;
-  color-scheme: dark;
-}
+/* Plain CSS classes for the older pages (Generate, Gallery, Board, Login) and for a few shared
+   parts (messages, buttons, media). Newer pages use Tailwind classes and ui.tsx.
+   There are NO colours in this file. Every colour is a variable from theme.css. */
 
 * {
   box-sizing: border-box;
@@ -31,11 +9,12 @@
 html,
 body {
   margin: 0;
-  background: var(--bg);
-  color: var(--text);
-  font-family: "Inter", "Segoe UI", system-ui, sans-serif;
-  font-size: 15px;
-  line-height: 1.45;
+  background: var(--page);
+  color: var(--ink);
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
 }
 
 button,
@@ -59,6 +38,25 @@ a {
   text-decoration: none;
 }
 
+/* Icons (lucide-react): thin lines everywhere. */
+svg.lucide {
+  stroke-width: 1.5;
+}
+
+::selection {
+  background: var(--accent-soft);
+}
+
+::placeholder {
+  color: var(--ink-3);
+}
+
+/* Thin, quiet scrollbars. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+
 :focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
@@ -71,9 +69,10 @@ a {
   align-items: center;
   gap: 10px;
   font-size: 28px;
-  font-weight: 600;
+  font-weight: 500;
   letter-spacing: -0.5px;
   white-space: nowrap;
+  color: var(--ink);
 }
 
 .logo img {
@@ -94,14 +93,11 @@ a {
 }
 
 .logo-word-1 {
-  background: linear-gradient(90deg, #22a6f0, #19d3c5);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+  color: var(--accent);
 }
 
 .logo-word-2 {
-  color: var(--text);
+  color: var(--ink);
 }
 
 /* ---------- Page layout ---------- */
@@ -122,8 +118,8 @@ a {
 }
 
 .panel {
-  background: var(--panel);
-  border: 1px solid var(--border);
+  background: var(--card);
+  border: 1px solid var(--line);
   border-radius: var(--radius);
 }
 
@@ -133,78 +129,78 @@ a {
   position: sticky;
   top: calc(var(--header-h) + 18px);
   padding: 4px 16px 18px 20px;
-  border-right: 1px solid var(--border);
+  border-right: 1px solid var(--line);
   min-height: calc(100vh - var(--header-h) - 36px);
 }
 
 .sidebar h3 {
-  margin: 14px 6px 12px;
+  margin: 14px 6px 8px;
   font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 1.2px;
-  color: var(--text-dim);
-  text-transform: uppercase;
+  font-weight: 400;
+  color: var(--ink-3);
 }
 
 .sidebar hr {
   border: none;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--line);
   margin: 16px 0 6px;
 }
 
 .side-item {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 10px;
   width: 100%;
-  padding: 11px 14px;
-  margin-bottom: 4px;
+  padding: 8px 10px;
+  margin-bottom: 2px;
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
   background: none;
-  font-size: 16px;
+  font-size: 14px;
   text-align: left;
   white-space: nowrap;
-  color: var(--text);
+  color: var(--ink-2);
 }
 
 .side-item svg {
-  color: var(--text-dim);
+  color: var(--ink-2);
   flex-shrink: 0;
 }
 
 .side-item:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--hover);
+  color: var(--ink);
 }
 
 .side-item.active {
-  border-color: rgba(45, 212, 191, 0.35);
-  background: rgba(51, 65, 85, 0.5); /* slate-700/50, like the open page in the sidebar */
+  background: var(--hover);
+  color: var(--ink);
+  font-weight: 500;
 }
 
 .side-item.active svg {
-  color: var(--accent);
+  color: var(--ink);
 }
 
 .side-item:disabled {
-  color: var(--text-faint);
+  color: var(--ink-3);
 }
 
 .side-item:disabled svg {
-  color: var(--text-faint);
+  color: var(--ink-3);
 }
 
 .soon {
   margin-left: auto;
   padding: 2px 7px;
   font-size: 10.5px;
-  font-weight: 600;
+  font-weight: 500;
   letter-spacing: 0.4px;
   text-transform: uppercase;
-  color: var(--text-dim);
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid var(--border-strong);
-  border-radius: 6px;
+  color: var(--ink-2);
+  background: var(--hover);
+  border: 1px solid var(--line);
+  border-radius: 999px;
   white-space: nowrap;
 }
 
@@ -219,8 +215,8 @@ a {
 }
 
 .model.active {
-  border-color: var(--accent);
-  background: rgba(20, 184, 166, 0.08);
+  border-color: var(--line);
+  background: var(--hover);
 }
 
 .model.disabled {
@@ -234,7 +230,7 @@ a {
   flex-shrink: 0;
   display: grid;
   place-items: center;
-  color: rgba(255, 255, 255, 0.85);
+  color: var(--on-media);
 }
 
 .model-text {
@@ -249,23 +245,23 @@ a {
 }
 
 .model-name {
-  font-weight: 600;
-  font-size: 14.5px;
+  font-weight: 500;
+  font-size: 14px;
 }
 
 .model-note {
   font-size: 13px;
-  color: var(--text-dim);
+  color: var(--ink-2);
 }
 
 .badge {
   margin-left: auto;
   padding: 3px 8px;
   font-size: 11px;
-  font-weight: 600;
-  color: #04201d;
-  background: var(--accent);
-  border-radius: 6px;
+  font-weight: 500;
+  color: var(--on-primary);
+  background: var(--primary);
+  border-radius: 999px;
   white-space: nowrap;
 }
 
@@ -277,7 +273,7 @@ a {
 
 .create-section {
   padding: 20px 22px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--line);
 }
 
 .create-section:last-of-type {
@@ -294,16 +290,17 @@ a {
 .section-head h2,
 .section-head h3 {
   margin: 0;
-  font-size: 18px;
-  font-weight: 600;
+  font-size: 17px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
 }
 
 .section-head h3 {
-  font-size: 15.5px;
+  font-size: 15px;
 }
 
 .section-head > svg {
-  color: var(--accent);
+  color: var(--ink-2);
 }
 
 .section-head .right {
@@ -325,11 +322,11 @@ a {
 }
 
 .ghost-button:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--hover);
 }
 
 .ghost-button:disabled {
-  color: var(--text-faint);
+  color: var(--ink-3);
 }
 
 .prompt-box {
@@ -337,21 +334,21 @@ a {
   min-height: 134px;
   resize: vertical;
   padding: 16px 18px;
-  background: var(--field);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-sm);
-  font-size: 16px;
-  line-height: 1.5;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  font-size: 14px;
+  line-height: 1.6;
 }
 
 .prompt-box::placeholder {
-  color: var(--text-faint);
+  color: var(--ink-3);
 }
 
 .prompt-box:focus {
   outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 4px rgba(20, 184, 166, 0.1); /* like the chat input box */
+  box-shadow: 0 0 0 3px var(--focus-ring);
 }
 
 .prompt-tools {
@@ -364,18 +361,18 @@ a {
 .icon-button {
   display: grid;
   place-items: center;
-  width: 40px;
-  height: 40px;
+  width: 36px;
+  height: 36px;
   padding: 0;
-  background: var(--panel-2);
-  border: 1px solid var(--border-strong);
+  background: var(--card);
+  border: 1px solid var(--line);
   border-radius: var(--radius-sm);
-  color: var(--text-dim);
+  color: var(--ink-2);
 }
 
 .icon-button:hover:not(:disabled) {
-  color: var(--text);
-  border-color: var(--accent);
+  color: var(--ink);
+  background: var(--hover);
 }
 
 .icon-button:disabled {
@@ -391,23 +388,23 @@ a {
 .select-wrap > svg:first-child {
   position: absolute;
   left: 12px;
-  color: var(--text-dim);
+  color: var(--ink-2);
   pointer-events: none;
 }
 
 .select-wrap > svg:last-child {
   position: absolute;
   right: 12px;
-  color: var(--text-dim);
+  color: var(--ink-2);
   pointer-events: none;
 }
 
 .select {
   appearance: none;
-  height: 40px;
+  height: 36px;
   padding: 0 38px 0 40px;
-  background: var(--panel-2);
-  border: 1px solid var(--border-strong);
+  background: var(--card);
+  border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   font-weight: 500;
 }
@@ -415,26 +412,27 @@ a {
 .select:focus {
   outline: none;
   border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--focus-ring);
 }
 
 .select option {
-  background: var(--panel-2);
+  background: var(--card);
 }
 
 .char-count {
   margin-left: auto;
   font-size: 13px;
-  color: var(--text-faint);
+  color: var(--ink-3);
 }
 
 .char-count.over {
-  color: var(--red);
+  color: var(--danger);
 }
 
 .preset-note {
   margin: 10px 2px 0;
   font-size: 13px;
-  color: var(--text-dim);
+  color: var(--ink-2);
 }
 
 /* Licence badge and Test label of a preset (FRG-32) */
@@ -449,37 +447,37 @@ a {
 .licence-badge,
 .test-label {
   padding: 2px 8px;
-  font-weight: 600;
-  border-radius: 6px;
+  font-weight: 500;
+  border-radius: 999px;
   border: 1px solid;
   white-space: nowrap;
 }
 
 .licence-badge.ok {
-  color: var(--green);
-  border-color: rgba(16, 185, 129, 0.45);
-  background: rgba(16, 185, 129, 0.08);
+  color: var(--success);
+  border-color: var(--success-line);
+  background: var(--success-soft);
 }
 
 .licence-badge.check {
-  color: #ffc857;
-  border-color: rgba(255, 200, 87, 0.45);
-  background: rgba(255, 200, 87, 0.08);
+  color: var(--warning);
+  border-color: var(--warning-line);
+  background: var(--warning-soft);
 }
 
 .licence-badge.research {
-  color: var(--red);
-  border-color: rgba(255, 107, 107, 0.45);
-  background: rgba(255, 107, 107, 0.08);
+  color: var(--danger);
+  border-color: var(--danger-line);
+  background: var(--danger-soft);
 }
 
 .licence-note {
-  color: var(--text-dim);
+  color: var(--ink-2);
 }
 
 .test-label {
-  color: var(--text-dim);
-  border-color: var(--border-strong);
+  color: var(--ink-2);
+  border-color: var(--line);
   text-transform: uppercase;
   letter-spacing: 0.4px;
 }
@@ -491,7 +489,7 @@ a {
   gap: 8px;
   margin: 10px 2px 0;
   font-size: 13px;
-  color: var(--text-dim);
+  color: var(--ink-2);
 }
 
 /* An input with a short list of choices (FRG-32) */
@@ -507,9 +505,9 @@ a {
 }
 
 .choice-buttons .button.active {
-  border-color: var(--accent);
-  color: var(--accent);
-  background: var(--accent-soft);
+  border-color: var(--ink);
+  color: var(--ink);
+  background: var(--hover);
 }
 
 /* Image upload drop zone */
@@ -520,14 +518,15 @@ a {
   gap: 14px;
   margin-bottom: 14px;
   padding: 12px;
-  border: 1px dashed var(--border-strong);
+  border: 1px dashed var(--line);
   border-radius: var(--radius-sm);
-  background: var(--field);
+  background: var(--card);
   cursor: pointer;
 }
 
 .upload:hover {
-  border-color: var(--accent);
+  border-color: var(--line-strong);
+  background: var(--hover);
 }
 
 .upload.disabled {
@@ -547,21 +546,21 @@ a {
   flex-shrink: 0;
   display: grid;
   place-items: center;
-  background: var(--panel-2);
-  color: var(--text-dim);
+  background: var(--frame);
+  color: var(--ink-2);
 }
 
 .upload-label {
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .upload-hint {
   font-size: 13px;
-  color: var(--text-dim);
+  color: var(--ink-2);
 }
 
 .upload-hint.error {
-  color: var(--red);
+  color: var(--danger);
 }
 
 /* Quick prompts */
@@ -577,8 +576,8 @@ a {
   flex-direction: column;
   padding: 0;
   overflow: hidden;
-  background: var(--panel-2);
-  border: 1px solid var(--border);
+  background: var(--card);
+  border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   text-align: left;
   opacity: 0.6;
@@ -588,7 +587,7 @@ a {
   height: 74px;
   display: grid;
   place-items: center;
-  color: rgba(255, 255, 255, 0.8);
+  color: var(--on-media);
 }
 
 .quick-card span {
@@ -612,17 +611,17 @@ a {
 
 .collapse-head h3 {
   margin: 0;
-  font-size: 15.5px;
-  font-weight: 600;
+  font-size: 15px;
+  font-weight: 500;
 }
 
 .collapse-head > svg:first-child {
-  color: var(--accent);
+  color: var(--ink-2);
 }
 
 .collapse-head > svg:last-child {
   margin-left: auto;
-  color: var(--text-dim);
+  color: var(--ink-2);
 }
 
 .settings-grid {
@@ -634,8 +633,8 @@ a {
 
 .field-label {
   display: block;
-  margin-bottom: 7px;
-  font-size: 13.5px;
+  margin-bottom: 6px;
+  font-size: 13px;
   font-weight: 500;
 }
 
@@ -646,26 +645,27 @@ a {
 }
 
 .field-row > svg {
-  color: var(--text-dim);
+  color: var(--ink-2);
   flex-shrink: 0;
 }
 
 .input {
   width: 100%;
-  height: 40px;
+  height: 36px;
   padding: 0 12px;
-  background: var(--field);
-  border: 1px solid var(--border-strong);
+  background: var(--card);
+  border: 1px solid var(--line);
   border-radius: var(--radius-sm);
 }
 
 .input::placeholder {
-  color: var(--text-dim);
+  color: var(--ink-3);
 }
 
 .input:focus {
   outline: none;
   border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--focus-ring);
 }
 
 .input:disabled,
@@ -686,19 +686,19 @@ a {
   position: absolute;
   right: 4px;
   top: 4px;
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   display: grid;
   place-items: center;
   background: none;
   border: none;
   border-radius: 6px;
-  color: var(--text-dim);
+  color: var(--ink-2);
 }
 
 .input-with-button button:hover:not(:disabled) {
-  color: var(--accent);
-  background: var(--accent-soft);
+  color: var(--ink);
+  background: var(--hover);
 }
 
 /* Generate button */
@@ -711,27 +711,24 @@ a {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 14px;
+  gap: 10px;
   width: 100%;
-  height: 68px;
+  height: 48px;
   border: none;
-  border-radius: var(--radius);
-  background: var(--gradient);
-  color: #fff;
-  font-size: 21px;
-  font-weight: 600;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
-  box-shadow: 0 10px 30px rgba(19, 78, 74, 0.4); /* teal-900 */
-  transition: filter 0.15s, transform 0.15s;
+  border-radius: 999px;
+  background: var(--primary);
+  color: var(--on-primary);
+  font-size: 15px;
+  font-weight: 500;
+  transition: background 0.15s;
 }
 
 .generate-button:hover:not(:disabled) {
-  filter: brightness(1.08);
-  transform: translateY(-1px);
+  background: var(--primary-hover);
 }
 
 .generate-button:disabled {
-  filter: grayscale(0.7) brightness(0.6);
+  opacity: 0.45;
 }
 
 /* Under the Generate button: where new files go (FRG-41). */
@@ -742,11 +739,11 @@ a {
   gap: 6px;
   margin: 10px 0 0;
   font-size: 13px;
-  color: var(--text-dim);
+  color: var(--ink-2);
 }
 
 .project-note strong {
-  color: var(--text);
+  color: var(--ink);
   overflow-wrap: anywhere;
 }
 
@@ -761,21 +758,21 @@ a {
 }
 
 .message.error {
-  color: #ffb3b3;
-  border-color: rgba(255, 107, 107, 0.4);
-  background: rgba(255, 107, 107, 0.08);
+  color: var(--danger);
+  border-color: var(--danger-line);
+  background: var(--danger-soft);
 }
 
 .message.warning {
-  color: #ffd699;
-  border-color: rgba(255, 180, 76, 0.4);
-  background: rgba(255, 180, 76, 0.08);
+  color: var(--warning);
+  border-color: var(--warning-line);
+  background: var(--warning-soft);
 }
 
 .message.info {
-  color: #b9dcff;
-  border-color: rgba(108, 184, 255, 0.35);
-  background: rgba(108, 184, 255, 0.08);
+  color: var(--info);
+  border-color: var(--info-line);
+  background: var(--info-soft);
 }
 
 /* ---------- Result panel (right) ---------- */
@@ -791,11 +788,11 @@ a {
 }
 
 .result .section-head > svg {
-  color: var(--text-dim);
+  color: var(--ink-2);
 }
 
 .result .section-head h2 {
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 500;
 }
 
@@ -804,8 +801,8 @@ a {
   aspect-ratio: 5 / 4;
   border-radius: var(--radius-sm);
   overflow: hidden;
-  background: radial-gradient(circle at 50% 40%, #1e293b, #0f172a 70%);
-  border: 1px solid var(--border);
+  background: var(--frame);
+  border: 1px solid var(--line);
   display: grid;
   place-items: center;
 }
@@ -815,17 +812,17 @@ a {
   width: 100%;
   height: 100%;
   object-fit: contain;
-  background: #000;
+  background: var(--frame);
 }
 
 .stage-empty {
   text-align: center;
-  color: var(--text-faint);
+  color: var(--ink-3);
   padding: 24px;
 }
 
 .stage-empty svg {
-  color: var(--border-strong);
+  color: var(--line-strong);
   margin-bottom: 10px;
 }
 
@@ -834,7 +831,7 @@ a {
   inset: 0;
   display: grid;
   place-items: center;
-  background: rgba(15, 23, 42, 0.72);
+  background: var(--veil);
   backdrop-filter: blur(3px);
 }
 
@@ -845,7 +842,7 @@ a {
 
 .progress-card p {
   margin: 12px 0 0;
-  color: var(--text-dim);
+  color: var(--ink-2);
 }
 
 .progress-card .button {
@@ -857,8 +854,8 @@ a {
   height: 44px;
   margin: 0 auto 14px;
   border-radius: 50%;
-  border: 3px solid var(--border-strong);
-  border-top-color: var(--accent);
+  border: 3px solid var(--line);
+  border-top-color: var(--ink);
   animation: spin 0.9s linear infinite;
 }
 
@@ -869,15 +866,15 @@ a {
 }
 
 .progress-bar {
-  height: 8px;
+  height: 6px;
   border-radius: 99px;
-  background: var(--border);
+  background: var(--line);
   overflow: hidden;
 }
 
 .progress-bar div {
   height: 100%;
-  background: var(--gradient);
+  background: var(--primary);
   transition: width 0.4s ease;
 }
 
@@ -888,7 +885,7 @@ a {
   overflow-x: auto;
   padding-bottom: 6px;
   scrollbar-width: thin;
-  scrollbar-color: var(--border-strong) transparent;
+  scrollbar-color: var(--line) transparent;
 }
 
 .strip button {
@@ -900,11 +897,11 @@ a {
   border: 2px solid transparent;
   border-radius: var(--radius-sm);
   overflow: hidden;
-  background: var(--panel-2);
+  background: var(--frame);
 }
 
 .strip button.active {
-  border-color: var(--accent);
+  border-color: var(--ink);
 }
 
 .strip img,
@@ -924,10 +921,10 @@ a {
   gap: 4px;
   padding: 2px 7px;
   font-size: 11.5px;
-  font-weight: 600;
-  background: rgba(0, 0, 0, 0.7);
-  border-radius: 6px;
-  color: #fff;
+  font-weight: 500;
+  background: var(--tag);
+  border-radius: 999px;
+  color: var(--on-media);
 }
 
 /* A sound or 3D result (FRG-29): an icon, the file name and Download. Real players come later. */
@@ -942,8 +939,8 @@ a {
   justify-content: center;
   gap: 10px;
   padding: 16px;
-  background: var(--panel-2);
-  color: var(--text-dim);
+  background: var(--frame);
+  color: var(--ink-2);
   text-align: center;
 }
 
@@ -953,16 +950,15 @@ a {
   min-height: 260px;
 }
 
-/* Sound results (FRG-30): the browser player in the dark theme, and a small play button on tiles. */
+/* Sound results (FRG-30): the browser player (it follows the theme), and a small play button on tiles. */
 .audio-player audio {
   width: 100%;
   max-width: 420px;
-  color-scheme: dark;
 }
 
 .audio-length {
   font-size: 12.5px;
-  color: var(--text-faint);
+  color: var(--ink-3);
 }
 
 .audio-play {
@@ -971,13 +967,13 @@ a {
   width: 34px;
   height: 34px;
   border-radius: 50%;
-  color: #04201d;
-  background: var(--accent);
+  color: var(--on-primary);
+  background: var(--primary);
   cursor: pointer;
 }
 
 .audio-play:hover {
-  filter: brightness(1.1);
+  background: var(--primary-hover);
 }
 
 .audio-play:focus-visible {
@@ -1001,7 +997,7 @@ a {
   min-height: 320px;
   border-radius: var(--radius-sm);
   overflow: hidden;
-  background: radial-gradient(circle at 50% 40%, #283548, #0f172a 75%);
+  background: var(--frame);
 }
 
 .detail-media .model-viewer {
@@ -1040,7 +1036,7 @@ a {
   gap: 10px;
   padding: 16px;
   text-align: center;
-  color: var(--text-dim);
+  color: var(--ink-2);
   pointer-events: none;
 }
 
@@ -1060,7 +1056,7 @@ a {
 .model-viewer-hint {
   margin-right: auto;
   font-size: 12.5px;
-  color: var(--text-faint);
+  color: var(--ink-3);
 }
 
 /* ---------- Gallery ---------- */
@@ -1074,13 +1070,15 @@ a {
 
 .gallery-head h1 {
   margin: 0;
-  font-size: 26px;
-  font-weight: 600;
+  font-size: 28px;
+  line-height: 1.2;
+  font-weight: 500;
+  letter-spacing: -0.02em;
 }
 
 .gallery-head p {
   margin: 0;
-  color: var(--text-dim);
+  color: var(--ink-2);
 }
 
 /* The project the gallery shows (FRG-41). */
@@ -1089,10 +1087,10 @@ a {
   align-items: center;
   gap: 6px;
   padding: 3px 10px;
-  border: 1px solid var(--border-strong);
+  border: 1px solid var(--line);
   border-radius: 999px;
-  background: var(--accent-soft);
-  font-size: 14px;
+  background: var(--card);
+  font-size: 13px;
   font-weight: 500;
   overflow-wrap: anywhere;
 }
@@ -1106,17 +1104,17 @@ a {
 .tile {
   position: relative;
   padding: 0;
-  border: 1px solid var(--border);
+  border: 1px solid var(--line);
   border-radius: var(--radius);
   overflow: hidden;
-  background: var(--panel);
+  background: var(--frame);
   text-align: left;
-  transition: border-color 0.15s, transform 0.15s;
+  transition: border-color 0.15s, box-shadow 0.15s;
 }
 
 .tile:hover {
-  border-color: var(--accent);
-  transform: translateY(-2px);
+  border-color: var(--line-strong);
+  box-shadow: var(--soft-shadow);
 }
 
 .tile img,
@@ -1131,7 +1129,8 @@ a {
   position: absolute;
   inset: auto 0 0 0;
   padding: 28px 12px 10px;
-  background: linear-gradient(transparent, rgba(0, 0, 0, 0.85));
+  background: linear-gradient(transparent, var(--tag));
+  color: var(--on-media);
   font-size: 13px;
   opacity: 0;
   transition: opacity 0.15s;
@@ -1150,7 +1149,8 @@ a {
 }
 
 .tile-by {
-  color: var(--text-dim);
+  color: var(--on-media);
+  opacity: 0.75;
   margin-top: 2px;
 }
 
@@ -1179,7 +1179,7 @@ a {
 }
 
 .start-result > svg {
-  color: var(--text-dim);
+  color: var(--ink-2);
 }
 
 .start-result figure {
@@ -1190,7 +1190,7 @@ a {
   margin-top: 6px;
   text-align: center;
   font-size: 13px;
-  color: var(--text-dim);
+  color: var(--ink-2);
 }
 
 .detail-media img,
@@ -1200,7 +1200,7 @@ a {
   max-height: calc(100vh - 200px);
   object-fit: contain;
   border-radius: var(--radius-sm);
-  background: #000;
+  background: var(--frame);
 }
 
 .detail-info {
@@ -1209,16 +1209,14 @@ a {
 
 .detail-info h2 {
   margin: 0 0 6px;
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 1px;
-  text-transform: uppercase;
-  color: var(--text-dim);
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--ink-3);
 }
 
 .detail-prompt {
   margin: 0 0 18px;
-  font-size: 16px;
+  font-size: 15px;
   line-height: 1.55;
 }
 
@@ -1228,12 +1226,12 @@ a {
   gap: 10px 18px;
   margin: 0 0 22px;
   padding-top: 16px;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--line);
   font-size: 14px;
 }
 
 .facts dt {
-  color: var(--text-dim);
+  color: var(--ink-2);
 }
 
 .facts dd {
@@ -1252,27 +1250,30 @@ a {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  height: 42px;
-  padding: 0 18px;
+  height: 36px;
+  padding: 0 14px;
   border-radius: var(--radius-sm);
-  border: 1px solid var(--border-strong);
-  background: var(--panel-2);
-  font-weight: 600;
-  color: var(--text);
+  border: 1px solid var(--line);
+  background: var(--card);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--ink);
+  transition: background 0.15s;
 }
 
 .button:hover:not(:disabled) {
-  border-color: var(--accent);
+  background: var(--hover);
 }
 
 .button.primary {
-  border: none;
-  background: var(--gradient);
-  color: #fff;
+  border-color: var(--primary);
+  background: var(--primary);
+  color: var(--on-primary);
 }
 
 .button.primary:hover:not(:disabled) {
-  filter: brightness(1.08);
+  border-color: var(--primary-hover);
+  background: var(--primary-hover);
 }
 
 .button:disabled {
@@ -1282,7 +1283,7 @@ a {
 .empty {
   padding: 60px 20px;
   text-align: center;
-  color: var(--text-dim);
+  color: var(--ink-2);
 }
 
 /* ---------- Login ---------- */
@@ -1292,15 +1293,13 @@ a {
   display: grid;
   place-items: center;
   padding: 24px;
-  background:
-    radial-gradient(circle at 20% 10%, rgba(34, 166, 240, 0.12), transparent 40%),
-    radial-gradient(circle at 85% 90%, rgba(61, 220, 132, 0.1), transparent 40%),
-    var(--bg);
+  background: var(--sidebar);
 }
 
 .login-card {
-  width: min(400px, 100%);
-  padding: 32px 30px;
+  width: min(380px, 100%);
+  padding: 32px;
+  box-shadow: var(--float-shadow);
 }
 
 .login-card .logo {
@@ -1311,7 +1310,7 @@ a {
 .login-card > p {
   margin: 0 0 24px;
   text-align: center;
-  color: var(--text-dim);
+  color: var(--ink-2);
 }
 
 .login-card label {
@@ -1321,7 +1320,7 @@ a {
 
 .login-card .button {
   width: 100%;
-  height: 48px;
+  height: 40px;
   margin-top: 6px;
 }
 
@@ -1329,7 +1328,7 @@ a {
   min-height: 100vh;
   display: grid;
   place-items: center;
-  color: var(--text-dim);
+  color: var(--ink-2);
 }
 
 /* ---------- Smaller screens ---------- */
@@ -1355,7 +1354,8 @@ a {
 
 .board-column {
   min-height: 300px;
-  padding: 14px;
+  padding: 12px;
+  background: var(--sidebar);
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -1364,12 +1364,14 @@ a {
 
 .board-column.drop-target {
   border-color: var(--accent);
+  background: var(--accent-soft);
   border-style: dashed;
 }
 
 .board-column h2 {
   margin: 0 0 2px;
-  font-size: 15px;
+  font-size: 14px;
+  font-weight: 500;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1377,21 +1379,21 @@ a {
 
 .board-column .count {
   font-size: 12px;
-  color: var(--text-dim);
-  background: var(--panel-2);
+  color: var(--ink-2);
+  background: var(--hover);
   border-radius: 999px;
   padding: 1px 8px;
 }
 
 .board-hint {
   margin: 0;
-  color: var(--text-faint);
+  color: var(--ink-3);
   font-size: 13.5px;
 }
 
 .board-card {
-  background: var(--panel-2);
-  border: 1px solid var(--border-strong);
+  background: var(--card);
+  border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   padding: 12px;
 }
@@ -1402,20 +1404,21 @@ a {
 
 .board-card h3 {
   margin: 0;
-  font-size: 15px;
+  font-size: 14px;
+  font-weight: 500;
   overflow-wrap: anywhere;
 }
 
 .board-meta {
   margin: 4px 0 0;
   font-size: 12.5px;
-  color: var(--text-dim);
+  color: var(--ink-2);
 }
 
 .board-prompt {
   margin: 8px 0 0;
   font-size: 13.5px;
-  color: var(--text-dim);
+  color: var(--ink-2);
   overflow-wrap: anywhere;
 }
 
@@ -1474,7 +1477,7 @@ a {
   display: grid;
   place-items: center;
   padding: 16px;
-  background: rgba(15, 23, 42, 0.72);
+  background: var(--overlay);
 }
 
 .modal {
@@ -1485,6 +1488,7 @@ a {
   display: flex;
   flex-direction: column;
   gap: 14px;
+  box-shadow: var(--float-shadow);
 }
 
 .modal-head {
@@ -1495,7 +1499,8 @@ a {
 
 .modal-head h2 {
   margin: 0;
-  font-size: 18px;
+  font-size: 16px;
+  font-weight: 500;
 }
 
 /* ---------- Chat (FRG-23) ---------- */
@@ -1522,7 +1527,7 @@ a {
 .chat-bubble code {
   padding: 1px 5px;
   border-radius: 5px;
-  background: var(--field);
+  background: var(--frame);
   font-family: ui-monospace, Consolas, monospace;
   font-size: 0.92em;
 }
@@ -1530,7 +1535,7 @@ a {
 .chat-bubble pre {
   padding: 10px 12px;
   border-radius: var(--radius-sm);
-  background: var(--field);
+  background: var(--frame);
   overflow-x: auto;
 }
 
@@ -1552,7 +1557,7 @@ a {
   height: 120px;
   object-fit: cover;
   border-radius: var(--radius-sm);
-  background: var(--field);
+  background: var(--frame);
 }
 
 .chat-attached {
@@ -1573,7 +1578,7 @@ a {
   height: 64px;
   object-fit: cover;
   border-radius: var(--radius-sm);
-  border: 1px solid var(--border-strong);
+  border: 1px solid var(--line);
 }
 
 .chat-attached-item button {
@@ -1585,9 +1590,9 @@ a {
   width: 20px;
   height: 20px;
   border-radius: 50%;
-  border: 1px solid var(--border-strong);
-  background: var(--panel-2);
-  color: var(--text);
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--ink);
 }
 
 /* ---------- Send to (FRG-26) ---------- */
@@ -1607,10 +1612,10 @@ a {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  background: var(--panel-2);
-  border: 1px solid var(--border-strong);
+  background: var(--card);
+  border: 1px solid var(--line);
   border-radius: var(--radius-sm);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  box-shadow: var(--float-shadow);
 }
 
 .send-to-menu.right {
@@ -1629,20 +1634,20 @@ a {
 }
 
 .send-to-item:hover {
-  background: var(--panel);
+  background: var(--hover);
 }
 
 .send-to-item button {
   padding: 4px 8px;
   border-radius: 6px;
-  border: 1px solid var(--border-strong);
-  background: var(--panel);
+  border: 1px solid var(--line);
+  background: var(--card);
   font-size: 12.5px;
   white-space: nowrap;
 }
 
 .send-to-item button:hover {
-  border-color: var(--accent);
+  background: var(--hover-strong);
 }
 
 .send-to .message {
@@ -1657,9 +1662,9 @@ a {
 .chat-card {
   margin: 10px 0 4px;
   padding: 12px;
-  border: 1px solid var(--border-strong);
+  border: 1px solid var(--line);
   border-radius: var(--radius-sm);
-  background: var(--panel);
+  background: var(--card);
 }
 
 .chat-card-head {
@@ -1687,11 +1692,11 @@ a {
   object-fit: contain;
   margin-top: 10px;
   border-radius: var(--radius-sm);
-  background: var(--field);
+  background: var(--frame);
 }
 
 .chat-note {
-  color: var(--text-faint);
+  color: var(--ink-3);
   font-size: 13px;
 }
 

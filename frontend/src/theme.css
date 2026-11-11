@@ -1,0 +1,179 @@
+/* The TeczoForge theme. This file is the ONE place where colours are written.
+   Everything else uses these variables:
+   - plain CSS (styles.css) uses var(--page), var(--ink), ...
+   - Tailwind classes use the names from the @theme block at the bottom: bg-page, text-ink, border-line, ...
+
+   Light is the default. Dark is used when <html> has data-theme="dark" (set by theme.ts and by the
+   small script in index.html). */
+
+:root {
+  /* Surfaces */
+  --page: #ffffff; /* page background */
+  --sidebar: #fafafa; /* sidebar background */
+  --card: #ffffff; /* cards, inputs, menus, dialogs */
+  --hover: #f2f2f2; /* hover and active item fill */
+  --hover-strong: #e8e8e8; /* pressed, or hover on top of a fill */
+  --frame: #f5f5f5; /* light grey frame behind pictures, video, 3D and sound */
+
+  /* Lines */
+  --line: #e5e5e5; /* the normal 1px border */
+  --line-strong: #d4d4d4; /* border on hover */
+
+  /* Text */
+  --ink: #0a0a0a; /* main text */
+  --ink-2: #6b6b6b; /* secondary text */
+  --ink-3: #9a9a9a; /* muted text, placeholders */
+
+  /* Primary button: black with white text */
+  --primary: #0a0a0a;
+  --primary-hover: #2b2b2b;
+  --on-primary: #ffffff;
+
+  /* The one accent colour: focus rings and small highlights only */
+  --accent: #0d9488;
+  --accent-soft: rgba(13, 148, 136, 0.1);
+  --focus-ring: rgba(13, 148, 136, 0.22);
+
+  /* Status colours: text, light tinted background, border */
+  --success: #15803d;
+  --success-soft: #f0fdf4;
+  --success-line: #bbf7d0;
+  --warning: #b45309;
+  --warning-soft: #fffbeb;
+  --warning-line: #fde68a;
+  --danger: #b91c1c;
+  --danger-soft: #fef2f2;
+  --danger-line: #fecaca;
+  --info: #1d4ed8;
+  --info-soft: #eff6ff;
+  --info-line: #bfdbfe;
+  --special: #6d28d9;
+  --special-soft: #f5f3ff;
+
+  /* Floating things */
+  --overlay: rgba(10, 10, 10, 0.4); /* behind a dialog */
+  --veil: rgba(255, 255, 255, 0.78); /* over a picture while it is being made */
+  --tag: rgba(10, 10, 10, 0.7); /* small dark label on top of a picture */
+  --on-media: #ffffff; /* text on top of a picture */
+  --float-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 8px 24px rgba(0, 0, 0, 0.08);
+  --soft-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 2px 8px rgba(0, 0, 0, 0.04);
+
+  /* Sizes */
+  --radius: 14px; /* cards */
+  --radius-sm: 10px; /* inputs and buttons */
+  --header-h: 52px; /* height of the top bar; pages use it for their sticky parts */
+  --font: "Inter Variable", "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  --page: #0a0a0a;
+  --sidebar: #111111;
+  --card: #141414;
+  --hover: #1f1f1f;
+  --hover-strong: #2a2a2a;
+  --frame: #1a1a1a;
+
+  --line: #262626;
+  --line-strong: #3a3a3a;
+
+  --ink: #fafafa;
+  --ink-2: #a3a3a3;
+  --ink-3: #737373;
+
+  --primary: #fafafa;
+  --primary-hover: #d9d9d9;
+  --on-primary: #0a0a0a;
+
+  --accent: #2dd4bf;
+  --accent-soft: rgba(45, 212, 191, 0.12);
+  --focus-ring: rgba(45, 212, 191, 0.25);
+
+  --success: #4ade80;
+  --success-soft: rgba(74, 222, 128, 0.1);
+  --success-line: rgba(74, 222, 128, 0.3);
+  --warning: #fbbf24;
+  --warning-soft: rgba(251, 191, 36, 0.1);
+  --warning-line: rgba(251, 191, 36, 0.3);
+  --danger: #f87171;
+  --danger-soft: rgba(248, 113, 113, 0.1);
+  --danger-line: rgba(248, 113, 113, 0.3);
+  --info: #60a5fa;
+  --info-soft: rgba(96, 165, 250, 0.1);
+  --info-line: rgba(96, 165, 250, 0.3);
+  --special: #a78bfa;
+  --special-soft: rgba(167, 139, 250, 0.12);
+
+  --overlay: rgba(0, 0, 0, 0.65);
+  --veil: rgba(10, 10, 10, 0.75);
+  --tag: rgba(0, 0, 0, 0.7);
+  --on-media: #ffffff;
+  --float-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px rgba(0, 0, 0, 0.5);
+  --soft-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+
+  color-scheme: dark;
+}
+
+/* Sample pictures on the Generate page. They are small pictures, not theme colours, so they are
+   the same in light and dark. */
+.model-thumb {
+  /* --hue is set by Generate.tsx from the model name. */
+  background: linear-gradient(135deg, hsl(var(--hue, 200) 60% 30%), hsl(calc(var(--hue, 200) + 30) 65% 50%));
+}
+.sample-art-1 {
+  background: linear-gradient(135deg, #1e4d6b, #d9a35c);
+}
+.sample-art-2 {
+  background: linear-gradient(135deg, #3a1a6b, #1ec8ff);
+}
+.sample-art-3 {
+  background: linear-gradient(135deg, #1a1f26, #4a5a6a);
+}
+.sample-art-4 {
+  background: linear-gradient(135deg, #6b1a5a, #b98cff);
+}
+.sample-art-5 {
+  background: linear-gradient(135deg, #6b5a3a, #e8d8b8);
+}
+
+/* The same variables as Tailwind colours. "inline" means the class reads the variable live,
+   so one class works in both themes. Example: bg-card, text-ink-2, border-line, shadow-float. */
+@theme inline {
+  --color-page: var(--page);
+  --color-sidebar: var(--sidebar);
+  --color-card: var(--card);
+  --color-hover: var(--hover);
+  --color-hover-strong: var(--hover-strong);
+  --color-frame: var(--frame);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-on-primary: var(--on-primary);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-focus-ring: var(--focus-ring);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-success-line: var(--success-line);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-warning-line: var(--warning-line);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-danger-line: var(--danger-line);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+  --color-info-line: var(--info-line);
+  --color-special: var(--special);
+  --color-special-soft: var(--special-soft);
+  --color-overlay: var(--overlay);
+  --color-on-media: var(--on-media);
+  --shadow-float: var(--float-shadow);
+  --shadow-soft: var(--soft-shadow);
+  --font-sans: var(--font);
+}
