@@ -65,6 +65,7 @@ import {
 } from "./batches.js";
 import { estimateHandler } from "./estimate.js";
 import { timeTestHandler } from "./timeTest.js";
+import { translateStatusHandler } from "./translateServer.js";
 
 // Settings come from backend/.env. The defaults match .env.example.
 const PORT = Number(process.env.PORT ?? 4000);
@@ -212,6 +213,9 @@ app.post("/api/batches/:id/end", endBatchHandler);
 // Time estimate (see estimate.ts, FRG-76): how long a list of jobs takes, and the Time test that measures each preset.
 app.post("/api/estimate", express.json(), estimateHandler);
 app.post("/api/time-test", express.json(), timeTestHandler);
+
+// Japanese translation (see translateServer.ts, FRG-90): is it set up, and is llama-server running.
+app.get("/api/translate/status", translateStatusHandler);
 
 // Chat with Claude (see chat.ts). Each user only sees their own conversations.
 app.get("/api/chat/status", chatStatusHandler);
