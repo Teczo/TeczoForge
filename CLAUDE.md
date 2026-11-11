@@ -187,6 +187,8 @@ Fill this in when the ticket that creates each part is done.
   (asks for the password twice). Needs MongoDB. `SESSION_SECRET` in `backend/.env` keeps logins after a restart.
 - Make a new `SESSION_SECRET`: `cd backend`, then `npm run secret` (prints 64 hex characters;
   paste it into `backend/.env`). If it is set but shorter than 32 characters, the backend will not start.
+- Test the translation engine: `cd backend`, then `npm run translate-test`. It starts llama-server,
+  asks the model to say OK, prints the answer, and stops llama-server again. Uses about 22 GB of GPU memory while it runs.
 - Tests: (not set yet)
 - Lint: (not set yet)
 
