@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import type { ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
-import type { Request, Response } from "express";
+import path from "node:path";
 
 // Japanese translation (FRG-90, plan: docs/japanese-translate.md).
 // This file starts and stops llama-server, the program that runs the translation model.
@@ -28,6 +28,18 @@ function settings() {
     imageMinTokens: (env.TRANSLATE_IMAGE_MIN_TOKENS ?? "").trim() || "2048",
     imageMaxTokens: (env.TRANSLATE_IMAGE_MAX_TOKENS ?? "").trim() || "8192",
     context: (env.TRANSLATE_CONTEXT ?? "").trim() || "24576",
+    targetLanguage: (env.TRANSLATE_TARGET_LANGUAGE ?? "").trim() || "English",
+  };
+}
+
+// What a document record needs to know about the settings (FRG-91).
+export function translateSettings() {
+  const s = settings();
+  return {
+    modelName: path.basename(s.modelPath), // The file name only, not the folder.
+    imageMinTokens: s.imageMinTokens,
+    imageMaxTokens: s.imageMaxTokens,
+    targetLanguage: s.targetLanguage,
   };
 }
 
@@ -109,6 +121,9 @@ export async function startTranslateServer(): Promise<void> {
   const setup = checkTranslateSetup();
   if (!setup.setUp) throw new Error(setup.problem ?? "Translation is not set up.");
 
+  // Our llama-server is already running and ready: nothing to do.
+  if (child !== null && (await health()) === "ready") return;
+
   if (child === null) {
     if ((await health()) !== "off") {
       // Someone started llama-server by hand. Use it. We do not stop it afterwards.
@@ -186,17 +201,3 @@ process.on("exit", () => {
 // Ctrl+C and a stop request end the backend through "exit" above.
 process.on("SIGINT", () => process.exit(0));
 process.on("SIGTERM", () => process.exit(0));
-
-// GET /api/translate/status
-// Answer: { setUp, problem, serverRunning, gpuBusy, waiting }.
-// gpuBusy and waiting get their real values in later tickets (FRG-93 and FRG-91).
-export async function translateStatusHandler(_req: Request, res: Response) {
-  const setup = checkTranslateSetup();
-  res.json({
-    setUp: setup.setUp,
-    problem: setup.problem,
-    serverRunning: setup.setUp ? await isTranslateServerRunning() : false,
-    gpuBusy: false,
-    waiting: 0,
-  });
-}
