@@ -99,6 +99,19 @@ export async function isTranslateServerRunning(): Promise<boolean> {
   return (await health()) === "ready";
 }
 
+// Sharing the GPU with ComfyUI (FRG-93). The translation model and a ComfyUI job do not fit on
+// the GPU together. This is true from the moment the translation worker takes the GPU until
+// llama-server has stopped. While it is true, no work is sent to ComfyUI (see queueWorkflow in comfyui.ts).
+let holdsGpu = false;
+
+export function translationHoldsGpu(): boolean {
+  return holdsGpu;
+}
+
+export function setTranslationHoldsGpu(value: boolean): void {
+  holdsGpu = value;
+}
+
 // The llama-server process that WE started. Null when we did not start one.
 // If someone started llama-server by hand, this stays null and we never stop it.
 let child: ChildProcess | null = null;
