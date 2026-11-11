@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChangeEvent, DragEvent } from "react";
-import { AlertTriangle, Check, Copy, Download, ImagePlus, RefreshCw } from "lucide-react";
+import { AlertTriangle, Check, Copy, Download, ImagePlus, Pencil, RefreshCw } from "lucide-react";
 
 // The Translate page (FRG-92, plan: docs/japanese-translate.md section 13).
 // The user adds photos of handwritten Japanese documents. For each photo the backend makes the
@@ -23,6 +23,7 @@ type DocSummary = {
   originalName: string;
   createdAt: string;
   status: DocStatus;
+  japaneseEdited: boolean;
   error: string | null;
   warnings: string[];
   model: string;
@@ -178,6 +179,25 @@ export default function TranslatePage() {
     }
   }
 
+  // Save a corrected Japanese text. The backend translates it again without reading the photo (FRG-94).
+  // Returns true when it was saved.
+  async function saveJapanese(id: string, japanese: string): Promise<boolean> {
+    setError(null);
+    try {
+      const response = await fetch(`/api/translate/documents/${id}/japanese`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ japanese }),
+      });
+      if (!response.ok) throw new Error(await errorOf(response));
+      await loadDocs();
+      return true;
+    } catch (problem) {
+      setError(problem instanceof TypeError ? NO_BACKEND : (problem as Error).message);
+      return false;
+    }
+  }
+
   return (
     <main className="mx-auto w-full max-w-7xl px-8 pt-2 pb-12">
       <h1 className="m-0 mb-6 text-2xl font-semibold text-slate-100">Translate</h1>
@@ -267,7 +287,7 @@ export default function TranslatePage() {
 
               {/* Right: the picked document. */}
               <div className="min-w-0 flex-1">
-                {picked && <Result doc={picked} detail={detail?.id === picked.id ? detail : null} onTryAgain={() => void tryAgain(picked.id)} />}
+                {picked && <Result doc={picked} detail={detail?.id === picked.id ? detail : null} onTryAgain={() => void tryAgain(picked.id)} onSaveJapanese={(text) => saveJapanese(picked.id, text)} />}
               </div>
             </div>
           )}
@@ -284,7 +304,17 @@ function statusColour(status: DocStatus): string {
 }
 
 // The photo, the two texts and the buttons of one document.
-function Result({ doc, detail, onTryAgain }: { doc: DocSummary; detail: DocDetail | null; onTryAgain: () => void }) {
+function Result({
+  doc,
+  detail,
+  onTryAgain,
+  onSaveJapanese,
+}: {
+  doc: DocSummary;
+  detail: DocDetail | null;
+  onTryAgain: () => void;
+  onSaveJapanese: (japanese: string) => Promise<boolean>;
+}) {
   const imageUrl = `/api/translate/documents/${doc.id}/image`;
   const finished = isFinished(doc.status);
 
@@ -340,7 +370,15 @@ function Result({ doc, detail, onTryAgain }: { doc: DocSummary; detail: DocDetai
         Machine reading of handwriting makes mistakes. Check the Japanese text against the photo.
       </p>
 
-      <TextBox title="Japanese" lang="ja" text={detail?.japanese ?? ""} waiting={doc.status === "waiting" || doc.status === "reading"} />
+      {/* key: a half-typed correction is dropped when another document is opened. */}
+      <TextBox
+        key={doc.id}
+        title={doc.japaneseEdited ? "Japanese (corrected by hand)" : "Japanese"}
+        lang="ja"
+        text={detail?.japanese ?? ""}
+        waiting={doc.status === "waiting" || doc.status === "reading"}
+        onSave={finished ? onSaveJapanese : undefined}
+      />
       <TextBox title="Translation" text={detail?.english ?? ""} waiting={!finished} />
 
       {finished && (
@@ -352,9 +390,67 @@ function Result({ doc, detail, onTryAgain }: { doc: DocSummary; detail: DocDetai
   );
 }
 
-// One text with its "Copy" button.
-function TextBox({ title, text, lang, waiting }: { title: string; text: string; lang?: string; waiting: boolean }) {
+// One text with its "Copy" button. With onSave it also has "Edit": the text becomes a box to
+// type in, with "Save and translate again" (FRG-94).
+function TextBox({
+  title,
+  text,
+  lang,
+  waiting,
+  onSave,
+}: {
+  title: string;
+  text: string;
+  lang?: string;
+  waiting: boolean;
+  onSave?: (text: string) => Promise<boolean>;
+}) {
   const [copied, setCopied] = useState(false);
+  // The text being corrected, or null when not editing.
+  const [draft, setDraft] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    if (draft === null || !onSave) return;
+    setSaving(true);
+    const saved = await onSave(draft);
+    setSaving(false);
+    if (saved) setDraft(null);
+  }
+
+  if (draft !== null) {
+    return (
+      <section className="mt-4">
+        <h3 className="m-0 mb-2 text-sm font-semibold text-slate-200">{title}</h3>
+        <textarea
+          lang={lang}
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          rows={Math.min(Math.max(draft.split("\n").length + 1, 6), 30)}
+          className="block w-full resize-y rounded-xl border border-teal-500/60 bg-slate-900/60 px-4 py-3 text-[15px] leading-relaxed text-slate-100"
+        />
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void save()}
+            disabled={saving || draft.trim() === ""}
+            className="cursor-pointer rounded-lg border-0 bg-teal-600/90 px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-teal-500 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Save and translate again
+          </button>
+          <button
+            type="button"
+            onClick={() => setDraft(null)}
+            disabled={saving}
+            className="cursor-pointer rounded-lg border border-slate-600 bg-transparent px-3 py-1.5 text-sm text-slate-200 transition-colors hover:bg-slate-700/60 disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <span className="text-xs text-slate-500">The photo is not read again. Only the translation is made again.</span>
+        </div>
+      </section>
+    );
+  }
 
   async function copy() {
     try {
@@ -370,7 +466,18 @@ function TextBox({ title, text, lang, waiting }: { title: string; text: string; 
   return (
     <section className="mt-4">
       <div className="mb-2 flex items-center justify-between">
-        <h3 className="m-0 text-sm font-semibold text-slate-200">{title}</h3>
+        <h3 className="m-0 mr-auto text-sm font-semibold text-slate-200">{title}</h3>
+        {onSave && (
+          <button
+            type="button"
+            onClick={() => setDraft(text)}
+            disabled={text === ""}
+            className="mr-2 flex cursor-pointer items-center gap-1.5 rounded-lg border border-slate-600 bg-transparent px-2.5 py-1 text-xs text-slate-200 transition-colors hover:bg-slate-700/60 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <Pencil size={12} />
+            Edit
+          </button>
+        )}
         <button
           type="button"
           onClick={() => void copy()}

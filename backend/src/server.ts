@@ -69,6 +69,7 @@ import {
   createDocumentHandler,
   documentImageHandler,
   documentTextHandler,
+  editJapaneseHandler,
   getDocumentHandler,
   listDocumentsHandler,
   loadTranslateDocuments,
@@ -234,6 +235,8 @@ app.get("/api/translate/documents/:id", getDocumentHandler);
 app.get("/api/translate/documents/:id/image", documentImageHandler);
 app.post("/api/translate/documents/:id/retry", retryDocumentHandler);
 app.get("/api/translate/documents/:id/text", documentTextHandler);
+// Save a corrected Japanese text and translate it again, without reading the photo again (FRG-94).
+app.put("/api/translate/documents/:id/japanese", express.json(), editJapaneseHandler);
 
 // Chat with Claude (see chat.ts). Each user only sees their own conversations.
 app.get("/api/chat/status", chatStatusHandler);
