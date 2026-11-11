@@ -1,12 +1,15 @@
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
-import { ChevronDown, Folder, Gamepad2, Image, Languages, LayoutDashboard, LogOut, Package, Sparkles, UserRound } from "lucide-react";
+import { ChevronDown, Folder, Gamepad2, Image, Languages, LayoutDashboard, LogOut, MessageSquare, Moon, Package, PanelLeft, Plus, Sparkles, Sun, UserRound } from "lucide-react";
 import type { Project } from "./App";
 import Logo from "./Logo";
 import RecentChats, { useRecentChats } from "./RecentChats";
+import { useTheme } from "./theme";
+import type { Theme } from "./theme";
+import { btn, ICON, ICON_BUTTON } from "./ui";
 
-// The frame around every page (FRG-46): the left sidebar, and a small status box at the top right.
-// Built with Tailwind classes and lucide-react icons, after docs/design/teczoforge_redesign.tsx.
+// The frame around every page (FRG-46): the left sidebar and the thin top bar.
+// Built with Tailwind classes and lucide-react icons. Colours come from theme.css.
 
 // What the page knows about each part.
 export type Status = "checking" | "online" | "offline" | "unknown";
@@ -14,8 +17,9 @@ export type Status = "checking" | "online" | "offline" | "unknown";
 // The pages, by the name in the address (see currentPage() in App.tsx).
 export type Page = "chat" | "generate" | "avatar" | "gallery" | "board" | "projects" | "games" | "packs" | "translate";
 
-// The page links in the sidebar. Chat is not here: it is the home page, opened with "New chat" or a recent chat.
-const NAV_ITEMS = [
+// The page links in the sidebar. Chat is the home page: it is also opened with "New chat" or a recent chat.
+export const NAV_ITEMS = [
+  { page: "chat", href: "#/chat", label: "Chat", icon: MessageSquare },
   { page: "generate", href: "#/generate", label: "Generate", icon: Sparkles },
   { page: "avatar", href: "#/avatar", label: "Avatar", icon: UserRound }, // The Generate page, on the Avatar category (FRG-86).
   { page: "gallery", href: "#/gallery", label: "Gallery", icon: Image },
@@ -41,81 +45,111 @@ type AppShellProps = {
   children: ReactNode;
 };
 
+// Is the sidebar closed? Remembered in this browser only.
+const SIDEBAR_KEY = "teczoforge.sidebarClosed";
+
+function readSidebarClosed(): boolean {
+  try {
+    return localStorage.getItem(SIDEBAR_KEY) === "1";
+  } catch {
+    return false; // No storage (for example a private window): the sidebar starts open.
+  }
+}
+
+// The small grey label above a group in the sidebar.
+const GROUP_LABEL = "px-3 pb-1.5 text-xs text-ink-3";
+
 export default function AppShell(props: AppShellProps) {
   const projectId = props.project === undefined ? undefined : (props.project?.id ?? null);
   const chats = useRecentChats(projectId, props.chatListVersion);
+  const [theme, toggleTheme] = useTheme();
+  const [closed, setClosed] = useState(readSidebarClosed);
+
+  function toggleSidebar() {
+    const next = !closed;
+    setClosed(next);
+    try {
+      localStorage.setItem(SIDEBAR_KEY, next ? "1" : "0");
+    } catch {
+      // No storage: the choice is kept until the page is refreshed.
+    }
+  }
+
+  const title = NAV_ITEMS.find((item) => item.page === props.page)?.label ?? "";
 
   return (
-    <div className="flex min-h-screen">
-      <aside className="sticky top-0 flex h-screen w-72 shrink-0 flex-col border-r border-slate-700/50 bg-slate-800">
-        {/* Top: logo */}
-        <div className="flex h-16 shrink-0 items-center px-5 [&_.logo]:text-2xl [&_.logo_img]:h-8 [&_.logo-forge]:text-[26px]">
-          <Logo />
-        </div>
+    <div className="flex min-h-screen bg-page text-sm text-ink">
+      {!closed && (
+        <aside className="sticky top-0 flex h-screen w-60 shrink-0 flex-col border-r border-line bg-sidebar">
+          {/* Top: logo */}
+          <div className="flex h-(--header-h) shrink-0 items-center px-4 [&_.logo]:text-xl [&_.logo_img]:h-6 [&_.logo-forge]:ml-[-5px] [&_.logo-forge]:text-[20px]">
+            <Logo />
+          </div>
 
-        {/* New chat: makes a chat in the current project and opens it (FRG-47). */}
-        <div className="shrink-0 px-4 pb-4">
+          {/* New chat: makes a chat in the current project and opens it (FRG-47). */}
+          <div className="shrink-0 px-3 pt-1 pb-3">
+            <button type="button" onClick={chats.newChat} disabled={projectId === undefined} className={`${btn("secondary", "sm")} w-full disabled:cursor-wait`}>
+              <Plus {...ICON} />
+              New chat
+            </button>
+          </div>
+
+          {/* Page links. The open page has a light grey fill. */}
+          <nav className="shrink-0 space-y-0.5 px-3 pb-4">
+            {NAV_ITEMS.map((item) => {
+              const active = props.page === item.page;
+              const Icon = item.icon;
+              return (
+                <a
+                  key={item.page}
+                  href={item.href}
+                  aria-current={active ? "page" : undefined}
+                  className={`group flex h-8 w-full items-center gap-2.5 rounded-lg px-3 text-sm no-underline transition-colors ${
+                    active ? "bg-hover font-medium text-ink" : "text-ink-2 hover:bg-hover hover:text-ink"
+                  }`}
+                >
+                  <Icon {...ICON} className={active ? "text-ink" : "text-ink-3 group-hover:text-ink"} />
+                  {item.label}
+                </a>
+              );
+            })}
+          </nav>
+
+          {/* The current project (FRG-41). */}
+          <div className="shrink-0 px-3">
+            <ProjectPicker projects={props.projects} project={props.project} onChoose={props.onChooseProject} onCreated={props.onCreatedProject} />
+          </div>
+
+          {/* Recent chats of the current project (FRG-47). Only this part scrolls. */}
+          <div className="min-h-0 flex-1 overflow-y-auto px-3 pt-5 pb-3">
+            <div className={GROUP_LABEL}>Recent</div>
+            <RecentChats chats={chats} openId={props.conversationId} project={props.project} projects={props.projects} />
+          </div>
+
+          {/* Bottom: who is logged in, the theme toggle, and "Log out". */}
+          <UserMenu user={props.user} onLogOut={props.onLogOut} theme={theme} onToggleTheme={toggleTheme} />
+        </aside>
+      )}
+
+      {/* A plain block: the pages center themselves with margin: 0 auto. */}
+      <div className="min-w-0 flex-1">
+        {/* The top bar: the page title on the left, the system status on the right.
+            Pages use its height (--header-h in theme.css) for their sticky parts. */}
+        <header className="sticky top-0 z-20 flex h-(--header-h) shrink-0 items-center gap-2 border-b border-line bg-page px-4">
           <button
             type="button"
-            onClick={chats.newChat}
-            disabled={projectId === undefined}
-            className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl border-0 bg-teal-600/90 px-4 py-2.5 text-sm font-medium text-white shadow-sm shadow-teal-900/20 transition-colors duration-200 hover:bg-teal-500 disabled:cursor-wait disabled:opacity-60"
+            onClick={toggleSidebar}
+            title={closed ? "Show the sidebar" : "Hide the sidebar"}
+            aria-label={closed ? "Show the sidebar" : "Hide the sidebar"}
+            aria-expanded={!closed}
+            className={ICON_BUTTON}
           >
-            <Sparkles size={16} />
-            New chat
+            <PanelLeft {...ICON} />
           </button>
-        </div>
-
-        {/* Page links. The open page is highlighted. */}
-        <nav className="mx-2 shrink-0 space-y-1 border-b border-slate-700/50 px-2 pb-4">
-          {NAV_ITEMS.map((item) => {
-            const active = props.page === item.page;
-            const Icon = item.icon;
-            return (
-              <a
-                key={item.page}
-                href={item.href}
-                aria-current={active ? "page" : undefined}
-                className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors duration-200 ${
-                  active ? "bg-slate-700/50 text-teal-400" : "text-slate-400 hover:bg-slate-700/30 hover:text-slate-200"
-                }`}
-              >
-                <Icon size={16} className={active ? "text-teal-400" : "text-slate-500"} />
-                {item.label}
-              </a>
-            );
-          })}
-        </nav>
-
-        {/* The current project (FRG-41), moved here from the old header. */}
-        <div className="shrink-0 px-4 pt-4">
-          <ProjectPicker
-            projects={props.projects}
-            project={props.project}
-            onChoose={props.onChooseProject}
-            onCreated={props.onCreatedProject}
-          />
-        </div>
-
-        {/* Recent chats of the current project (FRG-47). Only this part scrolls. */}
-        <div className="min-h-0 flex-1 overflow-y-auto px-2 pt-4 pb-4">
-          <div className="px-3 pb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">Recent</div>
-          <RecentChats chats={chats} openId={props.conversationId} project={props.project} projects={props.projects} />
-        </div>
-
-        {/* Bottom: who is logged in, and "Log out". */}
-        <UserMenu user={props.user} onLogOut={props.onLogOut} />
-      </aside>
-
-      {/* A plain block, like the page body was before: the pages center themselves with margin: 0 auto. */}
-      <div className="min-w-0 flex-1">
-        {/* Top right: is the backend and ComfyUI running? Same height as the old header, so the
-            pages' sticky parts (they use --header-h in styles.css) still line up. */}
-        <header className="sticky top-0 z-20 flex h-(--header-h) shrink-0 items-center justify-end bg-slate-900/90 px-6 backdrop-blur-sm">
-          <div className="flex items-center gap-4 rounded-full border border-slate-700/50 bg-slate-800/50 px-4 py-1.5">
-            <StatusLine label="Backend" status={props.backend} />
-            <div className="h-3 w-px bg-slate-700" />
-            <StatusLine label="ComfyUI" status={props.comfyui} />
+          <span className="text-sm font-medium text-ink">{title}</span>
+          <div className="ml-auto flex items-center gap-2">
+            <StatusPill label="Backend" status={props.backend} />
+            <StatusPill label="ComfyUI" status={props.comfyui} />
           </div>
         </header>
         {props.children}
@@ -132,27 +166,27 @@ const statusText: Record<Status, string> = {
 };
 
 const dotColor: Record<Status, string> = {
-  checking: "bg-slate-500",
-  online: "bg-emerald-500",
-  offline: "bg-red-500",
-  unknown: "bg-slate-500",
+  checking: "bg-ink-3",
+  online: "bg-success",
+  offline: "bg-danger",
+  unknown: "bg-ink-3",
 };
 
 const wordColor: Record<Status, string> = {
-  checking: "text-slate-500",
-  online: "text-emerald-500/90",
-  offline: "text-red-400",
-  unknown: "text-slate-500",
+  checking: "text-ink-3",
+  online: "text-ink-2",
+  offline: "text-danger",
+  unknown: "text-ink-3",
 };
 
-// A colored dot and a word, for example "Backend  Online".
-function StatusLine({ label, status }: { label: string; status: Status }) {
+// A small outlined pill: a colored dot and a word, for example "Backend  Online".
+function StatusPill({ label, status }: { label: string; status: Status }) {
   const title = status === "unknown" ? "Unknown, because the backend is offline" : undefined;
   return (
-    <div className="flex items-center gap-2 whitespace-nowrap" title={title}>
-      <span className={`inline-flex h-2 w-2 rounded-full ${dotColor[status]}`} />
-      <span className="text-xs font-medium text-slate-400">
-        {label} <span className={wordColor[status]}>{statusText[status]}</span>
+    <div className="flex h-7 items-center gap-2 rounded-full border border-line bg-card px-3 whitespace-nowrap" title={title}>
+      <span className={`inline-flex h-1.5 w-1.5 rounded-full ${dotColor[status]}`} />
+      <span className="text-xs font-medium text-ink">
+        {label} <span className={`font-normal ${wordColor[status]}`}>{statusText[status]}</span>
       </span>
     </div>
   );
@@ -203,17 +237,17 @@ function ProjectPicker({ projects, project, onChoose, onCreated }: ProjectPicker
     if (chosen) onChoose(chosen);
   }
 
-  const label = <div className="px-1 pb-1.5 text-xs font-semibold uppercase tracking-wider text-slate-500">Project</div>;
+  const label = <div className={GROUP_LABEL}>Project</div>;
 
   if (project === null) {
     return (
       <div>
         {label}
         <div
-          className="flex items-center gap-2 px-3 py-2 text-sm text-slate-500"
+          className="flex items-center gap-2 px-3 py-2 text-sm text-ink-3"
           title="Projects need MongoDB, which cannot be reached right now."
         >
-          <Folder size={16} /> No projects
+          <Folder {...ICON} /> No projects
         </div>
       </div>
     );
@@ -223,13 +257,13 @@ function ProjectPicker({ projects, project, onChoose, onCreated }: ProjectPicker
     <label className="block" title="Current project: new files go here, and the gallery shows its files">
       {label}
       <div className="relative">
-        <Folder size={16} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-slate-500" />
+        <Folder {...ICON} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-ink-3" />
         <select
           aria-label="Project"
           value={project?.id ?? ""}
           onChange={(event) => onChange(event.target.value)}
           disabled={project === undefined || creating}
-          className="w-full cursor-pointer appearance-none truncate rounded-lg border border-slate-700 bg-slate-900/60 py-2 pr-9 pl-9 text-sm text-slate-200 outline-none hover:border-slate-600 focus:border-teal-500/60 disabled:cursor-not-allowed disabled:opacity-60"
+          className="h-8 w-full cursor-pointer appearance-none truncate rounded-lg border border-line bg-card pr-8 pl-9 text-sm text-ink outline-none hover:border-line-strong focus:border-accent focus:ring-3 focus:ring-focus-ring disabled:cursor-not-allowed disabled:opacity-60"
         >
           {project === undefined && <option value="">Loading...</option>}
           {projects.map((p) => (
@@ -239,14 +273,15 @@ function ProjectPicker({ projects, project, onChoose, onCreated }: ProjectPicker
           ))}
           {project !== undefined && <option value={NEW_PROJECT}>+ New project</option>}
         </select>
-        <ChevronDown size={16} className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-slate-500" />
+        <ChevronDown {...ICON} className="pointer-events-none absolute top-1/2 right-2.5 -translate-y-1/2 text-ink-3" />
       </div>
     </label>
   );
 }
 
-// The round letter and the name. A click opens a small menu with only "Log out".
-function UserMenu({ user, onLogOut }: { user: string; onLogOut: () => void }) {
+// The round letter and the name, with a small theme button next to it.
+// A click on the name opens a menu: the theme toggle and "Log out".
+function UserMenu({ user, onLogOut, theme, onToggleTheme }: { user: string; onLogOut: () => void; theme: Theme; onToggleTheme: () => void }) {
   const [open, setOpen] = useState(false);
 
   // Close the menu when the user clicks anywhere else.
@@ -257,33 +292,42 @@ function UserMenu({ user, onLogOut }: { user: string; onLogOut: () => void }) {
     return () => window.removeEventListener("click", close);
   }, [open]);
 
+  const themeLabel = theme === "dark" ? "Light mode" : "Dark mode";
+  const ThemeIcon = theme === "dark" ? Sun : Moon;
+  const menuItem = "flex w-full cursor-pointer items-center gap-2.5 border-0 bg-transparent px-3 py-2 text-left text-sm transition-colors hover:bg-hover";
+
   return (
-    <div className="relative shrink-0 border-t border-slate-700/50 p-4">
+    <div className="relative flex shrink-0 items-center gap-1 border-t border-line p-2">
       {open && (
-        <div className="absolute right-4 bottom-full left-4 z-50 mb-2 rounded-xl border border-slate-600 bg-slate-700 py-2 shadow-2xl">
-          <button
-            onClick={onLogOut}
-            className="flex w-full cursor-pointer items-center gap-3 border-0 bg-transparent px-4 py-2 text-left text-sm text-red-400 transition-colors hover:bg-slate-600 hover:text-red-300"
-          >
-            <LogOut size={16} />
+        <div className="absolute right-2 bottom-full left-2 z-50 mb-1 overflow-hidden rounded-xl border border-line bg-card py-1 shadow-float">
+          <button type="button" onClick={onToggleTheme} className={`${menuItem} text-ink`}>
+            <ThemeIcon {...ICON} className="text-ink-2" />
+            {themeLabel}
+          </button>
+          <button type="button" onClick={onLogOut} className={`${menuItem} text-danger`}>
+            <LogOut {...ICON} />
             Log out
           </button>
         </div>
       )}
       <button
+        type="button"
         onClick={(event) => {
           event.stopPropagation();
           setOpen(!open);
         }}
         aria-expanded={open}
-        className={`flex w-full cursor-pointer items-center gap-3 rounded-xl border-0 p-2 text-left transition-colors duration-200 ${
-          open ? "bg-slate-700" : "bg-transparent hover:bg-slate-700/50"
+        className={`flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 rounded-lg border-0 p-1.5 text-left transition-colors ${
+          open ? "bg-hover" : "bg-transparent hover:bg-hover"
         }`}
       >
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-teal-600 bg-teal-700/80 text-sm font-semibold text-teal-100">
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-medium text-on-primary">
           {user.charAt(0).toUpperCase()}
         </span>
-        <span className="truncate text-sm font-medium text-slate-200">{user}</span>
+        <span className="truncate text-sm font-medium text-ink">{user}</span>
+      </button>
+      <button type="button" onClick={onToggleTheme} title={`Switch to ${themeLabel.toLowerCase()}`} aria-label={`Switch to ${themeLabel.toLowerCase()}`} className={ICON_BUTTON}>
+        <ThemeIcon {...ICON} />
       </button>
     </div>
   );
