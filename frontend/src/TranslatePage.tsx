@@ -77,6 +77,13 @@ export default function TranslatePage() {
       if (!response.ok) throw new Error(await errorOf(response));
       const list: DocSummary[] = (await response.json()).documents;
       setDocs(list);
+      // While documents are not finished, also ask if they wait for the GPU (FRG-93).
+      if (list.some((doc) => !isFinished(doc.status))) {
+        const statusResponse = await fetch("/api/translate/status");
+        if (statusResponse.ok) setStatus(await statusResponse.json());
+      } else {
+        setStatus((current) => (current ? { ...current, gpuBusy: false } : current));
+      }
       // Open the newest document if none is picked yet.
       setPickedId((current) => current ?? list[0]?.id ?? null);
     } catch (problem) {
@@ -215,6 +222,12 @@ export default function TranslatePage() {
               {uploading ?? "Or drop photos here. PNG, JPEG or WebP. Photos of handwritten Japanese documents."}
             </span>
           </div>
+
+          {status.gpuBusy && (
+            <p className="mt-0 mb-6 rounded-xl border border-amber-400/40 bg-amber-400/10 px-4 py-3 text-sm text-amber-100">
+              The GPU is busy with a generation job. Translation starts when it finishes.
+            </p>
+          )}
 
           {docs && docs.length === 0 && <p className="text-sm text-slate-500">No documents yet. Add a photo to start.</p>}
 
