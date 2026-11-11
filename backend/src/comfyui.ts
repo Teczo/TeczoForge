@@ -1,6 +1,7 @@
 import { HttpError } from "./httpError.js";
 import type { Workflow } from "./presets.js";
 import type { OutputFile } from "./outputKinds.js";
+import { translationHoldsGpu } from "./translateServer.js";
 
 export const COMFYUI_URL = process.env.COMFYUI_URL ?? "http://127.0.0.1:8188";
 
@@ -27,6 +28,11 @@ async function callComfyUI(urlPath: string, options: RequestInit = {}): Promise<
 
 // Send a workflow to ComfyUI's queue. Returns the job id (prompt_id).
 export async function queueWorkflow(workflow: Workflow): Promise<string> {
+  // This is the one place where work goes to ComfyUI. While a translation uses the GPU, a
+  // generation job would not fit next to it, so it is refused here (FRG-93).
+  if (translationHoldsGpu()) {
+    throw new HttpError(409, "The GPU is busy with a translation. Try again in a minute.");
+  }
   const response = await callComfyUI("/prompt", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -49,6 +55,19 @@ export async function getQueue(): Promise<{ running: string[]; pending: string[]
   // Each item is [number, prompt_id, ...]. A lower number was queued earlier.
   const ids = (items: [number, string][]) => [...items].sort((a, b) => a[0] - b[0]).map((item) => item[1]);
   return { running: ids(queue.queue_running ?? []), pending: ids(queue.queue_pending ?? []) };
+}
+
+// Ask ComfyUI to unload its models and free the GPU memory, before a translation (FRG-93).
+// This is the only way the app changes ComfyUI's state (CLAUDE.md section 7, rule 10).
+export async function freeMemory(): Promise<void> {
+  const response = await callComfyUI("/free", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ unload_models: true, free_memory: true }),
+  });
+  if (!response.ok) {
+    throw new HttpError(502, `ComfyUI did not free its memory (HTTP ${response.status}).`);
+  }
 }
 
 // Remove a waiting job from ComfyUI's queue. A job that is already running is not touched.
