@@ -132,6 +132,7 @@ function checkPreset(folder: string, raw: Preset): Preset {
   if (preset.id !== undefined && preset.id !== folder) {
     warn(`"id" is "${preset.id}" in preset.json. The folder name is used as the id.`);
   }
+  preset.id = folder; // preset.json may have no "id" (FRG-88: "Send to" answers with this id).
   for (const key of ["model", "licence", "licenceNote"] as const) {
     if (preset[key] !== undefined && (typeof preset[key] !== "string" || preset[key].trim() === "")) {
       warn(`"${key}" must be text. It is ignored.`);

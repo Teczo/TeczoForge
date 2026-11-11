@@ -8,6 +8,7 @@ import type { FormValues, Preset, Progress, StartValues } from "./Generate";
 import { Layers, Play, Sparkles, X } from "lucide-react";
 import type { Project } from "./App";
 import BatchBar, { cardsInBatches, useActiveBatches } from "./BatchBar";
+import VoicePicker from "./VoicePicker";
 
 // The board (FRG-22): cards are prompts that are saved but not run yet.
 // Idea and Ready are moved by the user. Generating and Done follow the job status.
@@ -46,6 +47,11 @@ function columnOf(card: Card): ColumnId {
   if (card.status === "draft") return card.column ?? "idea";
   if (card.status === "done") return "done";
   return "generating";
+}
+
+// A card that cannot run yet: its preset takes a voice, and the card has none (FRG-88).
+function needsVoice(card: Card, preset: Preset | undefined): boolean {
+  return card.status === "draft" && (preset?.inputs ?? []).some((input) => input.kind === "audio" && (card.inputs[input.key] ?? "") === "");
 }
 
 // The add, edit and copy form. The chat uses it too, to edit a card Claude made (FRG-24).
@@ -165,9 +171,17 @@ export default function Board({ onOpenInGenerate, project }: BoardProps) {
   }
 
   async function generateAllReady() {
-    const ready = (cards ?? []).filter((card) => columnOf(card) === "ready");
+    const allReady = (cards ?? []).filter((card) => columnOf(card) === "ready");
+    // Cards with no voice stay in Ready (FRG-88).
+    const ready = allReady.filter((card) => !needsVoice(card, presets.find((p) => p.id === card.presetId)));
+    const skippedCount = allReady.length - ready.length;
+    const skipped = skippedCount === 0 ? "" : ` Skipped ${skippedCount === 1 ? "1 card" : `${skippedCount} cards`} with no voice.`;
+    if (ready.length === 0) {
+      setMessage({ text: `Nothing was started.${skipped}`, error: true });
+      return;
+    }
     const jobs = ready.length === 1 ? "1 job" : `${ready.length} jobs`;
-    if (!window.confirm(`Generate all Ready cards? This starts ${jobs}.`)) return;
+    if (!window.confirm(`Generate all Ready cards? This starts ${jobs}.${skipped}`)) return;
     // "Research only" presets (FRG-32): one question for all of them.
     const research = [...new Set(ready.map((card) => presets.find((p) => p.id === card.presetId)).filter((p) => p?.clientWork === "no"))];
     if (
@@ -183,8 +197,8 @@ export default function Board({ onOpenInGenerate, project }: BoardProps) {
       if (await runCard(card)) started++;
     }
     setBusy(false);
-    if (started === ready.length) setMessage({ text: `Started ${jobs}.`, error: false });
-    else setMessage({ text: `Started ${started} of ${jobs}. See the cards for what went wrong.`, error: true });
+    if (started === ready.length) setMessage({ text: `Started ${jobs}.${skipped}`, error: false });
+    else setMessage({ text: `Started ${started} of ${jobs}. See the cards for what went wrong.${skipped}`, error: true });
   }
 
   function openAddForm() {
@@ -369,6 +383,7 @@ function CardView(props: CardViewProps) {
       </p>
       {props.preset && <PresetBadges preset={props.preset} />}
       {shortPrompt && <p className="board-prompt">{shortPrompt}</p>}
+      {needsVoice(card, props.preset) && <p className="message warning">Voice still to add</p>}
       {isDraft && card.error && <p className="message error">{card.error}</p>}
       {column === "generating" && <ProgressView progress={card.progress ?? null} onCancel={null} cancelling={false} />}
 
@@ -502,6 +517,18 @@ export function CardForm({ presets, state, projectId, onClose, onSaved }: CardFo
           }
           if (input.kind === "image") {
             return <ImageBox key={`${presetId}/${input.key}`} input={input} value={value} disabled={saving} onChange={onChange} />;
+          }
+          if (input.kind === "audio") {
+            return (
+              <VoicePicker
+                key={`${presetId}/${input.key}`}
+                input={input}
+                value={value}
+                disabled={saving}
+                fitSeconds={preset.audioFit?.input === input.key ? preset.audioFit.seconds : null}
+                onChange={onChange}
+              />
+            );
           }
           return <Field key={input.key} input={input} value={value} disabled={saving} onChange={onChange} />;
         })}
