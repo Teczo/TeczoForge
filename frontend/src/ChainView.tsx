@@ -94,9 +94,9 @@ export default function ChainView(props: { jobId: string; onOpenInGenerate: (val
   return (
     <section className="panel mt-4 p-4">
       <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-        <h2 className="m-0 text-base font-semibold text-slate-100">Chain of {chain.clips.length} clips</h2>
+        <h2 className="m-0 text-base font-medium text-ink">Chain of {chain.clips.length} clips</h2>
         {chain.totalSeconds !== null && (
-          <span className="text-sm text-slate-400">Total length after joining: {formatLength(chain.totalSeconds)}</span>
+          <span className="text-sm text-ink-2">Total length after joining: {formatLength(chain.totalSeconds)}</span>
         )}
       </div>
 
@@ -107,14 +107,14 @@ export default function ChainView(props: { jobId: string; onOpenInGenerate: (val
               href={`#/gallery/${clip.id}`}
               title={clip.prompt}
               // Square thumbnails, like the gallery grid (.tile in styles.css).
-              className={`block overflow-hidden rounded-lg border-2 [&_video]:block [&_video]:aspect-square [&_video]:w-full [&_video]:object-cover ${clip.id === jobId ? "border-teal-400" : "border-transparent hover:border-slate-500"}`}
+              className={`block overflow-hidden rounded-lg border-2 [&_video]:block [&_video]:aspect-square [&_video]:w-full [&_video]:object-cover ${clip.id === jobId ? "border-ink" : "border-transparent hover:border-line-strong"}`}
             >
               <Media url={clip.imageUrl} kind="video" mode="thumbnail" alt={clip.prompt} />
             </a>
-            <div className="mt-1 text-xs text-slate-400">
+            <div className="mt-1 text-xs text-ink-2">
               Clip {index + 1}
               {clip.seconds !== null && ` · ${formatLength(clip.seconds)}`}
-              {clip.id === jobId && <span className="text-teal-300"> · this clip</span>}
+              {clip.id === jobId && <span className="text-ink"> · this clip</span>}
             </div>
           </li>
         ))}

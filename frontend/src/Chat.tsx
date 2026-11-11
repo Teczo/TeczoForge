@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { ClipboardEvent, DragEvent, FormEvent, KeyboardEvent, ReactNode } from "react";
-import { Paperclip, Send, Square, X } from "lucide-react";
+import { ArrowUp, Paperclip, Square, X } from "lucide-react";
+import { NAV_ITEMS } from "./AppShell";
+import { btn, ICON, Notice } from "./ui";
 import ChatCard from "./ChatCard";
 import type { ChatCardRef } from "./ChatCard";
 import type { Preset, StartValues } from "./Generate";
@@ -8,7 +10,8 @@ import type { Project } from "./App";
 import type { ConversationSummary } from "./RecentChats";
 
 // The chat page (FRG-23): talk with Claude about scenes and prompts. Text only.
-// The messages in a centred column, and a box to type in that floats at the bottom (FRG-48).
+// A new chat shows a big heading, the box to type in, and a row of shortcuts to the other pages.
+// With messages: the messages in a centred column, and the box floats at the bottom (FRG-48).
 // The list of chats is in the sidebar (RecentChats.tsx, FRG-47).
 // The reply streams in piece by piece (SSE, see backend/src/chat.ts). Stop ends it early.
 // Claude can make board cards (FRG-24). They show under its reply, with a Generate button.
@@ -78,6 +81,7 @@ export default function Chat({
 }: ChatProps) {
   const [setupError, setSetupError] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [loading, setLoading] = useState(false); // An older chat is being opened. Only used for the look.
   const [text, setText] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [replyText, setReplyText] = useState(""); // The reply while it streams.
@@ -134,8 +138,10 @@ export default function Chat({
     setMessages([]);
     setError(null);
     setOpenProjectId(null);
+    setLoading(false);
     if (!conversationId) return;
     async function loadConversation() {
+      setLoading(true);
       try {
         const response = await fetch(`/api/chat/conversations/${encodeURIComponent(conversationId!)}`);
         const body = await response.json().catch(() => null);
@@ -149,6 +155,8 @@ export default function Chat({
         }
       } catch {
         setError(NO_BACKEND);
+      } finally {
+        setLoading(false);
       }
     }
     loadConversation();
@@ -399,10 +407,12 @@ export default function Chat({
 
   const tooLong = text.length > MAX_MESSAGE_LENGTH;
   const canSend = !setupError && !tooLong && !attaching && (text.trim() !== "" || attached.length > 0);
+  // No messages yet: the "home" look, with the box in the middle of the page.
+  const home = messages.length === 0 && !streaming && !loading;
 
   return (
     <main
-      className={`relative h-[calc(100vh-var(--header-h))] ${dragOver ? "outline-2 -outline-offset-8 outline-teal-500/60 outline-dashed" : ""}`}
+      className={`relative h-[calc(100vh-var(--header-h))] ${dragOver ? "outline-2 -outline-offset-8 outline-accent outline-dashed" : ""}`}
       onDragOver={(event) => {
         if (!event.dataTransfer.types.includes("Files")) return;
         event.preventDefault(); // Allows the drop.
@@ -413,14 +423,9 @@ export default function Chat({
     >
       {/* The messages scroll here, in a centred column. */}
       <div ref={scrollRef} className="h-full overflow-y-auto px-8">
-        <div ref={columnRef} className="mx-auto flex w-full max-w-4xl flex-col gap-4 pt-2">
-          {setupError && <p className="message error">{setupError}</p>}
-          {!setupError && messages.length === 0 && !streaming && (
-            <p className="mt-4 text-sm font-medium text-slate-500">
-              Plan a scene or ask for a prompt. Claude answers short. The chat text is sent to the Claude API on the
-              internet; images and videos are still made on this PC.
-            </p>
-          )}
+        <div ref={columnRef} className="mx-auto flex w-full max-w-3xl flex-col gap-4 pt-6">
+          {setupError && <Notice tone="danger">{setupError}</Notice>}
+          {loading && <p className="m-0 text-sm text-ink-3">Opening the chat...</p>}
           {messages.map((message, index) => (
             <Bubble key={index} role={message.role}>
               {message.images && message.images.length > 0 && (
@@ -447,18 +452,33 @@ export default function Chat({
               ))}
             </Bubble>
           )}
-          {error && <p className="message error">{error}</p>}
+          {error && <Notice tone="danger">{error}</Notice>}
           {/* Empty space as tall as the input box, so the last message can scroll above it. */}
           <div ref={endRef} className="shrink-0" style={{ height: formHeight + 40 }} />
         </div>
       </div>
 
-      {/* The floating input box. */}
-      <div className="pointer-events-none absolute right-0 bottom-6 left-0 flex justify-center px-8">
+      {/* The input box. In the middle of the page for a new chat, floating at the bottom when there are messages. */}
+      <div
+        className={`pointer-events-none absolute right-0 left-0 flex flex-col items-center px-8 ${
+          home ? "top-0 bottom-0 justify-center gap-8 pb-[8vh]" : "bottom-6"
+        }`}
+      >
+        {home && (
+          <div className="text-center">
+            <h1 className="m-0 text-[30px] leading-tight font-medium tracking-[-0.02em] text-ink">What would you like to create?</h1>
+            {!setupError && (
+              <p className="mx-auto mt-3 mb-0 max-w-xl text-[13px] text-ink-2">
+                Plan a scene or ask for a prompt. Claude answers short. The chat text is sent to the Claude API on the
+                internet; images and videos are still made on this PC.
+              </p>
+            )}
+          </div>
+        )}
         <form
           ref={formRef}
           onSubmit={send}
-          className="pointer-events-auto flex w-full max-w-4xl flex-col gap-1 rounded-2xl border border-slate-700 bg-slate-800/90 p-2.5 shadow-2xl shadow-black/50 backdrop-blur-xl transition-all focus-within:border-teal-500/50 focus-within:ring-4 focus-within:ring-teal-500/10"
+          className="pointer-events-auto flex w-full max-w-3xl flex-col gap-1 rounded-[28px] border border-line bg-card p-2 shadow-float transition-shadow focus-within:border-line-strong"
         >
           {(attached.length > 0 || attaching) && (
             <div className="chat-attached mx-2 mt-2">
@@ -487,7 +507,7 @@ export default function Chat({
             onPaste={handlePaste}
             placeholder="Type a message. Enter sends, Shift+Enter makes a new line."
             disabled={!!setupError}
-            className="min-h-[50px] w-full resize-none overflow-y-auto border-0 bg-transparent px-3 py-2 text-sm text-slate-100 outline-none placeholder:text-slate-500 disabled:cursor-not-allowed"
+            className="min-h-[44px] w-full resize-none overflow-y-auto border-0 bg-transparent px-4 pt-3 pb-1 text-sm leading-relaxed text-ink outline-none placeholder:text-ink-3 disabled:cursor-not-allowed"
             style={{ maxHeight: MAX_BOX_HEIGHT }}
           />
           <div className="flex items-center justify-between px-1">
@@ -507,13 +527,13 @@ export default function Chat({
               onClick={() => fileRef.current?.click()}
               disabled={!!setupError || attaching}
               title="Attach a picture (or paste it, or drop it here)"
-              className="flex cursor-pointer items-center gap-2 rounded-lg border-0 bg-transparent px-3 py-1.5 text-sm font-medium text-slate-400 transition-colors hover:bg-slate-700/80 hover:text-slate-200 disabled:cursor-not-allowed disabled:opacity-50"
+              className={btn("ghost", "sm", true)}
             >
-              <Paperclip size={16} />
+              <Paperclip {...ICON} />
               Attach
             </button>
-            <div className="flex items-center gap-4">
-              <span className={`text-xs font-medium ${tooLong ? "text-red-400" : "text-slate-500"}`}>
+            <div className="flex items-center gap-3">
+              <span className={`text-xs ${tooLong ? "text-danger" : "text-ink-3"}`}>
                 {text.length} / {MAX_MESSAGE_LENGTH}
               </span>
               {streaming ? (
@@ -521,7 +541,7 @@ export default function Chat({
                   type="button"
                   onClick={() => stopRef.current?.abort()}
                   title="Stop the reply"
-                  className="flex h-9 cursor-pointer items-center gap-2 rounded-xl border border-slate-600 bg-slate-700 px-3 text-sm font-medium text-slate-200 transition-colors hover:bg-slate-600"
+                  className={btn("secondary", "md", true)}
                 >
                   <Square size={12} className="fill-current" />
                   Stop
@@ -532,18 +552,33 @@ export default function Chat({
                   disabled={!canSend}
                   title="Send"
                   aria-label="Send"
-                  className={`flex h-9 w-9 items-center justify-center rounded-xl border-0 transition-all duration-200 ${
-                    canSend
-                      ? "cursor-pointer bg-teal-600 text-white shadow-lg shadow-teal-900/40 hover:bg-teal-500"
-                      : "cursor-not-allowed bg-slate-700 text-slate-500"
+                  className={`flex h-9 w-9 items-center justify-center rounded-full border-0 transition-colors ${
+                    canSend ? "cursor-pointer bg-primary text-on-primary hover:bg-primary-hover" : "cursor-not-allowed bg-hover-strong text-ink-3"
                   }`}
                 >
-                  <Send size={16} className={canSend ? "ml-0.5" : ""} />
+                  <ArrowUp size={18} strokeWidth={1.75} />
                 </button>
               )}
             </div>
           </div>
         </form>
+
+        {/* Shortcuts to the other pages: a round outlined icon with a label under it. */}
+        {home && (
+          <nav aria-label="Tools" className="pointer-events-auto flex max-w-3xl flex-wrap justify-center gap-x-3 gap-y-4">
+            {NAV_ITEMS.filter((item) => item.page !== "chat").map((item) => {
+              const Icon = item.icon;
+              return (
+                <a key={item.page} href={item.href} className="group flex w-[76px] flex-col items-center gap-2 text-[13px] font-medium text-ink no-underline">
+                  <span className="flex h-11 w-11 items-center justify-center rounded-full border border-line bg-card text-ink-2 transition-colors group-hover:bg-hover group-hover:text-ink">
+                    <Icon size={18} strokeWidth={1.5} />
+                  </span>
+                  {item.label}
+                </a>
+              );
+            })}
+          </nav>
+        )}
       </div>
     </main>
   );
@@ -554,10 +589,10 @@ export default function Chat({
 function Bubble({ role, children }: { role: "user" | "assistant"; children: ReactNode }) {
   return (
     <div
-      className={`chat-bubble rounded-2xl border px-4 py-2.5 text-sm ${
+      className={`chat-bubble rounded-[20px] border px-4 py-2.5 text-sm leading-relaxed ${
         role === "user"
-          ? "self-end whitespace-pre-wrap border-teal-500/25 bg-teal-600/15 text-slate-100"
-          : "self-start border-slate-700/60 bg-slate-800/80 text-slate-200"
+          ? "self-end whitespace-pre-wrap border-transparent bg-hover text-ink"
+          : "self-start border-transparent bg-transparent px-0 text-ink"
       }`}
     >
       {children}

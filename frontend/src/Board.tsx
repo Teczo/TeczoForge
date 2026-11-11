@@ -8,6 +8,7 @@ import type { FormValues, Preset, Progress, StartValues } from "./Generate";
 import { Layers, Play, Sparkles, X } from "lucide-react";
 import type { Project } from "./App";
 import BatchBar, { cardsInBatches, useActiveBatches } from "./BatchBar";
+import { Badge } from "./ui";
 
 // The board (FRG-22): cards are prompts that are saved but not run yet.
 // Idea and Ready are moved by the user. Generating and Done follow the job status.
@@ -360,9 +361,9 @@ function CardView(props: CardViewProps) {
       )}
       <h3>{card.title ?? presetName}</h3>
       {props.inBatch && (
-        <span className="mb-1 inline-flex items-center gap-1 rounded-full bg-sky-500/15 px-2 py-0.5 text-xs font-medium text-sky-300">
+        <Badge tone="info" className="mb-1">
           <Layers size={11} /> In batch
-        </span>
+        </Badge>
       )}
       <p className="board-meta">
         {presetName} · by {card.createdBy ?? "Unknown"}

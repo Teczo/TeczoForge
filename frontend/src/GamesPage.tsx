@@ -1,9 +1,11 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import type { ChangeEvent, ReactNode } from "react";
-import { AlertTriangle, ArrowLeft, CheckCircle2, FileUp, Gamepad2, Hand, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, CheckCircle2, FileUp, Gamepad2, Hand } from "lucide-react";
 import Media, { outputKind } from "./Media";
 import BatchBar, { useActiveBatches } from "./BatchBar";
 import EstimateView from "./Estimate";
+import { Badge, btn, CARD, CARD_HOVER, EmptyState, FIELD, Loading, Modal, PageHeader } from "./ui";
+import type { Tone } from "./ui";
 
 // The Games section (FRG-67): the list of games as tiles, "Import game design (.md)" with a preview
 // of the plan before anything is saved, and the detail page of one game with its assets.
@@ -66,12 +68,12 @@ const NEED_LABELS: Record<string, string> = {
   tiling: "Tiling",
 };
 
-const STATUS_STYLES: Record<AssetStatus, { label: string; className: string }> = {
-  planned: { label: "Planned", className: "bg-slate-700/60 text-slate-300" },
-  generating: { label: "Generating", className: "bg-sky-500/15 text-sky-300" },
-  review: { label: "Review", className: "bg-amber-500/15 text-amber-300" },
-  approved: { label: "Approved", className: "bg-emerald-500/15 text-emerald-300" },
-  external: { label: "External", className: "bg-violet-500/15 text-violet-300" },
+const STATUS_STYLES: Record<AssetStatus, { label: string; tone: Tone }> = {
+  planned: { label: "Planned", tone: "neutral" },
+  generating: { label: "Generating", tone: "info" },
+  review: { label: "Review", tone: "warning" },
+  approved: { label: "Approved", tone: "success" },
+  external: { label: "External", tone: "special" },
 };
 
 // The file chosen with "Import game design (.md)", read in the browser.
@@ -125,25 +127,20 @@ function GamesList() {
   }
 
   return (
-    <main className="mx-auto w-full max-w-6xl px-8 pt-2 pb-12">
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
-        <h1 className="m-0 text-2xl font-semibold text-slate-100">Games</h1>
-        <button
-          type="button"
-          onClick={chooseFile}
-          className="flex cursor-pointer items-center gap-2 rounded-xl border-0 bg-teal-600/90 px-4 py-2.5 text-sm font-medium text-white shadow-sm shadow-teal-900/20 transition-colors hover:bg-teal-500"
-        >
+    <main className="mx-auto w-full max-w-6xl px-8 pt-8 pb-16">
+      <PageHeader title="Games">
+        <button type="button" onClick={chooseFile} className={btn("primary")}>
           <FileUp size={16} />
           Import game design (.md)
         </button>
         <input ref={fileInputRef} type="file" accept=".md,text/markdown" onChange={onFileChosen} className="hidden" />
-      </div>
+      </PageHeader>
 
       {/* MongoDB offline: the backend's message. Import still checks a file, but cannot save it. */}
       {error && <p className="message warning">{error}</p>}
-      {!games && !error && <p className="text-sm text-slate-500">Loading the games...</p>}
+      {!games && !error && <Loading>Loading the games...</Loading>}
       {games && games.length === 0 && (
-        <p className="text-sm text-slate-400">No games yet. Import a game design file to start one.</p>
+        <EmptyState icon={<Gamepad2 size={18} />} title="No games yet" text="Import a game design file to start one." />
       )}
 
       {games && games.length > 0 && (
@@ -182,18 +179,18 @@ function Tile({ game }: { game: GameTile }) {
     <a
       href={`#/games/${game.id}`}
       title={`Open "${game.name}"`}
-      className="block overflow-hidden rounded-2xl border border-slate-700/60 bg-slate-800/60 no-underline transition-colors hover:border-slate-600"
+      className={`block overflow-hidden no-underline ${CARD} ${CARD_HOVER}`}
     >
-      <div className="flex aspect-video items-center justify-center bg-slate-900/60">
-        <Gamepad2 size={40} className="text-slate-600" />
+      <div className="flex aspect-video items-center justify-center bg-frame">
+        <Gamepad2 size={40} className="text-ink-3" />
       </div>
       <div className="px-4 pt-3 pb-4">
         <div className="flex items-center gap-2">
-          <span className="truncate text-sm font-semibold text-slate-100">{game.name}</span>
+          <span className="truncate text-sm font-medium text-ink">{game.name}</span>
           <CodeChip code={game.code} />
         </div>
-        <div className="mt-2 text-xs text-slate-400">{approvedText(game.counts)}</div>
-        <div className="mt-1 text-xs text-slate-500">
+        <div className="mt-2 text-xs text-ink-2">{approvedText(game.counts)}</div>
+        <div className="mt-1 text-xs text-ink-3">
           {game.dimension} · {game.pipeline}
         </div>
       </div>
@@ -203,7 +200,7 @@ function Tile({ game }: { game: GameTile }) {
 
 function CodeChip({ code }: { code: string }) {
   return (
-    <span className="shrink-0 rounded-md bg-slate-700/70 px-1.5 py-0.5 font-mono text-[11px] font-medium text-slate-300">{code}</span>
+    <span className="shrink-0 rounded-md bg-hover px-1.5 py-0.5 font-mono text-[11px] font-medium text-ink-2">{code}</span>
   );
 }
 
@@ -281,34 +278,16 @@ function ImportPreview({ chosen, onClose, onChooseAnother, onCreated }: ImportPr
   const plan = answer?.ok ? answer.plan : null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 px-4 py-10" onClick={onClose}>
-      <div
-        onClick={(event) => event.stopPropagation()}
-        className="w-full max-w-4xl rounded-2xl border border-slate-700 bg-slate-800 p-6 shadow-2xl"
-      >
-        <div className="mb-4 flex items-start justify-between gap-4">
-          <div className="min-w-0">
-            <h2 className="m-0 text-lg font-semibold text-slate-100">Import game design</h2>
-            <div className="mt-1 truncate text-sm text-slate-400">{chosen.fileName}</div>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            title="Close"
-            className="flex cursor-pointer items-center rounded-lg border-0 bg-transparent p-1.5 text-slate-400 hover:bg-slate-700 hover:text-slate-200"
-          >
-            <X size={18} />
-          </button>
-        </div>
+    <Modal title="Import game design" subtitle={chosen.fileName} onClose={onClose} size="lg">
 
         {error && <p className="message error">{error}</p>}
-        {!error && !answer && <p className="text-sm text-slate-500">Checking the file...</p>}
+        {!error && !answer && <p className="text-sm text-ink-3">Checking the file...</p>}
 
         {answer && !answer.ok && <ErrorList title="This file has problems. Fix them in the file, then import it again." errors={answer.errors} />}
 
         {plan && (
           <>
-            <div className="mb-5 flex items-center gap-2 text-sm text-emerald-300">
+            <div className="mb-5 flex items-center gap-2 text-sm text-success">
               <CheckCircle2 size={16} />
               The file is correct. Nothing is saved until you press Create game.
             </div>
@@ -325,14 +304,14 @@ function ImportPreview({ chosen, onClose, onChooseAnother, onCreated }: ImportPr
           <button
             type="button"
             onClick={onChooseAnother}
-            className="cursor-pointer rounded-lg border border-slate-600 bg-transparent px-4 py-2 text-sm text-slate-300 hover:bg-slate-700"
+            className={btn("secondary")}
           >
             Choose another file
           </button>
           <button
             type="button"
             onClick={onClose}
-            className="cursor-pointer rounded-lg border border-slate-600 bg-transparent px-4 py-2 text-sm text-slate-300 hover:bg-slate-700"
+            className={btn("secondary")}
           >
             Cancel
           </button>
@@ -342,25 +321,24 @@ function ImportPreview({ chosen, onClose, onChooseAnother, onCreated }: ImportPr
               type="button"
               onClick={createGame}
               disabled={saving}
-              className="cursor-pointer rounded-lg border-0 bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-500 disabled:cursor-wait disabled:opacity-50"
+              className={`${btn("primary")} disabled:cursor-wait`}
             >
               {saving ? "Creating..." : "Create game"}
             </button>
           )}
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 
 function ErrorList({ title, errors }: { title: string; errors: string[] }) {
   return (
-    <div className="mb-4 rounded-xl border border-red-400/40 bg-red-400/5 p-4">
-      <div className="mb-2 flex items-center gap-2 text-sm font-medium text-red-300">
+    <div className="mb-4 rounded-xl border border-danger-line bg-danger-soft p-4">
+      <div className="mb-2 flex items-center gap-2 text-sm font-medium text-danger">
         <AlertTriangle size={16} />
         {title}
       </div>
-      <ul className="m-0 space-y-1 pl-6 text-sm text-red-200">
+      <ul className="m-0 space-y-1 pl-6 text-sm text-danger">
         {errors.map((error, index) => (
           <li key={index}>{error}</li>
         ))}
@@ -372,15 +350,15 @@ function ErrorList({ title, errors }: { title: string; errors: string[] }) {
 function PlanSummary({ plan }: { plan: GamePlan }) {
   const { game } = plan;
   return (
-    <div className="mb-5 rounded-xl border border-slate-700/60 bg-slate-900/40 p-4">
+    <div className="mb-5 rounded-xl border border-line bg-sidebar p-4">
       <div className="flex items-center gap-2">
-        <span className="text-base font-semibold text-slate-100">{game.name}</span>
+        <span className="text-base font-medium text-ink">{game.name}</span>
         <CodeChip code={game.code} />
-        <span className="text-xs text-slate-500">
+        <span className="text-xs text-ink-3">
           {game.dimension} · {game.pipeline}
         </span>
       </div>
-      <p className="mt-2 mb-0 text-sm text-slate-400">{game.style}</p>
+      <p className="mt-2 mb-0 text-sm text-ink-2">{game.style}</p>
       <Palette colours={game.palette} />
     </div>
   );
@@ -391,7 +369,7 @@ function Palette({ colours }: { colours: string[] }) {
   return (
     <div className="mt-3 flex flex-wrap gap-1.5">
       {colours.map((colour) => (
-        <span key={colour} title={colour} className="h-5 w-5 rounded-md border border-slate-600" style={{ backgroundColor: colour }} />
+        <span key={colour} title={colour} className="h-5 w-5 rounded-md border border-line" style={{ backgroundColor: colour }} />
       ))}
     </div>
   );
@@ -404,12 +382,12 @@ function TypeCounts({ assets }: { assets: PlannedAsset[] }) {
         const count = assets.filter((asset) => asset.type === type).length;
         if (count === 0) return null;
         return (
-          <span key={type} className="rounded-lg border border-slate-700 bg-slate-900/40 px-3 py-1.5 text-xs text-slate-300">
+          <span key={type} className="rounded-full border border-line bg-card px-3 py-1 text-xs text-ink-2">
             {count} {type}
           </span>
         );
       })}
-      <span className="rounded-lg px-3 py-1.5 text-xs text-slate-500">+ concept art, made by TeczoForge</span>
+      <span className="rounded-lg px-3 py-1.5 text-xs text-ink-3">+ concept art, made by TeczoForge</span>
     </div>
   );
 }
@@ -428,7 +406,7 @@ function PreviewTable({ assets }: { assets: PlannedAsset[] }) {
   return (
     <Table head={["Id", "Type", "Use", "Needs"]}>
       {assets.map((asset) => (
-        <tr key={asset.id} className="border-t border-slate-700/50 align-top">
+        <tr key={asset.id} className="border-t border-line align-top">
           <Cell mono>{asset.id}</Cell>
           <Cell>{asset.type}</Cell>
           <Cell>{asset.use}</Cell>
@@ -487,34 +465,34 @@ function GameDetail({ id }: { id: string }) {
   for (const asset of assets) counts[asset.status] += 1;
 
   return (
-    <main className="mx-auto w-full max-w-6xl px-8 pt-2 pb-12">
-      <a href="#/games" className="mb-4 inline-flex items-center gap-1.5 text-sm text-slate-400 no-underline hover:text-slate-200">
+    <main className="mx-auto w-full max-w-6xl px-8 pt-8 pb-16">
+      <a href="#/games" className="mb-4 inline-flex items-center gap-1.5 text-sm text-ink-2 no-underline hover:text-ink">
         <ArrowLeft size={16} />
         Games
       </a>
 
       {error && <p className="message warning">{error}</p>}
-      {!detail && !error && <p className="text-sm text-slate-500">Loading the game...</p>}
+      {!detail && !error && <p className="text-sm text-ink-3">Loading the game...</p>}
 
       {detail && (
         <>
           <div className="mb-6">
             <div className="flex flex-wrap items-center gap-3">
-              <h1 className="m-0 text-2xl font-semibold text-slate-100">{detail.game.name}</h1>
+              <h1 className="m-0 text-[28px] leading-tight font-medium tracking-[-0.02em] text-ink">{detail.game.name}</h1>
               <CodeChip code={detail.game.code} />
-              <span className="text-sm text-slate-500">
+              <span className="text-sm text-ink-3">
                 {detail.game.dimension} · {detail.game.pipeline}
               </span>
             </div>
-            <p className="mt-2 mb-0 max-w-3xl text-sm text-slate-400">{detail.game.style}</p>
+            <p className="mt-2 mb-0 max-w-3xl text-sm text-ink-2">{detail.game.style}</p>
             <Palette colours={detail.game.palette} />
             <div className="mt-4 flex flex-wrap items-center gap-2 text-xs">
-              <span className="text-slate-400">{approvedText(counts)}</span>
+              <span className="text-ink-2">{approvedText(counts)}</span>
               {(Object.keys(STATUS_STYLES) as AssetStatus[]).map((status) =>
                 counts[status] > 0 ? (
-                  <span key={status} className={`rounded-full px-2 py-0.5 font-medium ${STATUS_STYLES[status].className}`}>
+                  <Badge key={status} tone={STATUS_STYLES[status].tone}>
                     {counts[status]} {STATUS_STYLES[status].label.toLowerCase()}
-                  </span>
+                  </Badge>
                 ) : null,
               )}
             </div>
@@ -528,7 +506,7 @@ function GameDetail({ id }: { id: string }) {
           <Table head={["Id", "Type", "Use", "Needs", "Status"]}>
             {assets.map((asset) => (
               <Fragment key={asset.id}>
-                <tr className="border-t border-slate-700/50 align-top">
+                <tr className="border-t border-line align-top">
                   <Cell mono>{asset.assetId}</Cell>
                   <Cell>{asset.type}</Cell>
                   <Cell>{asset.use}</Cell>
@@ -558,13 +536,13 @@ function GameDetail({ id }: { id: string }) {
 
 function StatusBadge({ status }: { status: AssetStatus }) {
   const style = STATUS_STYLES[status];
-  return <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap ${style.className}`}>{style.label}</span>;
+  return <Badge tone={style.tone}>{style.label}</Badge>;
 }
 
 // The needs of an asset, and the "to do by hand" note. TeczoForge does not do any of these:
 // someone does them by hand after the export. An external asset is made by hand as a whole.
 function Needs({ needs, external }: { needs: string[]; external: boolean }) {
-  if (needs.length === 0 && !external) return <span className="text-slate-600">-</span>;
+  if (needs.length === 0 && !external) return <span className="text-ink-3">-</span>;
   return (
     <div className="space-y-1">
       {external && <HandNote>To do by hand: not made by TeczoForge</HandNote>}
@@ -575,7 +553,7 @@ function Needs({ needs, external }: { needs: string[]; external: boolean }) {
 
 function HandNote({ children }: { children: ReactNode }) {
   return (
-    <div className="flex items-start gap-1.5 text-xs text-amber-300/90">
+    <div className="flex items-start gap-1.5 text-xs text-warning">
       <Hand size={13} className="mt-0.5 shrink-0" />
       <span>{children}</span>
     </div>
@@ -727,7 +705,7 @@ function GameSteps({ gameId, projectName, concept, assets, onChanged }: GameStep
 
       {result && (result.text || result.errors.length > 0) && (
         <div>
-          {result.text && <p className="m-0 text-sm text-emerald-300">{result.text}</p>}
+          {result.text && <p className="m-0 text-sm text-success">{result.text}</p>}
           {result.errors.length > 0 && <ErrorList title="Some steps did not work." errors={result.errors} />}
         </div>
       )}
@@ -742,16 +720,16 @@ type ExportReport = { folder: string; written: string[]; overwritten: string[]; 
 function ExportSummary({ report }: { report: ExportReport }) {
   return (
     <div className="mt-3 space-y-2 text-sm">
-      <div className="text-slate-300">
-        Folder: <span className="font-mono text-xs break-all text-slate-100 select-all">{report.folder}</span>
+      <div className="text-ink-2">
+        Folder: <span className="font-mono text-xs break-all text-ink select-all">{report.folder}</span>
       </div>
-      <div className="text-slate-400">
+      <div className="text-ink-2">
         {report.written.length} new file(s) written, {report.overwritten.length} file(s) overwritten.
       </div>
       {report.missing.length === 0 ? (
-        <div className="text-emerald-300">Every asset is in the folder.</div>
+        <div className="text-success">Every asset is in the folder.</div>
       ) : (
-        <div className="text-amber-300">
+        <div className="text-warning">
           Still missing (not approved yet): {report.missing.join(", ")}
         </div>
       )}
@@ -764,18 +742,18 @@ type StepBoxProps = { number: number; title: string; text: string; done: boolean
 
 function StepBox({ number, title, text, done, action, children }: StepBoxProps) {
   return (
-    <div className="rounded-xl border border-slate-700/60 bg-slate-800/40 p-4">
+    <div className="rounded-xl border border-line bg-card p-4">
       <div className="flex flex-wrap items-center gap-3">
         <span
-          className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
-            done ? "bg-emerald-500/20 text-emerald-300" : "bg-slate-700 text-slate-300"
+          className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-medium ${
+            done ? "bg-success-soft text-success" : "bg-hover text-ink-2"
           }`}
         >
           {done ? <CheckCircle2 size={16} /> : number}
         </span>
         <div className="min-w-0 flex-1">
-          <div className="text-sm font-semibold text-slate-100">{title}</div>
-          <div className="text-xs text-slate-400">{text}</div>
+          <div className="text-sm font-medium text-ink">{title}</div>
+          <div className="text-xs text-ink-2">{text}</div>
         </div>
         {action}
       </div>
@@ -790,7 +768,7 @@ function StepButton({ label, onClick, disabled }: { label: string; onClick: () =
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className="cursor-pointer rounded-lg border-0 bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-500 disabled:cursor-not-allowed disabled:opacity-40"
+      className={btn("primary")}
     >
       {label}
     </button>
@@ -890,7 +868,7 @@ function AssetReview({ gameId, asset, onChanged, canEditPrompt }: AssetReviewPro
 
   if (asset.source === "external") {
     return asset.status === "approved" ? (
-      <p className="m-0 flex items-center gap-1.5 text-xs text-emerald-300">
+      <p className="m-0 flex items-center gap-1.5 text-xs text-success">
         <CheckCircle2 size={14} /> Done by hand
       </p>
     ) : (
@@ -904,7 +882,7 @@ function AssetReview({ gameId, asset, onChanged, canEditPrompt }: AssetReviewPro
 
   return (
     <div>
-      {!approved && <div className="mb-2 text-xs font-medium text-slate-400">{stepLabel(asset, stepIndex)}</div>}
+      {!approved && <div className="mb-2 text-xs font-medium text-ink-2">{stepLabel(asset, stepIndex)}</div>}
       <div className="flex flex-wrap gap-3">
         {jobs.map((job) => (
           <ResultTile
@@ -937,9 +915,9 @@ function AssetReview({ gameId, asset, onChanged, canEditPrompt }: AssetReviewPro
             onChange={(event) => setEditing(event.target.value)}
             maxLength={MAX_PROMPT_LENGTH}
             rows={3}
-            className="block w-full rounded-lg border border-slate-600 bg-slate-900/60 px-3 py-2 text-sm text-slate-100 outline-none focus:border-teal-500/60"
+            className={`${FIELD} py-2 leading-relaxed`}
           />
-          <p className="mt-1 mb-2 text-xs text-slate-500">Used for the next variant. The game's style and palette are added in front.</p>
+          <p className="mt-1 mb-2 text-xs text-ink-3">Used for the next variant. The game's style and palette are added in front.</p>
           <div className="flex gap-2">
             <SmallButton
               label={busy === "prompt" ? "Saving..." : "Save prompt"}
@@ -965,12 +943,12 @@ function ResultTile({ job, approved, canApprove, onApprove }: { job: ResultJob; 
   // The 3D viewer needs at least 320 px of height (.model-viewer in styles.css), so a 3D tile is bigger.
   const size = done && kind === "3d" ? "w-80" : "w-56";
   return (
-    <div className={`${size} overflow-hidden rounded-lg border ${approved ? "border-emerald-500/70" : "border-slate-700/60"}`}>
-      <div className={`flex ${done && kind === "3d" ? "h-80" : "h-56"} items-center justify-center overflow-hidden bg-slate-900/60`}>
+    <div className={`${size} overflow-hidden rounded-lg border ${approved ? "border-success" : "border-line"}`}>
+      <div className={`flex ${done && kind === "3d" ? "h-80" : "h-56"} items-center justify-center overflow-hidden bg-frame`}>
         {done ? (
           <Media url={job.imageUrl!} kind={kind} alt="Result" mode={kind === "3d" ? "full" : "thumbnail"} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
         ) : (
-          <span className="px-3 text-center text-xs text-slate-500">
+          <span className="px-3 text-center text-xs text-ink-3">
             {job.status === "queued"
               ? "Waiting in ComfyUI's queue..."
               : job.status === "running"
@@ -983,7 +961,7 @@ function ResultTile({ job, approved, canApprove, onApprove }: { job: ResultJob; 
       </div>
       <div className="p-2">
         {approved ? (
-          <span className="flex items-center justify-center gap-1.5 py-1 text-xs font-medium text-emerald-300">
+          <span className="flex items-center justify-center gap-1.5 py-1 text-xs font-medium text-success">
             <CheckCircle2 size={14} /> Approved
           </span>
         ) : (
@@ -991,7 +969,7 @@ function ResultTile({ job, approved, canApprove, onApprove }: { job: ResultJob; 
             type="button"
             onClick={onApprove}
             disabled={!canApprove || !done}
-            className="w-full cursor-pointer rounded-md border-0 bg-emerald-600/80 px-2 py-1 text-xs font-medium text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-40"
+            className={`${btn("success", "xs")} w-full`}
           >
             Approve
           </button>
@@ -1007,7 +985,7 @@ function SmallButton({ label, onClick, disabled }: { label: string; onClick: () 
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className="cursor-pointer rounded-md border border-slate-600 bg-transparent px-3 py-1.5 text-xs text-slate-200 hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+      className={btn("secondary", "xs")}
     >
       {label}
     </button>
@@ -1018,12 +996,12 @@ function SmallButton({ label, onClick, disabled }: { label: string; onClick: () 
 
 function Table({ head, children }: { head: string[]; children: ReactNode }) {
   return (
-    <div className="overflow-x-auto rounded-xl border border-slate-700/60">
+    <div className="overflow-x-auto rounded-xl border border-line">
       <table className="w-full border-collapse text-left text-sm">
-        <thead className="bg-slate-900/50">
+        <thead className="bg-frame">
           <tr>
             {head.map((title) => (
-              <th key={title} className="px-3 py-2 text-xs font-semibold tracking-wider text-slate-400 uppercase">
+              <th key={title} className="px-3 py-2 text-xs font-medium text-ink-3">
                 {title}
               </th>
             ))}
@@ -1036,5 +1014,5 @@ function Table({ head, children }: { head: string[]; children: ReactNode }) {
 }
 
 function Cell({ children, mono }: { children: ReactNode; mono?: boolean }) {
-  return <td className={`px-3 py-2 text-slate-300 ${mono ? "font-mono text-xs break-all" : ""}`}>{children}</td>;
+  return <td className={`px-3 py-2 text-ink-2 ${mono ? "font-mono text-xs break-all" : ""}`}>{children}</td>;
 }

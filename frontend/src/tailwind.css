@@ -1,13 +1,19 @@
-/* Tailwind CSS for the new design (FRG-45), and the old styles.css.
-   Only Tailwind's theme and utilities layers. Tailwind's base reset (preflight) is left out,
-   because it changes how the existing pages look.
+/* All the CSS of the app is loaded here, in this order:
+   1. Tailwind's theme layer (its sizes and scales).
+   2. theme.css: our colours, light and dark. The one place where colours are written.
+   3. The Inter font, from a package, so it works with no internet.
+   4. styles.css: plain CSS classes for the older pages, in its own "legacy" layer.
+   5. Tailwind's utilities (the classes used in the components).
 
-   styles.css is loaded here in its own "legacy" layer, below Tailwind's utilities (FRG-46).
-   Without a layer its rules (for example "button { color: inherit }") would win over every
-   Tailwind class. Old pages keep using styles.css and look the same. */
+   Tailwind's base reset (preflight) is left out on purpose, because it changes the older pages.
+
+   styles.css sits in a layer below the utilities (FRG-46). Without a layer its rules
+   (for example "button { color: inherit }") would win over every Tailwind class. */
 
 @layer theme, base, legacy, components, utilities;
 
 @import "tailwindcss/theme.css" layer(theme);
+@import "./theme.css";
+@import "@fontsource-variable/inter/wght.css";
 @import "./styles.css" layer(legacy);
 @import "tailwindcss/utilities.css" layer(utilities);

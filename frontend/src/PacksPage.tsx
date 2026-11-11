@@ -1,12 +1,14 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import type { ChangeEvent, ReactNode } from "react";
-import { AlertTriangle, ArrowLeft, CheckCircle2, Download, FileText, FileUp, Package, RefreshCw, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, CheckCircle2, Download, FileText, FileUp, Package, RefreshCw } from "lucide-react";
 import EstimateView from "./Estimate";
 import BatchBar, { useActiveBatches } from "./BatchBar";
 import Media, { outputKind } from "./Media";
 import { ProgressView } from "./Generate";
 import type { Progress } from "./Generate";
 import PickScreen from "./PickScreen";
+import { Badge, btn, CARD, CARD_HOVER, EmptyState, FIELD, Loading, Modal, PageHeader, Tabs } from "./ui";
+import type { Tone } from "./ui";
 
 // The Packs section (FRG-78): the list of packs as tiles, "Import pack file (.md)" with a preview
 // of the plan and the time estimate before anything is saved, and the detail page of one pack.
@@ -101,15 +103,15 @@ const MODEL_LABELS: Record<string, string> = {
   "image-to-3d-pixal3d": "Pixal3D",
 };
 
-const STATUS_STYLES: Record<ItemStatus, { label: string; className: string }> = {
-  planned: { label: "Planned", className: "bg-slate-700/60 text-slate-300" },
-  pictures: { label: "Making pictures", className: "bg-sky-500/15 text-sky-300" },
-  pick_picture: { label: "Pick a picture", className: "bg-amber-500/15 text-amber-300" },
-  models: { label: "Making 3D", className: "bg-sky-500/15 text-sky-300" },
-  pick_model: { label: "Pick a model", className: "bg-amber-500/15 text-amber-300" },
-  done: { label: "Done", className: "bg-emerald-500/15 text-emerald-300" },
-  skip: { label: "Made outside", className: "bg-slate-700/40 text-slate-500" },
-  failed: { label: "Failed", className: "bg-red-500/15 text-red-300" },
+const STATUS_STYLES: Record<ItemStatus, { label: string; tone: Tone }> = {
+  planned: { label: "Planned", tone: "neutral" },
+  pictures: { label: "Making pictures", tone: "info" },
+  pick_picture: { label: "Pick a picture", tone: "warning" },
+  models: { label: "Making 3D", tone: "info" },
+  pick_model: { label: "Pick a model", tone: "warning" },
+  done: { label: "Done", tone: "success" },
+  skip: { label: "Made outside", tone: "muted" },
+  failed: { label: "Failed", tone: "danger" },
 };
 
 // The file chosen with "Import pack file (.md)", read in the browser.
@@ -165,27 +167,20 @@ function PacksList() {
   }
 
   return (
-    <main className="mx-auto w-full max-w-6xl px-8 pt-2 pb-12">
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
-        <h1 className="m-0 text-2xl font-semibold text-slate-100">Packs</h1>
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={() => documentInputRef.current?.click()}
-            className="flex cursor-pointer items-center gap-2 rounded-xl border border-slate-600 bg-slate-800 px-4 py-2.5 text-sm font-medium text-slate-100 transition-colors hover:bg-slate-700"
-          >
+    <main className="mx-auto w-full max-w-6xl px-8 pt-8 pb-16">
+      <PageHeader title="Packs">
+          <button type="button" onClick={() => documentInputRef.current?.click()} className={btn("secondary")}>
             <FileText size={16} />
             Import any document (.md or .txt)
           </button>
           <button
             type="button"
             onClick={chooseFile}
-            className="flex cursor-pointer items-center gap-2 rounded-xl border-0 bg-teal-600/90 px-4 py-2.5 text-sm font-medium text-white shadow-sm shadow-teal-900/20 transition-colors hover:bg-teal-500"
+            className={btn("primary")}
           >
             <FileUp size={16} />
             Import pack file (.md)
           </button>
-        </div>
         <input ref={fileInputRef} type="file" accept=".md,text/markdown" onChange={(event) => readChosen(event, setChosen)} className="hidden" />
         <input
           ref={documentInputRef}
@@ -194,15 +189,15 @@ function PacksList() {
           onChange={(event) => readChosen(event, setDocumentFile)}
           className="hidden"
         />
-      </div>
-      <p className="mt-0 mb-5 text-xs text-slate-500">
+      </PageHeader>
+      <p className="-mt-4 mb-6 text-xs text-ink-3">
         Import any document: the document is sent to the Claude API to read it. Generation stays on this PC.
       </p>
 
       {/* MongoDB offline: the backend's message. Import still checks a file, but cannot save it. */}
       {error && <p className="message warning">{error}</p>}
-      {!packs && !error && <p className="text-sm text-slate-500">Loading the packs...</p>}
-      {packs && packs.length === 0 && <p className="text-sm text-slate-400">No packs yet. Import a pack file to start one.</p>}
+      {!packs && !error && <Loading>Loading the packs...</Loading>}
+      {packs && packs.length === 0 && <EmptyState icon={<Package size={18} />} title="No packs yet" text="Import a pack file to start one." />}
 
       {packs && packs.length > 0 && (
         <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-5">
@@ -250,25 +245,25 @@ function Tile({ pack }: { pack: PackTile }) {
     <a
       href={`#/packs/${pack.id}`}
       title={`Open "${pack.name}"`}
-      className="block overflow-hidden rounded-2xl border border-slate-700/60 bg-slate-800/60 no-underline transition-colors hover:border-slate-600"
+      className={`block overflow-hidden no-underline ${CARD} ${CARD_HOVER}`}
     >
-      <div className="flex aspect-video items-center justify-center bg-slate-900/60">
-        <Package size={40} className="text-slate-600" />
+      <div className="flex aspect-video items-center justify-center bg-frame">
+        <Package size={40} className="text-ink-3" />
       </div>
       <div className="px-4 pt-3 pb-4">
         <div className="flex items-center gap-2">
-          <span className="truncate text-sm font-semibold text-slate-100">{pack.name}</span>
+          <span className="truncate text-sm font-medium text-ink">{pack.name}</span>
           <CodeChip code={pack.code} />
         </div>
-        <div className="mt-2 text-xs text-slate-400">{doneText(pack.counts)}</div>
-        <div className="mt-1 text-xs text-slate-500">{pack.engine === "unreal" ? "For Unreal" : "No engine"}</div>
+        <div className="mt-2 text-xs text-ink-2">{doneText(pack.counts)}</div>
+        <div className="mt-1 text-xs text-ink-3">{pack.engine === "unreal" ? "For Unreal" : "No engine"}</div>
       </div>
     </a>
   );
 }
 
 function CodeChip({ code }: { code: string }) {
-  return <span className="shrink-0 rounded-md bg-slate-700/70 px-1.5 py-0.5 font-mono text-[11px] font-medium text-slate-300">{code}</span>;
+  return <span className="shrink-0 rounded-md bg-hover px-1.5 py-0.5 font-mono text-[11px] font-medium text-ink-2">{code}</span>;
 }
 
 // ---- The preview of an import ----
@@ -345,25 +340,10 @@ function ImportPreview({ chosen, onClose, onChooseAnother, onCreated }: ImportPr
   const plan = answer?.ok ? answer.plan : null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 px-4 py-10" onClick={onClose}>
-      <div onClick={(event) => event.stopPropagation()} className="w-full max-w-5xl rounded-2xl border border-slate-700 bg-slate-800 p-6 shadow-2xl">
-        <div className="mb-4 flex items-start justify-between gap-4">
-          <div className="min-w-0">
-            <h2 className="m-0 text-lg font-semibold text-slate-100">Import pack file</h2>
-            <div className="mt-1 truncate text-sm text-slate-400">{chosen.fileName}</div>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            title="Close"
-            className="flex cursor-pointer items-center rounded-lg border-0 bg-transparent p-1.5 text-slate-400 hover:bg-slate-700 hover:text-slate-200"
-          >
-            <X size={18} />
-          </button>
-        </div>
+    <Modal title="Import pack file" subtitle={chosen.fileName} onClose={onClose} size="xl">
 
         {error && <p className="message error">{error}</p>}
-        {!error && !answer && <p className="text-sm text-slate-500">Checking the file...</p>}
+        {!error && !answer && <p className="text-sm text-ink-3">Checking the file...</p>}
 
         {answer && !answer.ok && <ErrorList title="This file has problems. Fix them in the file, then import it again." errors={answer.errors} />}
 
@@ -375,14 +355,14 @@ function ImportPreview({ chosen, onClose, onChooseAnother, onCreated }: ImportPr
           <button
             type="button"
             onClick={onChooseAnother}
-            className="cursor-pointer rounded-lg border border-slate-600 bg-transparent px-4 py-2 text-sm text-slate-300 hover:bg-slate-700"
+            className={btn("secondary")}
           >
             Choose another file
           </button>
           <button
             type="button"
             onClick={onClose}
-            className="cursor-pointer rounded-lg border border-slate-600 bg-transparent px-4 py-2 text-sm text-slate-300 hover:bg-slate-700"
+            className={btn("secondary")}
           >
             Cancel
           </button>
@@ -392,14 +372,13 @@ function ImportPreview({ chosen, onClose, onChooseAnother, onCreated }: ImportPr
               type="button"
               onClick={createPack}
               disabled={saving}
-              className="cursor-pointer rounded-lg border-0 bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-500 disabled:cursor-wait disabled:opacity-50"
+              className={`${btn("primary")} disabled:cursor-wait`}
             >
               {saving ? "Creating..." : "Create pack"}
             </button>
           )}
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -408,17 +387,17 @@ function PlanView({ plan }: { plan: PackPlan }) {
   const rows = plan.items.map(plannedRow);
   return (
     <>
-      <div className="mb-5 flex items-center gap-2 text-sm text-emerald-300">
+      <div className="mb-5 flex items-center gap-2 text-sm text-success">
         <CheckCircle2 size={16} />
         The file is correct. Nothing is saved until you press Create pack.
       </div>
-      <div className="mb-5 rounded-xl border border-slate-700/60 bg-slate-900/40 p-4">
+      <div className="mb-5 rounded-xl border border-line bg-sidebar p-4">
         <div className="flex items-center gap-2">
-          <span className="text-base font-semibold text-slate-100">{plan.pack.name}</span>
+          <span className="text-base font-medium text-ink">{plan.pack.name}</span>
           <CodeChip code={plan.pack.code} />
-          <span className="text-xs text-slate-500">{plan.pack.engine === "unreal" ? "For Unreal" : "No engine"}</span>
+          <span className="text-xs text-ink-3">{plan.pack.engine === "unreal" ? "For Unreal" : "No engine"}</span>
         </div>
-        {plan.pack.style && <p className="mt-2 mb-0 text-sm text-slate-400">Style added to every prompt: {plan.pack.style}</p>}
+        {plan.pack.style && <p className="mt-2 mb-0 text-sm text-ink-2">Style added to every prompt: {plan.pack.style}</p>}
       </div>
       <Counts rows={rows} />
       <EstimateView items={plan.jobTotals} />
@@ -547,49 +526,34 @@ function ConvertPreview({ chosen, onClose, onCreated }: ConvertPreviewProps) {
   const plan = upToDate && check.answer.ok ? check.answer.plan : null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 px-4 py-10" onClick={onClose}>
-      <div onClick={(event) => event.stopPropagation()} className="w-full max-w-5xl rounded-2xl border border-slate-700 bg-slate-800 p-6 shadow-2xl">
-        <div className="mb-4 flex items-start justify-between gap-4">
-          <div className="min-w-0">
-            <h2 className="m-0 text-lg font-semibold text-slate-100">Make a pack from a document</h2>
-            <div className="mt-1 truncate text-sm text-slate-400">{chosen.fileName}</div>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            title="Close"
-            className="flex cursor-pointer items-center rounded-lg border-0 bg-transparent p-1.5 text-slate-400 hover:bg-slate-700 hover:text-slate-200"
-          >
-            <X size={18} />
-          </button>
-        </div>
+    <Modal title="Make a pack from a document" subtitle={chosen.fileName} onClose={onClose} size="xl">
 
         {error && <p className="message error">{error}</p>}
         {!error && !converted && (
-          <p className="text-sm text-slate-400">Claude is reading the document and writing the pack file. A long document can take a few minutes...</p>
+          <p className="text-sm text-ink-2">Claude is reading the document and writing the pack file. A long document can take a few minutes...</p>
         )}
 
         {converted && (
           <>
             {converted.warnings.length > 0 && (
-              <div className="mb-4 rounded-xl border border-amber-400/40 bg-amber-400/5 p-4">
-                <div className="mb-2 flex items-center gap-2 text-sm font-medium text-amber-300">
+              <div className="mb-4 rounded-xl border border-warning-line bg-warning-soft p-4">
+                <div className="mb-2 flex items-center gap-2 text-sm font-medium text-warning">
                   <AlertTriangle size={16} />
                   These prompts are not in the document word for word. Compare them before you create the pack.
                 </div>
-                <ul className="m-0 space-y-1 pl-6 text-sm text-amber-200">
+                <ul className="m-0 space-y-1 pl-6 text-sm text-warning">
                   {converted.warnings.map((warning, index) => (
                     <li key={index}>{warning}</li>
                   ))}
                 </ul>
               </div>
             )}
-            <div className="mb-4 rounded-xl border border-slate-700/60 bg-slate-900/40 p-4 text-sm">
-              <div className="mb-1 font-medium text-slate-200">Could not map</div>
+            <div className="mb-4 rounded-xl border border-line bg-sidebar p-4 text-sm">
+              <div className="mb-1 font-medium text-ink">Could not map</div>
               {converted.couldNotMap.length === 0 ? (
-                <div className="text-slate-400">Nothing. Claude put everything from the document into the pack file.</div>
+                <div className="text-ink-2">Nothing. Claude put everything from the document into the pack file.</div>
               ) : (
-                <ul className="m-0 space-y-1 pl-6 text-slate-300">
+                <ul className="m-0 space-y-1 pl-6 text-ink-2">
                   {converted.couldNotMap.map((entry, index) => (
                     <li key={index}>{entry}</li>
                   ))}
@@ -597,7 +561,7 @@ function ConvertPreview({ chosen, onClose, onCreated }: ConvertPreviewProps) {
               )}
             </div>
 
-            <label className="mb-2 block text-sm font-medium text-slate-200" htmlFor="pack-text">
+            <label className="mb-2 block text-sm font-medium text-ink" htmlFor="pack-text">
               The pack file (you can edit it)
             </label>
             <textarea
@@ -605,25 +569,25 @@ function ConvertPreview({ chosen, onClose, onCreated }: ConvertPreviewProps) {
               value={packText}
               onChange={(event) => setPackText(event.target.value)}
               spellCheck={false}
-              className="mb-2 h-72 w-full resize-y rounded-xl border border-slate-700 bg-slate-950/60 p-3 font-mono text-xs text-slate-200"
+              className={`${FIELD} mb-2 h-72 resize-y py-3 font-mono text-xs`}
             />
             <div className="mb-5 flex flex-wrap items-center gap-2">
               <button
                 type="button"
                 onClick={checkAgain}
                 disabled={checking}
-                className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-slate-600 bg-transparent px-3 py-1.5 text-sm text-slate-200 hover:bg-slate-700 disabled:cursor-wait disabled:opacity-50"
+                className={`${btn("secondary", "sm")} disabled:cursor-wait`}
               >
                 <RefreshCw size={14} /> {checking ? "Checking..." : "Check again"}
               </button>
               <button
                 type="button"
                 onClick={download}
-                className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-slate-600 bg-transparent px-3 py-1.5 text-sm text-slate-200 hover:bg-slate-700"
+                className={btn("secondary", "sm")}
               >
                 <Download size={14} /> Download .pack.md
               </button>
-              {!upToDate && <span className="text-xs text-amber-300">You changed the pack file. Press Check again before you create the pack.</span>}
+              {!upToDate && <span className="text-xs text-warning">You changed the pack file. Press Check again before you create the pack.</span>}
             </div>
 
             {upToDate && !check.answer.ok && (
@@ -639,7 +603,7 @@ function ConvertPreview({ chosen, onClose, onCreated }: ConvertPreviewProps) {
           <button
             type="button"
             onClick={onClose}
-            className="cursor-pointer rounded-lg border border-slate-600 bg-transparent px-4 py-2 text-sm text-slate-300 hover:bg-slate-700"
+            className={btn("secondary")}
           >
             Cancel
           </button>
@@ -649,25 +613,24 @@ function ConvertPreview({ chosen, onClose, onCreated }: ConvertPreviewProps) {
               type="button"
               onClick={createPack}
               disabled={saving}
-              className="cursor-pointer rounded-lg border-0 bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-500 disabled:cursor-wait disabled:opacity-50"
+              className={`${btn("primary")} disabled:cursor-wait`}
             >
               {saving ? "Creating..." : "Create pack"}
             </button>
           )}
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 
 function ErrorList({ title, errors }: { title: string; errors: string[] }) {
   return (
-    <div className="mb-4 rounded-xl border border-red-400/40 bg-red-400/5 p-4">
-      <div className="mb-2 flex items-center gap-2 text-sm font-medium text-red-300">
+    <div className="mb-4 rounded-xl border border-danger-line bg-danger-soft p-4">
+      <div className="mb-2 flex items-center gap-2 text-sm font-medium text-danger">
         <AlertTriangle size={16} />
         {title}
       </div>
-      <ul className="m-0 space-y-1 pl-6 text-sm text-red-200">
+      <ul className="m-0 space-y-1 pl-6 text-sm text-danger">
         {errors.map((error, index) => (
           <li key={index}>{error}</li>
         ))}
@@ -736,7 +699,7 @@ function groupsOf(rows: Row[]): string[] {
 // How many items of each kind, and in each group.
 function Counts({ rows }: { rows: Row[] }) {
   const chip = (label: string, count: number) => (
-    <span key={label} className="rounded-lg border border-slate-700 bg-slate-900/40 px-3 py-1.5 text-xs text-slate-300">
+    <span key={label} className="rounded-full border border-line bg-card px-3 py-1 text-xs text-ink-2">
       {count} {label}
     </span>
   );
@@ -773,9 +736,9 @@ function modelRunsText(row: Row): string {
 function ItemTable({ rows, showStatus }: { rows: Row[]; showStatus: boolean }) {
   const head = ["Id", "Name", "Kind", "Pictures", "3D runs", "Real size", "Notes", ...(showStatus ? ["Status"] : [])];
   return (
-    <div className="overflow-x-auto rounded-xl border border-slate-700/60">
+    <div className="overflow-x-auto rounded-xl border border-line">
       <table className="w-full border-collapse text-left text-sm">
-        <thead className="bg-slate-900/50 text-xs text-slate-400">
+        <thead className="bg-frame text-xs text-ink-2">
           <tr>
             {head.map((label) => (
               <th key={label} className="px-3 py-2 font-medium">
@@ -787,8 +750,8 @@ function ItemTable({ rows, showStatus }: { rows: Row[]; showStatus: boolean }) {
         <tbody>
           {groupsOf(rows).map((group) => (
             <Fragment key={group}>
-              <tr className="border-t border-slate-700/50 bg-slate-900/30">
-                <td colSpan={head.length} className="px-3 py-1.5 text-xs font-semibold text-slate-300">
+              <tr className="border-t border-line bg-frame">
+                <td colSpan={head.length} className="px-3 py-1.5 text-xs font-medium text-ink-2">
                   {group}/
                 </td>
               </tr>
@@ -798,12 +761,12 @@ function ItemTable({ rows, showStatus }: { rows: Row[]; showStatus: boolean }) {
                   const skip = row.kind === "skip";
                   return (
                     <Fragment key={row.key}>
-                      <tr className={`border-t border-slate-700/50 align-top ${skip ? "text-slate-500" : "text-slate-300"}`}>
+                      <tr className={`border-t border-line align-top ${skip ? "text-ink-3" : "text-ink-2"}`}>
                         <Cell mono>{row.itemId}</Cell>
                         <Cell>{row.name}</Cell>
                         <Cell>
                           {KIND_LABELS[row.kind]}
-                          {row.editFrom && <div className="text-xs text-slate-500">edit of {row.editFrom}</div>}
+                          {row.editFrom && <div className="text-xs text-ink-3">edit of {row.editFrom}</div>}
                         </Cell>
                         <Cell>{skip ? "-" : row.pictures}</Cell>
                         <Cell>{modelRunsText(row)}</Cell>
@@ -842,7 +805,7 @@ function Cell({ children, mono }: { children: ReactNode; mono?: boolean }) {
 
 function StatusBadge({ status }: { status: ItemStatus }) {
   const style = STATUS_STYLES[status];
-  return <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap ${style.className}`}>{style.label}</span>;
+  return <Badge tone={style.tone}>{style.label}</Badge>;
 }
 
 // ---- The detail page of one pack ----
@@ -977,34 +940,34 @@ function PackDetail({ id }: { id: string }) {
   const leftToPick = items.filter((item) => (item.status === "pick_picture" && !item.pickedPictureJobId) || item.status === "pick_model").length;
 
   return (
-    <main className="mx-auto w-full max-w-6xl px-8 pt-2 pb-12">
-      <a href="#/packs" className="mb-4 inline-flex items-center gap-1.5 text-sm text-slate-400 no-underline hover:text-slate-200">
+    <main className="mx-auto w-full max-w-6xl px-8 pt-8 pb-16">
+      <a href="#/packs" className="mb-4 inline-flex items-center gap-1.5 text-sm text-ink-2 no-underline hover:text-ink">
         <ArrowLeft size={16} />
         Packs
       </a>
 
       {error && <p className="message warning">{error}</p>}
-      {!detail && !error && <p className="text-sm text-slate-500">Loading the pack...</p>}
+      {!detail && !error && <p className="text-sm text-ink-3">Loading the pack...</p>}
 
       {detail && (
         <>
           <div className="mb-6">
             <div className="flex flex-wrap items-center gap-3">
-              <h1 className="m-0 text-2xl font-semibold text-slate-100">{detail.pack.name}</h1>
+              <h1 className="m-0 text-[28px] leading-tight font-medium tracking-[-0.02em] text-ink">{detail.pack.name}</h1>
               <CodeChip code={detail.pack.code} />
-              <span className="text-sm text-slate-500">{detail.pack.engine === "unreal" ? "For Unreal" : "No engine"}</span>
+              <span className="text-sm text-ink-3">{detail.pack.engine === "unreal" ? "For Unreal" : "No engine"}</span>
               {detail.pack.runMode && (
-                <span className="text-xs text-slate-500">Last run: {detail.pack.runMode === "full_auto" ? "full auto" : "pictures first"}</span>
+                <span className="text-xs text-ink-3">Last run: {detail.pack.runMode === "full_auto" ? "full auto" : "pictures first"}</span>
               )}
             </div>
-            {detail.pack.style && <p className="mt-2 mb-0 max-w-3xl text-sm text-slate-400">Style: {detail.pack.style}</p>}
+            {detail.pack.style && <p className="mt-2 mb-0 max-w-3xl text-sm text-ink-2">Style: {detail.pack.style}</p>}
             <div className="mt-4 flex flex-wrap items-center gap-2 text-xs">
-              <span className="text-slate-400">{doneText(counts)}</span>
+              <span className="text-ink-2">{doneText(counts)}</span>
               {(Object.keys(STATUS_STYLES) as ItemStatus[]).map((status) =>
                 counts[status] > 0 ? (
-                  <span key={status} className={`rounded-full px-2 py-0.5 font-medium ${STATUS_STYLES[status].className}`}>
+                  <Badge key={status} tone={STATUS_STYLES[status].tone}>
                     {counts[status]} {STATUS_STYLES[status].label.toLowerCase()}
-                  </span>
+                  </Badge>
                 ) : null,
               )}
             </div>
@@ -1020,11 +983,11 @@ function PackDetail({ id }: { id: string }) {
                 <button
                   type="button"
                   onClick={() => setPicking(true)}
-                  className="cursor-pointer rounded-lg border-0 bg-amber-500/90 px-4 py-2 text-sm font-medium text-slate-950 hover:bg-amber-400"
+                  className={btn("primary")}
                 >
                   Pick ({leftToPick} left)
                 </button>
-                <span className="text-xs text-slate-500">A full screen to pick with the keyboard: 1-9 pick, N more, E edit, S skip, arrows move.</span>
+                <span className="text-xs text-ink-3">A full screen to pick with the keyboard: 1-9 pick, N more, E edit, S skip, arrows move.</span>
               </>
             )}
             <button
@@ -1032,7 +995,7 @@ function PackDetail({ id }: { id: string }) {
               onClick={exportPack}
               disabled={busy !== null}
               title="Write every picked result into one folder, with forge_manifest.json and forge_record.md"
-              className="ml-auto cursor-pointer rounded-lg border border-slate-600 bg-transparent px-4 py-2 text-sm text-slate-200 hover:bg-slate-700 disabled:cursor-wait disabled:opacity-50"
+              className={`${btn("secondary")} ml-auto disabled:cursor-wait`}
             >
               {busy === "export" ? "Exporting..." : detail.pack.engine === "unreal" ? "Export for Unreal" : "Export"}
             </button>
@@ -1044,32 +1007,28 @@ function PackDetail({ id }: { id: string }) {
 
           <div className="mb-6 space-y-3">
             {planned > 0 && (
-              <div className="rounded-xl border border-slate-700/60 bg-slate-800/40 p-4">
+              <div className="rounded-xl border border-line bg-card p-4">
                 <div className="mb-3 flex flex-wrap items-center gap-3">
-                  <span className="text-sm font-semibold text-slate-100">Step 1: Make pictures</span>
-                  <div className="flex overflow-hidden rounded-lg border border-slate-600 text-xs" role="group" aria-label="Run mode">
-                    {(["pictures_first", "full_auto"] as RunMode[]).map((choice) => (
-                      <button
-                        key={choice}
-                        type="button"
-                        onClick={() => setMode(choice)}
-                        aria-pressed={mode === choice}
-                        className={`cursor-pointer border-0 px-3 py-1.5 ${mode === choice ? "bg-teal-600 text-white" : "bg-transparent text-slate-300 hover:bg-slate-700"}`}
-                      >
-                        {choice === "pictures_first" ? "Pictures first" : "Full auto"}
-                      </button>
-                    ))}
-                  </div>
+                  <span className="text-sm font-medium text-ink">Step 1: Make pictures</span>
+                  <Tabs<RunMode>
+                    label="Run mode"
+                    value={mode}
+                    onChange={setMode}
+                    items={[
+                      { value: "pictures_first", label: "Pictures first" },
+                      { value: "full_auto", label: "Full auto" },
+                    ]}
+                  />
                   <button
                     type="button"
                     onClick={makePictures}
                     disabled={busy !== null}
-                    className="ml-auto cursor-pointer rounded-lg border-0 bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-500 disabled:cursor-wait disabled:opacity-50"
+                    className={`${btn("primary")} ml-auto disabled:cursor-wait`}
                   >
                     {busy === "run" ? "Starting..." : mode === "full_auto" ? "Run full auto" : `Make pictures for ${planned} item(s)`}
                   </button>
                 </div>
-                <p className="mt-0 mb-3 text-xs text-slate-400">
+                <p className="mt-0 mb-3 text-xs text-ink-2">
                   {mode === "full_auto"
                     ? "Everything runs alone: pictures, then the first finished picture of each item is picked, then edits and 3D models. You pick the 3D models at the end."
                     : "Makes every picture as one batch. Then you pick a picture for each item, and start the 3D models in step 2. Edits start when their source picture is picked."}
@@ -1079,14 +1038,14 @@ function PackDetail({ id }: { id: string }) {
             )}
 
             {pickedForModels > 0 && (
-              <div className="rounded-xl border border-slate-700/60 bg-slate-800/40 p-4">
+              <div className="rounded-xl border border-line bg-card p-4">
                 <div className="mb-3 flex flex-wrap items-center gap-3">
-                  <span className="text-sm font-semibold text-slate-100">Step 2: Make 3D models</span>
+                  <span className="text-sm font-medium text-ink">Step 2: Make 3D models</span>
                   <button
                     type="button"
                     onClick={makeModels}
                     disabled={busy !== null}
-                    className="ml-auto cursor-pointer rounded-lg border-0 bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-500 disabled:cursor-wait disabled:opacity-50"
+                    className={`${btn("primary")} ml-auto disabled:cursor-wait`}
                   >
                     {busy === "models" ? "Starting..." : `Make 3D models for ${pickedForModels} picked item(s)`}
                   </button>
@@ -1095,7 +1054,7 @@ function PackDetail({ id }: { id: string }) {
               </div>
             )}
 
-            {message && <p className={`m-0 text-sm ${message.error ? "text-red-300" : "text-emerald-300"}`}>{message.text}</p>}
+            {message && <p className={`m-0 text-sm ${message.error ? "text-danger" : "text-success"}`}>{message.text}</p>}
           </div>
 
           <ItemTable
@@ -1128,7 +1087,7 @@ function ItemResults({ item, jobs, busy, onPick }: ItemResultsProps) {
   const [viewing, setViewing] = useState<string | null>(null);
   return (
     <div className="space-y-3">
-      {item.error && <p className="m-0 text-xs text-red-300">{item.error}</p>}
+      {item.error && <p className="m-0 text-xs text-danger">{item.error}</p>}
       {item.pictureJobIds.length > 0 && (
         <div className="flex flex-wrap gap-3">
           {item.pictureJobIds.map((jobId) => (
@@ -1181,7 +1140,7 @@ type ResultTileProps = {
 function ResultTile({ job, picked, autoPicked, size, open, onView, busy, onPick }: ResultTileProps) {
   const style = { width: size, height: size };
   let body: ReactNode;
-  if (!job) body = <div className="flex items-center justify-center text-xs text-slate-500" style={style}>Card deleted</div>;
+  if (!job) body = <div className="flex items-center justify-center text-xs text-ink-3" style={style}>Card deleted</div>;
   else if (job.status === "done" && job.imageUrl)
     body = <Media url={job.imageUrl} kind={outputKind(job)} mode={open ? "full" : "thumbnail"} alt="" style={{ ...style, objectFit: "cover" }} />;
   else if (job.status === "queued" || job.status === "running")
@@ -1190,15 +1149,15 @@ function ResultTile({ job, picked, autoPicked, size, open, onView, busy, onPick 
         <ProgressView progress={job.progress} onCancel={null} cancelling={false} />
       </div>
     );
-  else if (job.error) body = <div className="overflow-auto p-2 text-xs text-red-300" style={style}>Failed: {job.error}</div>;
-  else body = <div className="flex items-center justify-center text-xs text-slate-500" style={style}>Waiting in the batch</div>;
+  else if (job.error) body = <div className="overflow-auto p-2 text-xs text-danger" style={style}>Failed: {job.error}</div>;
+  else body = <div className="flex items-center justify-center text-xs text-ink-3" style={style}>Waiting in the batch</div>;
 
   return (
-    <div className={`overflow-hidden rounded-xl border ${picked ? "border-teal-400" : "border-slate-700/60"} bg-slate-900/40`} style={{ width: size }}>
+    <div className={`overflow-hidden rounded-xl border ${picked ? "border-accent ring-2 ring-focus-ring" : "border-line"} bg-frame`} style={{ width: size }}>
       {body}
       <div className="flex items-center gap-2 px-2 py-1.5 text-xs">
         {picked ? (
-          <span className="flex items-center gap-1 text-teal-300">
+          <span className="flex items-center gap-1 text-accent">
             <CheckCircle2 size={13} /> {autoPicked ? "Auto-picked" : "Picked"}
           </span>
         ) : (
@@ -1207,7 +1166,7 @@ function ResultTile({ job, picked, autoPicked, size, open, onView, busy, onPick 
               type="button"
               onClick={onPick}
               disabled={busy}
-              className="cursor-pointer rounded-md border border-slate-600 bg-transparent px-2 py-0.5 text-xs text-slate-200 hover:bg-slate-700 disabled:cursor-wait disabled:opacity-50"
+              className={`${btn("secondary", "xs")} disabled:cursor-wait`}
             >
               {busy ? "Picking..." : "Pick"}
             </button>
@@ -1217,7 +1176,7 @@ function ResultTile({ job, picked, autoPicked, size, open, onView, busy, onPick 
           <button
             type="button"
             onClick={onView}
-            className="ml-auto cursor-pointer rounded-md border border-slate-600 bg-transparent px-2 py-0.5 text-xs text-slate-200 hover:bg-slate-700"
+            className={`${btn("secondary", "xs")} ml-auto`}
           >
             {open ? "Close 3D" : "View 3D"}
           </button>
@@ -1233,17 +1192,17 @@ type ExportReport = { folder: string; written: string[]; overwritten: string[]; 
 // Where the export is, and what it did: files written and overwritten, and items still missing (FRG-82).
 function ExportSummary({ report }: { report: ExportReport }) {
   return (
-    <div className="mb-4 space-y-2 rounded-xl border border-slate-700/60 bg-slate-800/40 p-4 text-sm">
-      <div className="text-slate-300">
-        Folder: <span className="font-mono text-xs break-all text-slate-100 select-all">{report.folder}</span>
+    <div className="mb-4 space-y-2 rounded-xl border border-line bg-card p-4 text-sm">
+      <div className="text-ink-2">
+        Folder: <span className="font-mono text-xs break-all text-ink select-all">{report.folder}</span>
       </div>
-      <div className="text-slate-400">
+      <div className="text-ink-2">
         {report.written.length} new file(s) written, {report.overwritten.length} file(s) overwritten. Nothing in the folder was deleted.
       </div>
       {report.missing.length === 0 ? (
-        <div className="text-emerald-300">Every item is in the folder (items made outside TeczoForge are listed in the manifest).</div>
+        <div className="text-success">Every item is in the folder (items made outside TeczoForge are listed in the manifest).</div>
       ) : (
-        <div className="text-amber-300">Still missing (not done yet): {report.missing.join(", ")}</div>
+        <div className="text-warning">Still missing (not done yet): {report.missing.join(", ")}</div>
       )}
       {report.problems.length > 0 && <ErrorList title="Some picked files could not be found." errors={report.problems} />}
     </div>

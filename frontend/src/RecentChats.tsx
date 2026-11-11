@@ -135,10 +135,10 @@ export default function RecentChats({ chats, openId, project, projects }: Recent
 
   return (
     <>
-      {chats.error && <p className="mx-3 mb-2 text-xs text-red-400">{chats.error}</p>}
-      {chats.notice && <p className="mx-3 mb-2 text-xs text-teal-300">{chats.notice}</p>}
+      {chats.error && <p className="mx-3 mb-2 text-xs text-danger">{chats.error}</p>}
+      {chats.notice && <p className="mx-3 mb-2 text-xs text-success">{chats.notice}</p>}
       {chats.list.length === 0 && !chats.error && project !== undefined && (
-        <p className="mx-3 text-xs text-slate-500">{project ? `No chats in "${project.name}" yet.` : "No chats yet."}</p>
+        <p className="mx-3 text-xs text-ink-3">{project ? `No chats in "${project.name}" yet.` : "No chats yet."}</p>
       )}
       <ul className="m-0 list-none space-y-0.5 p-0">
         {chats.list.map((conversation) => {
@@ -146,23 +146,23 @@ export default function RecentChats({ chats, openId, project, projects }: Recent
           return (
             <li
               key={conversation.id}
-              className={`group flex items-center rounded-lg transition-colors duration-200 ${
-                active ? "bg-slate-700/80" : "hover:bg-slate-700/50"
+              className={`group flex h-8 items-center rounded-lg transition-colors ${
+                active ? "bg-hover" : "hover:bg-hover"
               }`}
             >
               <a
                 href={`#/chat/${conversation.id}`}
                 title={conversation.title}
                 aria-current={active ? "page" : undefined}
-                className={`flex min-w-0 flex-1 items-center gap-3 py-2 pl-3 text-sm ${
-                  active ? "text-teal-100" : "text-slate-400 group-hover:text-slate-200"
+                className={`flex min-w-0 flex-1 items-center gap-2.5 py-1.5 pl-3 text-sm no-underline ${
+                  active ? "font-medium text-ink" : "text-ink-2 group-hover:text-ink"
                 }`}
               >
-                <MessageSquare size={14} className={`shrink-0 ${active ? "text-teal-400" : "text-slate-500"}`} />
+                <MessageSquare size={14} className={`shrink-0 ${active ? "text-ink" : "text-ink-3"}`} />
                 <span className="truncate">{conversation.title}</span>
               </a>
               {/* Shown on hover, or when one of the buttons has keyboard focus. */}
-              <div className="flex shrink-0 items-center gap-0.5 pr-1 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100">
+              <div className="hidden shrink-0 items-center gap-0.5 pr-1 group-focus-within:flex group-hover:flex">
                 <IconButton title="Rename" onClick={() => chats.rename(conversation)}>
                   <Pencil size={12} />
                 </IconButton>
@@ -199,8 +199,8 @@ function IconButton(props: { title: string; danger?: boolean; onClick: () => voi
       title={props.title}
       aria-label={props.title}
       onClick={props.onClick}
-      className={`flex cursor-pointer items-center rounded-md border-0 bg-transparent p-1.5 text-slate-400 transition-colors hover:bg-slate-600 ${
-        props.danger ? "hover:text-red-400" : "hover:text-slate-200"
+      className={`flex cursor-pointer items-center rounded-md border-0 bg-transparent p-1 text-ink-3 transition-colors hover:bg-hover-strong ${
+        props.danger ? "hover:text-danger" : "hover:text-ink"
       }`}
     >
       {props.children}

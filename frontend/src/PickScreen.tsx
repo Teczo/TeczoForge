@@ -4,6 +4,7 @@ import { CheckCircle2, X } from "lucide-react";
 import Media, { outputKind } from "./Media";
 import { ProgressView } from "./Generate";
 import type { PackItem, PackJob } from "./PacksPage";
+import { Badge, btn, FIELD, ICON_BUTTON } from "./ui";
 
 // The fast pick screen of a pack (FRG-81): one item at a time, in file order, picked with the keyboard.
 // Picks go through the same route as the Pick buttons on the pack page (backend/src/packRun.ts), so the
@@ -186,12 +187,12 @@ export default function PickScreen({ packId, packName, items, jobs, onClose, rel
   const columns = Math.min(Math.max(results.length, 1), 4);
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-slate-950 text-slate-200">
-      <div className="flex items-center gap-4 border-b border-slate-800 px-8 py-3">
-        <span className="text-base font-semibold text-slate-100">Pick: {packName}</span>
-        <span className="rounded-full bg-amber-500/15 px-2.5 py-0.5 text-sm font-medium text-amber-300">{waiting.length} left to pick</span>
+    <div className="fixed inset-0 z-50 flex flex-col bg-page text-sm text-ink">
+      <div className="flex items-center gap-4 border-b border-line px-8 py-3">
+        <span className="text-base font-medium text-ink">Pick: {packName}</span>
+        <Badge tone="warning">{waiting.length} left to pick</Badge>
         {item && (
-          <span className="text-sm text-slate-500">
+          <span className="text-sm text-ink-3">
             Item {index + 1} of {shown.length}
           </span>
         )}
@@ -199,28 +200,28 @@ export default function PickScreen({ packId, packName, items, jobs, onClose, rel
           type="button"
           onClick={onClose}
           title="Close (Esc)"
-          className="ml-auto flex cursor-pointer items-center rounded-lg border-0 bg-transparent p-1.5 text-slate-400 hover:bg-slate-800 hover:text-slate-200"
+          className={`${ICON_BUTTON} ml-auto`}
         >
           <X size={20} />
         </button>
       </div>
 
       {!item ? (
-        <div className="flex flex-1 items-center justify-center text-slate-400">Nothing to pick yet. Start the pictures on the pack page first.</div>
+        <div className="flex flex-1 items-center justify-center text-ink-2">Nothing to pick yet. Start the pictures on the pack page first.</div>
       ) : (
         <>
           <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 px-8 pt-4 pb-2">
-            <span className="font-mono text-lg font-semibold text-slate-100">
+            <span className="font-mono text-lg font-medium text-ink">
               {item.itemId}_{item.name}
             </span>
-            <span className="text-sm text-slate-400">{stage === "model" ? "Pick the 3D model" : item.kind === "model" ? "Pick the picture for 3D" : "Pick the picture"}</span>
-            {realSizeText(item.realSize) && <span className="text-sm text-slate-400">{realSizeText(item.realSize)}</span>}
-            {item.editFrom && <span className="text-sm text-slate-500">edit of {item.editFrom}</span>}
-            {item.autoPicked && stage === "picture" && <span className="text-sm text-teal-300">Auto-picked</span>}
-            {!isWaiting(item) && <span className="text-sm text-emerald-300">Already picked</span>}
-            {item.notes && <span className="w-full text-sm text-slate-500">{item.notes}</span>}
+            <span className="text-sm text-ink-2">{stage === "model" ? "Pick the 3D model" : item.kind === "model" ? "Pick the picture for 3D" : "Pick the picture"}</span>
+            {realSizeText(item.realSize) && <span className="text-sm text-ink-2">{realSizeText(item.realSize)}</span>}
+            {item.editFrom && <span className="text-sm text-ink-3">edit of {item.editFrom}</span>}
+            {item.autoPicked && stage === "picture" && <span className="text-sm text-accent">Auto-picked</span>}
+            {!isWaiting(item) && <span className="text-sm text-success">Already picked</span>}
+            {item.notes && <span className="w-full text-sm text-ink-3">{item.notes}</span>}
             {stage === "model" && (
-              <span className="w-full text-xs text-slate-500">
+              <span className="w-full text-xs text-ink-3">
                 The picture cannot be changed any more: this item has 3D jobs made from it.
                 {item.modelJobIds.length > MAX_MODELS && ` Showing the newest ${MAX_MODELS} of ${item.modelJobIds.length} 3D results.`}
               </span>
@@ -245,13 +246,13 @@ export default function PickScreen({ packId, packName, items, jobs, onClose, rel
       )}
 
       {editing && item && (
-        <form onSubmit={submitEdit} className="mx-8 mb-2 flex flex-wrap items-start gap-3 rounded-xl border border-slate-700 bg-slate-900 p-3">
+        <form onSubmit={submitEdit} className="mx-8 mb-2 flex flex-wrap items-start gap-3 rounded-xl border border-line bg-sidebar p-3">
           <label className="flex items-center gap-2 text-sm">
             Edit picture
             <input
               value={editing.number}
               onChange={(event) => setEditing({ ...editing, number: event.target.value.replace(/[^0-9]/g, "") })}
-              className="w-12 rounded-md border border-slate-600 bg-slate-950 px-2 py-1 text-center text-slate-100"
+              className={`${FIELD} h-8 w-12 px-2 text-center`}
               aria-label="Picture number"
             />
           </label>
@@ -264,19 +265,19 @@ export default function PickScreen({ packId, packName, items, jobs, onClose, rel
             }}
             placeholder='What to change, for example "make the paint dark red, keep everything else the same". Enter sends, Esc closes.'
             maxLength={1000}
-            className="h-16 min-w-[400px] flex-1 resize-none rounded-md border border-slate-600 bg-slate-950 p-2 text-sm text-slate-100"
+            className={`${FIELD} h-16 min-w-[400px] flex-1 resize-none py-2`}
           />
           <button
             type="submit"
             disabled={busy || editing.text.trim() === ""}
-            className="cursor-pointer rounded-lg border-0 bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-500 disabled:cursor-not-allowed disabled:opacity-50"
+            className={btn("primary")}
           >
             Make edit
           </button>
         </form>
       )}
 
-      <div className="flex flex-wrap items-center gap-x-5 gap-y-1 border-t border-slate-800 px-8 py-2.5 text-xs text-slate-400">
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-1 border-t border-line px-8 py-2.5 text-xs text-ink-2">
         <Key k="1-9">pick and go on</Key>
         {stage === "picture" ? (
           <>
@@ -289,7 +290,7 @@ export default function PickScreen({ packId, packName, items, jobs, onClose, rel
         <Key k="S">skip for now</Key>
         <Key k="← →">previous / next</Key>
         <Key k="Esc">close</Key>
-        {message && <span className={`ml-auto text-sm ${message.error ? "text-red-300" : "text-emerald-300"}`}>{message.text}</span>}
+        {message && <span className={`ml-auto text-sm ${message.error ? "text-danger" : "text-success"}`}>{message.text}</span>}
       </div>
     </div>
   );
@@ -298,7 +299,7 @@ export default function PickScreen({ packId, packName, items, jobs, onClose, rel
 function Key({ k, children }: { k: string; children: ReactNode }) {
   return (
     <span>
-      <kbd className="rounded border border-slate-600 bg-slate-800 px-1.5 py-0.5 font-mono text-[11px] text-slate-200">{k}</kbd> {children}
+      <kbd className="rounded-md border border-line bg-card px-1.5 py-0.5 font-mono text-[11px] text-ink">{k}</kbd> {children}
     </span>
   );
 }
@@ -329,7 +330,7 @@ function Tile({ number, job, picked, stage, onClick }: TileProps) {
 
   return (
     <div
-      className={`overflow-hidden rounded-xl border-2 bg-slate-900 ${picked ? "border-teal-400" : "border-slate-800"} ${stage === "picture" ? "cursor-pointer hover:border-slate-500" : ""}`}
+      className={`overflow-hidden rounded-xl border-2 bg-frame ${picked ? "border-accent" : "border-line"} ${stage === "picture" ? "cursor-pointer hover:border-line-strong" : ""}`}
       // A 3D view is turned with the mouse, so only pictures are picked by a click. 3D: the number key or the button.
       onClick={stage === "picture" ? onClick : undefined}
     >
@@ -337,10 +338,10 @@ function Tile({ number, job, picked, stage, onClick }: TileProps) {
         {body}
       </div>
       <div className="flex items-center gap-3 px-3 py-2 text-sm">
-        <span className="flex h-6 w-6 items-center justify-center rounded-md bg-slate-700 font-mono text-xs font-semibold text-slate-100">{number}</span>
-        {label && <span className="text-slate-400">{label}</span>}
+        <span className="flex h-6 w-6 items-center justify-center rounded-md bg-hover font-mono text-xs font-medium text-ink">{number}</span>
+        {label && <span className="text-ink-2">{label}</span>}
         {picked && (
-          <span className="flex items-center gap-1 text-teal-300">
+          <span className="flex items-center gap-1 text-accent">
             <CheckCircle2 size={14} /> Picked
           </span>
         )}
@@ -348,7 +349,7 @@ function Tile({ number, job, picked, stage, onClick }: TileProps) {
           <button
             type="button"
             onClick={onClick}
-            className="ml-auto cursor-pointer rounded-md border border-slate-600 bg-transparent px-2 py-0.5 text-xs text-slate-200 hover:bg-slate-700"
+            className={`${btn("secondary", "xs")} ml-auto`}
           >
             Pick
           </button>
@@ -359,5 +360,5 @@ function Tile({ number, job, picked, stage, onClick }: TileProps) {
 }
 
 function Centered({ children }: { children: ReactNode }) {
-  return <div className="flex h-full w-full items-center justify-center p-4 text-center text-sm text-slate-500">{children}</div>;
+  return <div className="flex h-full w-full items-center justify-center p-4 text-center text-sm text-ink-3">{children}</div>;
 }

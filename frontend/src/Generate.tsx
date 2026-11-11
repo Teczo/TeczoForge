@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { FormEvent, ReactNode } from "react";
+import type { CSSProperties, FormEvent, ReactNode } from "react";
 import Media, { outputKind, useAvatarCheck } from "./Media";
 import type { OutputKind } from "./Media";
 import SendToMenu, { ExtendButton } from "./SendToMenu";
@@ -187,25 +187,26 @@ function firstPresetOf(category: Category, presets: Preset[]): Preset | undefine
 
 // The models in the left menu, from the "model" field of the presets (FRG-32). Only for show:
 // the preset decides which model really runs. A new model folder shows up here by itself.
-// note: the groups its presets are in. colors: picked from the name, so they stay the same.
-type Model = { name: string; note: string; colors: string };
+// note: the groups its presets are in. hue: picked from the name, so the thumbnail colour stays the same.
+// The thumbnail gradient itself is in theme.css (.model-thumb); it uses this hue.
+type Model = { name: string; note: string; hue: number };
 function modelsOf(presets: Preset[]): Model[] {
   const names = [...new Set(presets.map((p) => p.model).filter((name) => name !== ""))];
   return names.map((name) => {
     const groups = [...new Set(presets.filter((p) => p.model === name).map((p) => categoryOf(p).label))];
     let hue = 0;
     for (const char of name) hue = (hue * 31 + char.charCodeAt(0)) % 360;
-    return { name, note: groups.join(", "), colors: `hsl(${hue} 60% 22%), hsl(${(hue + 30) % 360} 65% 45%)` };
+    return { name, note: groups.join(", "), hue };
   });
 }
 
-// The Quick Prompts cards. Not working yet ("Soon").
+// The Quick Prompts cards. Not working yet ("Soon"). art: the sample picture, a gradient in theme.css.
 const QUICK_PROMPTS = [
-  { label: "Cinematic Landscape", colors: "#1e4d6b, #d9a35c" },
-  { label: "Futuristic City", colors: "#3a1a6b, #1ec8ff" },
-  { label: "Product Render", colors: "#1a1f26, #4a5a6a" },
-  { label: "Anime Character", colors: "#6b1a5a, #b98cff" },
-  { label: "Interior Design", colors: "#6b5a3a, #e8d8b8" },
+  { label: "Cinematic Landscape", art: "sample-art-1" },
+  { label: "Futuristic City", art: "sample-art-2" },
+  { label: "Product Render", art: "sample-art-3" },
+  { label: "Anime Character", art: "sample-art-4" },
+  { label: "Interior Design", art: "sample-art-5" },
 ];
 
 // A finished result shown on the right: made just now, or from the job history.
@@ -609,7 +610,7 @@ export default function Generate({ startValues = null, onStartValuesUsed, projec
             const active = model.name === preset.model;
             return (
               <div key={model.name} className={`model ${active ? "active" : ""}`}>
-                <div className="model-thumb" style={{ background: `linear-gradient(135deg, ${model.colors})` }}>
+                <div className="model-thumb" style={{ "--hue": model.hue } as CSSProperties}>
                   <Sparkles size={22} />
                 </div>
                 <div className="model-text">
@@ -801,7 +802,7 @@ export default function Generate({ startValues = null, onStartValuesUsed, projec
           <div className="quick-grid">
             {QUICK_PROMPTS.map((q) => (
               <button key={q.label} type="button" className="quick-card" disabled title="Coming soon">
-                <div className="quick-art" style={{ background: `linear-gradient(135deg, ${q.colors})` }}>
+                <div className={`quick-art ${q.art}`}>
                   <Image size={22} />
                 </div>
                 <span>{q.label}</span>

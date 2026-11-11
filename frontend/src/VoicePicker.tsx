@@ -90,13 +90,13 @@ export default function VoicePicker({ input, value, disabled, fitSeconds, onChan
   return (
     <div className="mb-3.5">
       {value ? (
-        <div className="flex flex-wrap items-center gap-3.5 rounded-(--radius-sm) border border-(--border-strong) bg-(--field) p-3">
-          <span className="grid size-[72px] shrink-0 place-items-center rounded-lg bg-(--panel-2) text-(--text-dim)">
+        <div className="flex flex-wrap items-center gap-3.5 rounded-(--radius-sm) border border-line bg-card p-3">
+          <span className="grid size-[72px] shrink-0 place-items-center rounded-lg bg-frame text-ink-2">
             <Music size={24} />
           </span>
           <div className="min-w-0 flex-1 basis-48">
-            <div className="font-semibold">{input.label}</div>
-            <div className="truncate text-[13px] text-(--text-dim)" title={current?.fileName ?? value}>
+            <div className="font-medium">{input.label}</div>
+            <div className="truncate text-[13px] text-ink-2" title={current?.fileName ?? value}>
               {current ? `${current.fileName} · ${current.seconds.toFixed(1)} s` : `${value} · from the earlier job`}
             </div>
             <audio className="mt-2 h-9 w-full" controls preload="metadata" src={current ? current.url : `/api/inputs/${encodeURIComponent(value)}`} />
@@ -107,8 +107,8 @@ export default function VoicePicker({ input, value, disabled, fitSeconds, onChan
         </div>
       ) : (
         <label
-          className={`flex items-center gap-3.5 rounded-(--radius-sm) border border-dashed bg-(--field) p-3 ${
-            dragging ? "border-(--accent)" : "border-(--border-strong) hover:border-(--accent)"
+          className={`flex items-center gap-3.5 rounded-(--radius-sm) border border-dashed bg-card p-3 ${
+            dragging ? "border-accent" : "border-line hover:border-line-strong"
           } ${locked ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}
           onDragOver={(event) => {
             event.preventDefault();
@@ -127,16 +127,16 @@ export default function VoicePicker({ input, value, disabled, fitSeconds, onChan
               event.target.value = ""; // So the same file can be picked again.
             }}
           />
-          <span className="grid size-[72px] shrink-0 place-items-center rounded-lg bg-(--panel-2) text-(--text-dim)">
+          <span className="grid size-[72px] shrink-0 place-items-center rounded-lg bg-frame text-ink-2">
             <Upload size={24} />
           </span>
           <span>
-            <span className="font-semibold">{input.label}</span>
+            <span className="font-medium">{input.label}</span>
             <br />
             {uploadError ? (
-              <span className="text-[13px] text-(--red)">{uploadError}</span>
+              <span className="text-[13px] text-danger">{uploadError}</span>
             ) : (
-              <span className="text-[13px] text-(--text-dim)">
+              <span className="text-[13px] text-ink-2">
                 {uploading ? "Uploading..." : `Click or drop a WAV, MP3 or FLAC file (up to ${MAX_UPLOAD_MB} MB).`}
               </span>
             )}

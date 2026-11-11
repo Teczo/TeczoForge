@@ -80,21 +80,21 @@ export default function EstimateView({ items, title = "Time estimate" }: { items
 
   return (
     <div className="mb-5">
-      <div className="mb-2 flex items-center gap-2 text-sm font-medium text-slate-200">
-        <Clock size={16} className="text-slate-400" />
+      <div className="mb-2 flex items-center gap-2 text-sm font-medium text-ink">
+        <Clock size={16} className="text-ink-2" />
         {title}
       </div>
-      <p className="mt-0 mb-1 text-sm text-slate-300">{summary}</p>
+      <p className="mt-0 mb-1 text-sm text-ink-2">{summary}</p>
       {typeof estimate === "object" && estimate.unknownPresets.length > 0 && (
-        <p className="mt-0 mb-2 text-xs text-amber-300">
+        <p className="mt-0 mb-2 text-xs text-warning">
           {estimate.unknownPresets.length === 1 ? "One preset has" : `${estimate.unknownPresets.length} presets have`} no known time. Run
           Time test to measure it.
         </p>
       )}
       {typeof estimate === "object" && (
-        <div className="overflow-x-auto rounded-xl border border-slate-700/60">
+        <div className="overflow-x-auto rounded-xl border border-line">
           <table className="w-full border-collapse text-left text-sm">
-            <thead className="bg-slate-900/50 text-xs text-slate-400">
+            <thead className="bg-frame text-xs text-ink-2">
               <tr>
                 {["Preset", "Jobs", "Each", "Total", "Source"].map((head) => (
                   <th key={head} className="px-3 py-2 font-medium">
@@ -105,12 +105,12 @@ export default function EstimateView({ items, title = "Time estimate" }: { items
             </thead>
             <tbody>
               {estimate.perPreset.map((row) => (
-                <tr key={row.presetId} className="border-t border-slate-700/50 text-slate-300">
+                <tr key={row.presetId} className="border-t border-line text-ink-2">
                   <td className="px-3 py-2">{row.name}</td>
                   <td className="px-3 py-2">{row.count}</td>
                   <td className="px-3 py-2">{row.eachMs === null ? "not known" : formatDuration(row.eachMs)}</td>
                   <td className="px-3 py-2">{row.totalMs === null ? "not known" : formatDuration(row.totalMs)}</td>
-                  <td className={`px-3 py-2 text-xs ${row.source === "unknown" ? "text-amber-300" : "text-slate-400"}`}>{SOURCE_LABELS[row.source]}</td>
+                  <td className={`px-3 py-2 text-xs ${row.source === "unknown" ? "text-warning" : "text-ink-2"}`}>{SOURCE_LABELS[row.source]}</td>
                 </tr>
               ))}
             </tbody>

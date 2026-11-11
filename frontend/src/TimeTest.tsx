@@ -3,6 +3,7 @@ import { Timer } from "lucide-react";
 import BatchBar, { useActiveBatches } from "./BatchBar";
 import EstimateView from "./Estimate";
 import type { Project } from "./App";
+import { btn } from "./ui";
 
 // "Time test" (FRG-76, backend/src/timeTest.ts): a batch with one Text to Image picture, then one card
 // per preset with a start image made from it. The finished jobs give every tested preset a time.
@@ -51,19 +52,19 @@ export default function TimeTest({ presetIds, project }: { presetIds: string[]; 
           onClick={start}
           disabled={busy || testing}
           title="Measure how long each preset takes"
-          className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-slate-600 bg-slate-700/60 px-3 py-1.5 text-xs font-medium text-slate-100 hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+          className={btn("secondary", "xs")}
         >
           <Timer size={14} /> {testing ? "Time test running" : "Time test"}
         </button>
         <button
           type="button"
           onClick={() => setShowTimes(!showTimes)}
-          className="cursor-pointer border-0 bg-transparent p-0 text-xs text-slate-400 underline hover:text-slate-200"
+          className="cursor-pointer border-0 bg-transparent p-0 text-xs text-ink-2 underline hover:text-ink"
         >
           {showTimes ? "Hide times" : "Show times"}
         </button>
       </div>
-      {message && <p className={`mt-2 mb-0 text-xs ${message.error ? "text-red-300" : "text-emerald-300"}`}>{message.text}</p>}
+      {message && <p className={`mt-2 mb-0 text-xs ${message.error ? "text-danger" : "text-success"}`}>{message.text}</p>}
       {testBatches.map((batch) => (
         <div key={batch.id} className="mt-3">
           <BatchBar batchId={batch.id} />
