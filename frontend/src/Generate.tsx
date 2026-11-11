@@ -7,7 +7,7 @@ import PresetBadges, { confirmResearchOnly, formatSeconds } from "./PresetBadges
 import type { Project } from "./App";
 import { ArrowRight, Box, ChevronDown, ChevronUp, Download, Film, Folder, Image, Layers, Maximize, Monitor, Music, Paperclip, Pencil, Play, Scaling, Settings, Shuffle, Sparkles, Tag, Upload, UserRound, Video, Volume2, Zap } from "lucide-react";
 import TimeTest from "./TimeTest";
-import VoicePicker from "./VoicePicker";
+import VoicePicker, { lengthFor } from "./VoicePicker";
 
 // How often to ask the backend where the job is.
 const PROGRESS_INTERVAL_MS = 1500;
@@ -71,6 +71,8 @@ export type Preset = {
   totalLengths: number[]; // "Make a longer video" (FRG-56): total lengths in seconds. Empty: single clips only.
   promptGuide: string; // How to write a good prompt. The prompt box of an avatar preset shows it (FRG-86).
   audioFit: { input: string; seconds: number } | null; // How much of the voice the video uses (FRG-85).
+  // One workflow file per video length; "input" picks it (FRG-89). Value 0 of that input: Fit to voice.
+  workflowFiles: { input: string; files: { value: number; seconds: number }[] } | null;
 };
 
 // The form keeps every value as text, the way the input boxes give it.
@@ -133,8 +135,15 @@ function hasImageInput(preset: Preset): boolean {
 
 // The usual run time, scaled by the chosen video length (FRG-52). estimatedSeconds is for the
 // default length, so 7 s on a preset that takes 37 s for 5 s shows about 52 s.
-function estimatedTime(preset: Preset, values: FormValues): number | null {
+function estimatedTime(preset: Preset, values: FormValues, voiceSeconds: number | null): number | null {
   if (!preset.estimatedSeconds) return null;
+  // Several workflow files (FRG-89): estimatedSeconds is for the shortest. Fit to voice with a voice
+  // that is not known yet: the longest, the most it can take.
+  if (preset.workflowFiles) {
+    const seconds = preset.workflowFiles.files.map((file) => file.seconds);
+    const chosen = lengthFor(preset.workflowFiles.files, Number(values[preset.workflowFiles.input]), voiceSeconds);
+    return Math.round((preset.estimatedSeconds * (chosen?.seconds ?? Math.max(...seconds))) / Math.min(...seconds));
+  }
   const duration = preset.inputs.find((input) => input.unit === "seconds");
   const chosen = Number(values[duration?.key ?? ""]);
   if (!duration || typeof duration.default !== "number" || !chosen) return preset.estimatedSeconds;
@@ -260,6 +269,7 @@ export default function Generate({ startValues = null, onStartValuesUsed, projec
   const [showSettings, setShowSettings] = useState(true);
   const stageRef = useRef<HTMLDivElement>(null);
   const isAvatar = useAvatarCheck();
+  const [voiceSeconds, setVoiceSeconds] = useState<number | null>(null); // The voice picked on this page (FRG-89).
 
   // Load the presets once, when the page opens. A new preset folder shows up after a refresh.
   useEffect(() => {
@@ -554,13 +564,13 @@ export default function Generate({ startValues = null, onStartValuesUsed, projec
   // Text inputs with a list of choices show as buttons or a dropdown, not as a text box (FRG-32).
   const textInputs = preset.inputs.filter((input) => input.kind === "text" && !input.options);
   // A video length (FRG-52) shows with these too, not in Advanced Settings.
-  const choiceInputs = preset.inputs.filter((input) => (input.kind === "text" && input.options) || input.unit === "seconds");
+  const choiceInputs = preset.inputs.filter((input) => (input.kind === "text" && input.options) || input.unit === "seconds" || input.key === preset.workflowFiles?.input);
   const imageInputs = preset.inputs.filter((input) => input.kind === "image");
   const audioInputs = preset.inputs.filter((input) => input.kind === "audio");
   // Advanced Settings, in the mockup's order: size (and other numbers), then Steps, then the seed.
   const seedInputs = preset.inputs.filter((input) => input.kind === "seed");
-  const numberInputs = preset.inputs.filter((input) => !["text", "image", "audio", "seed"].includes(input.kind) && input.unit !== "seconds");
-  const estimate = estimatedTime(preset, values);
+  const numberInputs = preset.inputs.filter((input) => !["text", "image", "audio", "seed"].includes(input.kind) && input.unit !== "seconds" && input.key !== preset.workflowFiles?.input);
+  const estimate = estimatedTime(preset, values, voiceSeconds);
   // "Make a longer video" (FRG-56): the clips it makes, and the time for all of them.
   const longer = totalLength > 0 && preset.totalLengths.includes(totalLength);
   const clips = longer ? clipCount(preset, values, totalLength) : 1;
@@ -658,6 +668,8 @@ export default function Generate({ startValues = null, onStartValuesUsed, projec
               disabled={running}
               fitSeconds={preset.audioFit?.input === input.key ? preset.audioFit.seconds : null}
               onChange={setValue(input.key)}
+              lengths={preset.workflowFiles ? { files: preset.workflowFiles.files, chosen: Number(values[preset.workflowFiles.input]) } : undefined}
+              onVoiceSeconds={setVoiceSeconds}
             />
           ))}
 

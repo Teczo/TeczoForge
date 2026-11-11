@@ -43,6 +43,7 @@ export type Job = {
   audioOriginal?: string; // The voice the user picked, in data/inputs. job.inputs has this name too.
   audioUsed?: string; // The fitted WAV in data/inputs that ComfyUI got.
   audioCut?: boolean; // true: the voice was longer than the video, so its end is not used.
+  stages?: number; // Sampler passes of the workflow file used (FRG-89). Missing: the preset's own.
   // "Extend video" (FRG-54): the clip this one continues from its last frame, and the first clip
   // of the chain. The first clip gets chainRootId = its own id when it is first extended.
   parentJobId?: string;

@@ -8,6 +8,16 @@ import type { PresetInput } from "./Generate";
 const AUDIO_ENDINGS = /\.(wav|mp3|flac)$/i;
 const MAX_UPLOAD_MB = 20;
 
+// The lengths a preset can make (FRG-89). chosen: the Duration value. 0 is "Fit to voice": the shortest
+// that holds the voice (the same rule as fileForVoice in the backend), or null if the voice is not known.
+export type LengthFile = { value: number; seconds: number };
+export function lengthFor(files: LengthFile[], chosen: number, voiceSeconds: number | null): LengthFile | null {
+  if (chosen !== 0) return files.find((file) => file.value === chosen) ?? null;
+  if (voiceSeconds === null) return null;
+  const sorted = [...files].sort((a, b) => a.seconds - b.seconds);
+  return sorted.find((file) => file.seconds >= voiceSeconds) ?? sorted.at(-1) ?? null;
+}
+
 // The file picked here. The player plays it from this PC; only the upload goes to the backend.
 type Picked = { name: string; fileName: string; seconds: number; url: string };
 
@@ -17,9 +27,12 @@ type VoicePickerProps = {
   disabled: boolean;
   fitSeconds: number | null; // How much of the voice the video uses, from the preset. null: all of it.
   onChange: (value: string) => void;
+  // A preset with several lengths (FRG-89): they replace fitSeconds, and the page hears the voice length.
+  lengths?: { files: LengthFile[]; chosen: number };
+  onVoiceSeconds?: (seconds: number | null) => void;
 };
 
-export default function VoicePicker({ input, value, disabled, fitSeconds, onChange }: VoicePickerProps) {
+export default function VoicePicker({ input, value, disabled, fitSeconds, onChange, lengths, onVoiceSeconds }: VoicePickerProps) {
   const [picked, setPicked] = useState<Picked | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -86,6 +99,10 @@ export default function VoicePicker({ input, value, disabled, fitSeconds, onChan
   // value can also come from "Use again": then the file was not picked here, and only its name is known.
   const current = picked !== null && picked.name === value ? picked : null;
   const locked = disabled || uploading;
+  const voiceSeconds = current?.seconds ?? null;
+  const length = lengths ? lengthFor(lengths.files, lengths.chosen, voiceSeconds) : null;
+  const usedSeconds = length?.seconds ?? fitSeconds;
+  useEffect(() => onVoiceSeconds?.(voiceSeconds), [voiceSeconds]);
 
   return (
     <div className="mb-3.5">
@@ -144,9 +161,14 @@ export default function VoicePicker({ input, value, disabled, fitSeconds, onChan
         </label>
       )}
 
-      {current && fitSeconds !== null && current.seconds > fitSeconds && (
+      {current && length && lengths?.chosen === 0 && (
+        <p className="preset-note">
+          Your voice is {current.seconds.toFixed(1)} s → {length.value} s video
+        </p>
+      )}
+      {current && usedSeconds !== null && current.seconds > usedSeconds && (
         // Rounded down, so it never says more of the voice is used than really is.
-        <p className="message warning mt-2.5 mb-0">Only the first {(Math.floor(fitSeconds * 10) / 10).toFixed(1)} s is used.</p>
+        <p className="message warning mt-2.5 mb-0">Only the first {(Math.floor(usedSeconds * 10) / 10).toFixed(1)} s is used.</p>
       )}
       <p className="preset-note">Use only photos and voices of people who agreed.</p>
     </div>
