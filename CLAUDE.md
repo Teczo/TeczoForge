@@ -52,7 +52,7 @@ Wroom tickets say "do not add a dependency". The packages below are part of the
 locked stack, so they are allowed when a ticket needs them. Use the smallest set.
 
 - Backend: `express`, `cors`, `dotenv`, `ws`, `mongodb`, `typescript`, `tsx`, `@types/node`, `@types/express`, `@types/cors`, `@types/ws`
-- Frontend: `vite`, `react`, `react-dom`, `typescript`, `@vitejs/plugin-react`, `@types/react`, `@types/react-dom`, `tailwindcss`, `@tailwindcss/vite`, `lucide-react`
+- Frontend: `vite`, `react`, `react-dom`, `typescript`, `@vitejs/plugin-react`, `@types/react`, `@types/react-dom`, `tailwindcss`, `@tailwindcss/vite`, `lucide-react`, `@fontsource-variable/inter` (the Inter font, so it works offline)
 
 Anything not on this list: say what and why, then stop and ask.
 
@@ -183,6 +183,7 @@ Fill this in when the ticket that creates each part is done.
 - Start ComfyUI (Jaya does this): see `docs/comfyui-setup.md`
 - Backend dev: `cd backend`, then `npm run dev`
 - Frontend dev: `cd frontend`, then `npm run dev`
+- Frontend check and build: `cd frontend`, then `npm run typecheck` or `npm run build` (the build output goes to `frontend/dist/`, not in git)
 - Add a team account, or set a new password: `cd backend`, then `npm run user -- <username>`
   (asks for the password twice). Needs MongoDB. `SESSION_SECRET` in `backend/.env` keeps logins after a restart.
 - Make a new `SESSION_SECRET`: `cd backend`, then `npm run secret` (prints 64 hex characters;
@@ -229,16 +230,41 @@ Still open (ask before assuming):
 
 ## 14. Design reference
 
-`docs/design/teczoforge_redesign.tsx` shows the target look of the app: colours, the left sidebar,
-the chat input box, and spacing. It is a picture only.
+The look of the app is the light mode redesign (section 15). `docs/design/elevenlabs-reference.png`
+shows the feel it follows: spacing, font, calm look. It is a picture only. Never copy its logo, name,
+brand colours or text. `docs/design/teczoforge_redesign.tsx` is the older dark design; it is kept
+for history only. `docs/design/ui-inventory.md` lists every page and part of the UI.
 
-- Do not import it into the app. Do not copy code from it as-is.
-- Do not copy its fake data: the chat titles, "Free Plan", and the placeholder pages.
+- Do not import a design file into the app. Do not copy code or fake data from it.
 - New UI uses Tailwind CSS classes and `lucide-react` icons.
-- Old pages keep using `frontend/src/styles.css` until a ticket changes them.
+- Older pages (Login, Generate, Gallery, Board) use the classes in `frontend/src/styles.css`.
 - Tailwind is loaded in `frontend/src/tailwind.css`, which imports only the theme and utilities
   layers. Tailwind's base reset (preflight) is left out on purpose, because it changes the old pages.
 - `tailwind.css` also loads `styles.css`, in a layer below Tailwind's utilities (FRG-46), so a
   Tailwind class always wins over a `styles.css` rule. Do not import `styles.css` anywhere else.
 - `docs/` is not part of any type check. `frontend/tsconfig.json` includes only `src` and
   `vite.config.ts`, so `tsc` never tries to compile the design file. Keep it that way.
+
+## 15. UI theme rules
+
+1. Light mode is the default. Dark mode is a choice: the toggle is at the bottom of the sidebar.
+   The choice is kept in `localStorage` (`teczoforge.theme`). Do not follow the OS dark setting.
+   A small script in `frontend/index.html` sets the theme before the page is drawn. Keep it.
+2. Colours are written in ONE file: `frontend/src/theme.css`. It has the light values, the dark
+   values, and the same names as Tailwind colours.
+3. Never write a colour anywhere else: no hex, `rgb()` or `hsl()`, and no Tailwind colour names
+   such as `bg-slate-800` or `text-red-400`. Use the theme:
+   - Tailwind classes: `bg-page`, `bg-sidebar`, `bg-card`, `bg-hover`, `bg-frame`, `border-line`,
+     `text-ink`, `text-ink-2`, `text-ink-3`, `bg-primary text-on-primary`, `text-danger`,
+     `bg-success-soft`, `shadow-float`, ...
+   - Plain CSS: `var(--card)`, `var(--ink)`, `var(--line)`, ...
+   A new colour gets a new variable in `theme.css`, with a light and a dark value.
+4. Use the shared parts in `frontend/src/ui.tsx` before making a new one: `Button` / `btn()`,
+   `Input` / `FIELD`, `Card` / `CARD`, `Modal`, `Tabs`, `Badge`, `Notice`, `EmptyState`,
+   `PageHeader`. The sidebar and top bar are in `AppShell.tsx`.
+5. Look: Inter font, 14px text, weights 400 and 500 (no heavy bold). Page title 28px. 4px spacing
+   steps. Thin 1px borders. Buttons and inputs 36px high with 10px corners; cards 14px corners.
+   Primary button: black with white text (white with black text in dark mode). Shadows only on
+   floating things (menus, dialogs, the chat box). Icons 16-18px with thin lines.
+6. Pictures, video, 3D and sound sit on the light grey frame (`bg-frame` / `var(--frame)`).
+7. Check every UI change in both themes.
