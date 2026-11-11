@@ -19,6 +19,8 @@ ComfyUI does the real generation work. This app is a simple, friendly layer on t
 
 1. Build ONLY the ticket you are given. Do not build ahead. Do not add extra features.
 2. Tickets are small and come one at a time from Wroom.
+   When Wroom is not connected, tickets come from a file in `docs/tickets/`. Treat a ticket there
+   exactly like a Wroom ticket (branch name, exit criteria, report).
 3. The roadmap in section 9 is for context only. It is not a task list.
 4. If a ticket is unclear, or needs a decision that is not in this file, stop and ask.
 5. If something fails 2 times with the same error, stop and report. Do not keep retrying.
