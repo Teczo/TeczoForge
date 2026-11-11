@@ -65,7 +65,17 @@ import {
 } from "./batches.js";
 import { estimateHandler } from "./estimate.js";
 import { timeTestHandler } from "./timeTest.js";
-import { translateStatusHandler } from "./translateServer.js";
+import {
+  createDocumentHandler,
+  documentImageHandler,
+  documentTextHandler,
+  getDocumentHandler,
+  listDocumentsHandler,
+  loadTranslateDocuments,
+  retryDocumentHandler,
+  TRANSLATE_UPLOAD_TYPES,
+  translateStatusHandler,
+} from "./translateDocuments.js";
 
 // Settings come from backend/.env. The defaults match .env.example.
 const PORT = Number(process.env.PORT ?? 4000);
@@ -214,8 +224,16 @@ app.post("/api/batches/:id/end", endBatchHandler);
 app.post("/api/estimate", express.json(), estimateHandler);
 app.post("/api/time-test", express.json(), timeTestHandler);
 
-// Japanese translation (see translateServer.ts, FRG-90): is it set up, and is llama-server running.
+// Japanese translation (see translateServer.ts and translateDocuments.ts, FRG-90, FRG-91).
+// Is it set up, and is llama-server running.
 app.get("/api/translate/status", translateStatusHandler);
+// A document is one photo with its Japanese text and its translation. The upload body is the photo itself.
+app.post("/api/translate/documents", express.raw({ type: TRANSLATE_UPLOAD_TYPES, limit: MAX_UPLOAD_BYTES }), createDocumentHandler);
+app.get("/api/translate/documents", listDocumentsHandler);
+app.get("/api/translate/documents/:id", getDocumentHandler);
+app.get("/api/translate/documents/:id/image", documentImageHandler);
+app.post("/api/translate/documents/:id/retry", retryDocumentHandler);
+app.get("/api/translate/documents/:id/text", documentTextHandler);
 
 // Chat with Claude (see chat.ts). Each user only sees their own conversations.
 app.get("/api/chat/status", chatStatusHandler);
@@ -277,4 +295,6 @@ app.listen(PORT, HOST, () => {
   startJobChecker();
   // The first check pauses the batches that were running when the backend stopped.
   startBatchRunner();
+  // Read the translation documents from disk. Unfinished ones start again.
+  loadTranslateDocuments();
 });
