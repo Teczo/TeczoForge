@@ -10,6 +10,7 @@
     "dev": "tsx watch src/server.ts",
     "user": "tsx src/setUser.ts",
     "secret": "tsx src/makeSecret.ts",
+    "translate-test": "tsx src/translateTest.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
