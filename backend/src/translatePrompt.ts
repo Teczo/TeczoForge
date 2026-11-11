@@ -17,10 +17,15 @@ export const READ_USER_TEXT = "Transcribe this document.";
 
 // Call 2: the Japanese text and the photo go in, the translation comes out.
 // `language` is TRANSLATE_TARGET_LANGUAGE from backend/.env, for example "English".
-export function translateSystemText(language: string): string {
+// `checkedByPerson` is true when a person corrected the transcript (FRG-94). Then the model is
+// told to trust the transcript, so it does not change the correction back to what it sees in the photo.
+export function translateSystemText(language: string, checkedByPerson: boolean): string {
+  const aboutTranscript = checkedByPerson
+    ? "The transcript was checked and corrected by a person. Trust it. Where the transcript and the photo differ, follow the transcript. □ marks a character the person could not read."
+    : "The transcript was made by a machine and may contain wrong characters. □ marks an unreadable character.";
   return `You are a careful translator of Japanese business and technical documents into ${language}.
 You get a transcript of a handwritten document and the photo of the same document.
-The transcript was made by a machine and may contain wrong characters. □ marks an unreadable character.
+${aboutTranscript}
 Rules:
 - Translate the transcript faithfully, line by line, in the same order.
 - Copy all numbers, dates, units and codes exactly.

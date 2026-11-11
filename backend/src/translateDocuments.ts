@@ -38,6 +38,8 @@ const MAX_NAME_LENGTH = 120;
 const MAX_ANSWER_TOKENS = 4096;
 // How long to wait for one model call.
 const CALL_TIMEOUT_MS = 10 * 60 * 1000;
+// The longest corrected Japanese text we accept (FRG-94). A full page is far below this.
+const MAX_JAPANESE_LENGTH = 20_000;
 // While ComfyUI has a job, look at its queue again this often (FRG-93).
 const GPU_CHECK_MS = 10_000;
 // After asking ComfyUI to unload its models, give it this long to do it.
@@ -228,9 +230,13 @@ async function handleDocument(doc: TranslateDocument): Promise<void> {
     if (!photo) throw new Error("The photo of this document is not on disk any more.");
     const photoUrl = `data:${photo.info.mediaType};base64,${photo.data.toString("base64")}`;
 
-    doc.status = "reading";
-    doc.japanese = "";
-    doc.japaneseEdited = false;
+    // A person corrected the Japanese text (FRG-94): keep it, and do not read the photo again.
+    const keepJapanese = doc.japaneseEdited && doc.japanese !== "";
+    if (!keepJapanese) {
+      doc.japanese = "";
+      doc.japaneseEdited = false;
+    }
+    doc.status = keepJapanese ? "translating" : "reading";
     doc.english = "";
     doc.error = null;
     doc.warnings = [];
@@ -239,18 +245,22 @@ async function handleDocument(doc: TranslateDocument): Promise<void> {
     doc.seconds = 0;
     await saveDocument(doc);
 
-    // Call 1: photo -> Japanese text.
-    const read = await askModel(READ_SYSTEM_TEXT, READ_USER_TEXT, photoUrl);
-    if (read.text === "") throw new Error("The model found no text in this photo.");
-    doc.japanese = read.text;
-    if (read.cutOff) doc.warnings.push("The text may be cut off at the end.");
-    doc.status = "translating";
-    await saveDocument(doc);
+    let cutOff = false;
+    if (!keepJapanese) {
+      // Call 1: photo -> Japanese text.
+      const read = await askModel(READ_SYSTEM_TEXT, READ_USER_TEXT, photoUrl);
+      if (read.text === "") throw new Error("The model found no text in this photo.");
+      doc.japanese = read.text;
+      cutOff = read.cutOff;
+      doc.status = "translating";
+      await saveDocument(doc);
+    }
 
     // Call 2: Japanese text + photo -> translation.
-    const translated = await askModel(translateSystemText(settings.targetLanguage), translateUserText(doc.japanese), photoUrl);
+    const translated = await askModel(translateSystemText(settings.targetLanguage, keepJapanese), translateUserText(doc.japanese), photoUrl);
     doc.english = translated.text;
-    if (translated.cutOff && !read.cutOff) doc.warnings.push("The text may be cut off at the end.");
+    cutOff = cutOff || translated.cutOff;
+    doc.warnings = [...(cutOff ? ["The text may be cut off at the end."] : []), ...checkResult(doc.japanese, doc.english)];
     doc.status = "done";
     console.log(`Translation: ${doc.id} done.`);
   } catch (error) {
@@ -261,6 +271,69 @@ async function handleDocument(doc: TranslateDocument): Promise<void> {
   }
   doc.seconds = Math.round((Date.now() - startedAt) / 1000);
   await saveDocument(doc);
+}
+
+// ---------- Checks on a result (FRG-94, spec 11) ----------
+
+// The first three letters of the English month names. "nov" matches "November" and "Nov.".
+const MONTH_NAMES = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+
+// Make numbers easy to compare: full-width digits ０-９ become 0-9, and a comma inside a
+// number is removed. So "３，８００", "3,800" and "3800" are all "3800".
+function plainNumbers(text: string): string {
+  return text
+    .replace(/[０-９]/g, (digit) => String.fromCharCode(digit.charCodeAt(0) - 0xfee0))
+    .replace(/(?<=[0-9])[,，](?=[0-9])/g, "");
+}
+
+// Every run of digits in a text.
+function numbersIn(text: string): string[] {
+  return plainNumbers(text).match(/[0-9]+/g) ?? [];
+}
+
+// Does the same line come `times` or more times in a row? Empty lines do not count.
+function hasRepeatedLine(text: string, times: number): boolean {
+  let last = "";
+  let count = 0;
+  for (const line of text.split("\n").map((part) => part.trim())) {
+    if (line === "") continue;
+    count = line === last ? count + 1 : 1;
+    last = line;
+    if (count >= times) return true;
+  }
+  return false;
+}
+
+// Look at the two texts and return warnings in plain English. They help a person find mistakes.
+// The warnings hold numbers only, never other text from the document.
+export function checkResult(japanese: string, english: string): string[] {
+  const warnings: string[] = [];
+
+  // 1. Unreadable characters: the model writes □ for each one.
+  const unreadable = [...japanese].filter((character) => character === "□").length;
+  if (unreadable > 0) {
+    warnings.push(unreadable === 1 ? "1 character could not be read." : `${unreadable} characters could not be read.`);
+  }
+
+  // 2. Numbers: every number written with digits in the Japanese text must also be in the translation.
+  //    "3,800" in the translation counts as 3800.
+  const englishNumbers = new Set(numbersIn(english));
+  const japaneseNumbers = new Set(numbersIn(japanese));
+  for (const number of japaneseNumbers) {
+    // A month: "11月" is usually translated as "November", with no digits. That is not a mistake.
+    const month = MONTH_NAMES[Number(number) - 1];
+    const isMonth = month !== undefined && new RegExp(`(?<![0-9])0?${Number(number)}月`).test(plainNumbers(japanese));
+    if (isMonth && english.toLowerCase().includes(month)) continue;
+    if (!englishNumbers.has(number)) {
+      warnings.push(`The number ${number} is in the Japanese text but not in the translation.`);
+    }
+  }
+
+  // 4. Repeating text: the same line 5 or more times in a row.
+  if (hasRepeatedLine(japanese, 5) || hasRepeatedLine(english, 5)) {
+    warnings.push("The model may have got stuck and repeated itself.");
+  }
+  return warnings;
 }
 
 // One call to the model: a system text, a user text and the photo. Returns the answer text,
@@ -427,6 +500,34 @@ export async function retryDocumentHandler(req: Request, res: Response) {
     if (doc.status !== "done" && doc.status !== "failed") {
       throw new HttpError(409, "This document is waiting or being worked on. Wait until it is done.");
     }
+    doc.status = "waiting";
+    doc.error = null;
+    // Start from the photo again. A corrected Japanese text is replaced by a new reading.
+    doc.japaneseEdited = false;
+    await saveDocument(doc);
+    void runWorker();
+    res.json(doc);
+  } catch (error) {
+    sendError(res, error);
+  }
+}
+
+// PUT /api/translate/documents/:id/japanese  (FRG-94)
+// Body: { "japanese": "..." }. Saves the corrected Japanese text and translates it again.
+// The photo is not read again: only call 2 runs. Answer: the document record.
+export async function editJapaneseHandler(req: Request, res: Response) {
+  try {
+    const doc = findDocument(req);
+    if (doc.status !== "done" && doc.status !== "failed") {
+      throw new HttpError(409, "This document is waiting or being worked on. Wait until it is done.");
+    }
+    const japanese = typeof req.body?.japanese === "string" ? req.body.japanese.replace(/\r\n/g, "\n").trim() : "";
+    if (japanese === "") throw new HttpError(400, "The Japanese text is empty. Type the text, or press Try again to read the photo again.");
+    if (japanese.length > MAX_JAPANESE_LENGTH) {
+      throw new HttpError(400, `The Japanese text is too long. The limit is ${MAX_JAPANESE_LENGTH} characters.`);
+    }
+    doc.japanese = japanese;
+    doc.japaneseEdited = true;
     doc.status = "waiting";
     doc.error = null;
     await saveDocument(doc);
