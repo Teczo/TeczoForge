@@ -11,9 +11,10 @@ import type { Page, Status } from "./AppShell";
 import ProjectsPage from "./ProjectsPage";
 import GamesPage from "./GamesPage";
 import PacksPage from "./PacksPage";
+import TranslatePage from "./TranslatePage";
 
 // Which page to show comes from the address: #/generate, #/avatar (FRG-86), #/board, #/projects,
-// #/games (or #/games/<game id> to open one game, FRG-67), #/packs (or #/packs/<pack id>, FRG-78),
+// #/games (or #/games/<game id> to open one game, FRG-67), #/packs (or #/packs/<pack id>, FRG-78), #/translate (FRG-92),
 // #/gallery (or #/gallery/<job id> to open one job), or the Chat page, which is the home page:
 // #/, #/chat, or #/chat/<conversation id> (FRG-46).
 // Using the # part means a refresh or bookmark keeps the same page.
@@ -25,6 +26,7 @@ function currentPage(): Page {
   if (hash === "#/projects") return "projects";
   if (hash === "#/games" || hash.startsWith("#/games/")) return "games";
   if (hash === "#/packs" || hash.startsWith("#/packs/")) return "packs";
+  if (hash === "#/translate") return "translate";
   if (hash === "#/gallery" || hash.startsWith("#/gallery/")) return "gallery";
   return "chat";
 }
@@ -297,6 +299,8 @@ export default function App() {
         <GamesPage gameId={openGameId} />
       ) : page === "packs" ? (
         <PacksPage packId={openPackId} />
+      ) : page === "translate" ? (
+        <TranslatePage />
       ) : page === "projects" ? (
         <ProjectsPage
           currentProjectId={project?.id}
