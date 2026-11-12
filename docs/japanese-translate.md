@@ -311,7 +311,7 @@ T2 needs T1. T3 needs T2. T4 and T5 can come in either order.
 
 ## 15. Not in the first version
 
-- PDF files, HEIC photos, rotating or cropping photos in the app.
+- HEIC photos, rotating or cropping photos in the app. (PDF files were added later: section 17.)
 - Cutting a big page into tiles. (If small writing is read badly, this is the first thing to try next.)
 - MongoDB records, projects, gallery entries for translations.
 - Deleting documents.
@@ -329,3 +329,32 @@ T2 needs T1. T3 needs T2. T4 and T5 can come in either order.
    - the `UD-Q6_K` model file (about 22 GB)
    - the model Qwen3-VL-8B-Instruct (`unsloth/Qwen3-VL-8B-Instruct-GGUF`). It is older, but it is
      the only local model with a published score on handwritten Japanese (about 79% of characters right).
+
+## 17. PDF files and tables (FRG-95, added later)
+
+Three things were added on top of the first version.
+
+**Tables.** The model now writes a table as a Markdown table: every row starts and ends with `|`,
+and the second line is `|---|---|`. Both prompts in `backend/src/translatePrompt.ts` say so
+(the prompt texts in section 9 are the first version; the file is the truth).
+`translateTables.ts` (the same small file in `backend/src/` and in `frontend/src/`) cuts a text
+into plain text and tables. The page shows the tables as real tables. Edit, Copy and
+"Download .txt" still use the plain text.
+A merged cell cannot be written in this form: its text goes into the first cell, the others stay empty.
+An old document keeps its old text until "Try again" is pressed.
+
+**PDF files in.** The model reads pictures, not PDF files. So the browser cuts a PDF into pages
+(`frontend/src/pdfPages.ts`, package `pdfjs-dist`) and uploads each page as a PNG picture
+(200 dots per inch, longest side at most 3000) through the normal upload route. The PDF itself never
+leaves the browser. Each page is its own document. `record.json` has three new fields:
+`fileId` (the same for all pages of one file, or null for a photo), `page` and `pages`.
+The limit is 30 pages for one PDF file.
+`frontend/public/pdfjs/` holds copies of two folders from the `pdfjs-dist` package (`wasm` and
+`cmaps`). Some PDFs need them. Copy them again when `pdfjs-dist` is updated.
+
+**PDF files out.** `GET /api/translate/documents/:id/pdf` gives the translation as a PDF
+(`backend/src/translatePdf.ts`, package `pdfkit`). Tables are drawn as tables. For a page of a PDF
+file, the download holds all pages of that file, in order; a page that is not done yet says so.
+Only the translation is in the PDF, not the Japanese text and not the warnings.
+The font comes from `TRANSLATE_PDF_FONT_PATH` (Yu Gothic from Windows by default), because a
+translation keeps Japanese names in brackets.
