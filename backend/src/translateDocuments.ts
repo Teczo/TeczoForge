@@ -8,6 +8,8 @@ import { freeMemory, getQueue } from "./comfyui.js";
 import { imageInfo } from "./inputs.js";
 import type { ImageInfo } from "./inputs.js";
 import { IMAGE_TYPES } from "./upload.js";
+import { makeTranslationPdf, pdfFontProblem } from "./translatePdf.js";
+import type { PdfPart } from "./translatePdf.js";
 import { READ_SYSTEM_TEXT, READ_USER_TEXT, translateSystemText, translateUserText } from "./translatePrompt.js";
 import {
   checkTranslateSetup,
@@ -22,6 +24,8 @@ import {
 
 // Japanese translation: documents (FRG-91, plan: docs/japanese-translate.md).
 // A "document" is one uploaded photo with its Japanese text and its translation.
+// A PDF file is cut into pages by the browser: each page comes here as one picture and is one
+// document. The pages of one file share a fileId (FRG-95).
 // Each document is a folder in data/translations. No MongoDB is used.
 // One worker handles the documents one at a time, oldest first:
 //   call 1: photo -> Japanese text.   call 2: Japanese text + photo -> translation.
@@ -34,6 +38,10 @@ export const TRANSLATIONS_DIR = path.join(import.meta.dirname, "..", "..", "data
 const ID_PATTERN = /^tr-[0-9]+-[0-9a-f]{6}$/;
 // The file name the user sees is cut to this many characters.
 const MAX_NAME_LENGTH = 120;
+// The pages of one PDF file share this id. The browser makes it: 12 hex characters (FRG-95).
+const FILE_ID_PATTERN = /^[0-9a-f]{12}$/;
+// The most pages one PDF file may have.
+export const MAX_PDF_PAGES = 30;
 // The most text one model call may write.
 const MAX_ANSWER_TOKENS = 4096;
 // How long to wait for one model call.
@@ -54,6 +62,10 @@ type Status = "waiting" | "reading" | "translating" | "done" | "failed";
 type TranslateDocument = {
   id: string;
   originalName: string;
+  // Set when this document is one page of a PDF file (FRG-95). Otherwise null, 1 and 1.
+  fileId: string | null;
+  page: number;
+  pages: number;
   createdAt: string;
   createdBy: string | null;
   status: Status;
@@ -104,6 +116,10 @@ export function loadTranslateDocuments(): void {
     try {
       const doc = JSON.parse(readFileSync(path.join(TRANSLATIONS_DIR, name, "record.json"), "utf8")) as TranslateDocument;
       if (doc.id !== name) continue;
+      // Documents from before FRG-95 have no page fields.
+      doc.fileId ??= null;
+      doc.page ??= 1;
+      doc.pages ??= 1;
       if (doc.status === "reading" || doc.status === "translating") doc.status = "waiting";
       documents.set(doc.id, doc);
     } catch {
@@ -297,6 +313,8 @@ function hasRepeatedLine(text: string, times: number): boolean {
   let count = 0;
   for (const line of text.split("\n").map((part) => part.trim())) {
     if (line === "") continue;
+    // A table line with nothing in it, such as "| | |" or "|---|---|", is not repeated text (FRG-95).
+    if (/^[|\s:-]+$/.test(line)) continue;
     count = line === last ? count + 1 : 1;
     last = line;
     if (count >= times) return true;
@@ -415,6 +433,7 @@ export async function translateStatusHandler(_req: Request, res: Response) {
 
 // POST /api/translate/documents?name=<original file name>
 // Body: the photo itself (PNG, JPEG or WebP). Makes a document with status "waiting".
+// For one page of a PDF file the browser adds &fileId=<12 hex>&page=<n>&pages=<total> (FRG-95).
 // Answer: the document record.
 export async function createDocumentHandler(req: Request, res: Response) {
   try {
@@ -432,10 +451,25 @@ export async function createDocumentHandler(req: Request, res: Response) {
     const rawName = typeof req.query.name === "string" ? req.query.name : "";
     const originalName = rawName.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, MAX_NAME_LENGTH) || "photo";
 
+    // One page of a PDF file: the id of the file, the page number, and how many pages the file has.
+    let fileId: string | null = null;
+    let page = 1;
+    let pages = 1;
+    if (req.query.fileId !== undefined) {
+      fileId = typeof req.query.fileId === "string" && FILE_ID_PATTERN.test(req.query.fileId) ? req.query.fileId : null;
+      page = Number(req.query.page);
+      pages = Number(req.query.pages);
+      const pageOk = Number.isInteger(page) && Number.isInteger(pages) && pages >= 1 && pages <= MAX_PDF_PAGES && page >= 1 && page <= pages;
+      if (fileId === null || !pageOk) throw new HttpError(400, "The page information of this PDF page is not valid.");
+    }
+
     const settings = translateSettings();
     const doc: TranslateDocument = {
       id: `tr-${Date.now()}-${randomBytes(3).toString("hex")}`,
       originalName,
+      fileId,
+      page,
+      pages,
       createdAt: new Date().toISOString(),
       createdBy: res.locals.username ?? null, // Set by requireLogin in auth.ts.
       status: "waiting",
@@ -549,6 +583,35 @@ export function documentTextHandler(req: Request, res: Response) {
     res.setHeader("Content-Type", "text/plain; charset=utf-8");
     res.setHeader("Content-Disposition", `attachment; filename="${doc.id}.txt"`);
     res.send(text);
+  } catch (error) {
+    sendError(res, error);
+  }
+}
+
+// The title of a document for a person: the file name, and the page for a PDF file.
+function titleOf(doc: TranslateDocument): string {
+  return doc.fileId ? `${doc.originalName} - page ${doc.page} of ${doc.pages}` : doc.originalName;
+}
+
+// GET /api/translate/documents/:id/pdf  (FRG-95)
+// A .pdf download with the translation. Tables are drawn as tables.
+// For a page of a PDF file, the download holds all pages of that file, in page order.
+export async function documentPdfHandler(req: Request, res: Response) {
+  try {
+    const doc = findDocument(req);
+    if (doc.status !== "done") throw new HttpError(409, "This document is not translated yet. Wait until it is done.");
+    const problem = pdfFontProblem();
+    if (problem) throw new HttpError(503, problem);
+
+    const group = doc.fileId
+      ? [...documents.values()].filter((other) => other.fileId === doc.fileId).sort((a, b) => a.page - b.page)
+      : [doc];
+    const parts: PdfPart[] = group.map((one) => ({ title: titleOf(one), text: one.status === "done" ? one.english : null }));
+    const pdf = await makeTranslationPdf(parts);
+    // The download is named after the id, so the user's file name never goes into a header.
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${doc.id}.pdf"`);
+    res.send(pdf);
   } catch (error) {
     sendError(res, error);
   }

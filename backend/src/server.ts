@@ -68,6 +68,7 @@ import { timeTestHandler } from "./timeTest.js";
 import {
   createDocumentHandler,
   documentImageHandler,
+  documentPdfHandler,
   documentTextHandler,
   editJapaneseHandler,
   getDocumentHandler,
@@ -235,6 +236,8 @@ app.get("/api/translate/documents/:id", getDocumentHandler);
 app.get("/api/translate/documents/:id/image", documentImageHandler);
 app.post("/api/translate/documents/:id/retry", retryDocumentHandler);
 app.get("/api/translate/documents/:id/text", documentTextHandler);
+// The translation as a PDF, with tables drawn as tables (FRG-95).
+app.get("/api/translate/documents/:id/pdf", documentPdfHandler);
 // Save a corrected Japanese text and translate it again, without reading the photo again (FRG-94).
 app.put("/api/translate/documents/:id/japanese", express.json(), editJapaneseHandler);
 
