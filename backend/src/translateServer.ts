@@ -17,13 +17,27 @@ const HEALTH_TIMEOUT_MS = 2000;
 // How many of llama-server's last output lines we keep, to show them if it stops while loading.
 const KEEP_LINES = 30;
 
+// The folder with all model files: MODELS_DIR in backend/.env, or the models folder in the repo.
+function modelsDir(): string {
+  const dir = (process.env.MODELS_DIR ?? "").trim();
+  return dir ? path.resolve(dir) : path.join(import.meta.dirname, "..", "..", "models");
+}
+
+// A model path from backend/.env. A relative path (llm\...) is inside MODELS_DIR.
+// A full path (C:\...) is used as it is. Empty stays empty, so the setup check can say so.
+function modelFile(value: string | undefined): string {
+  const file = (value ?? "").trim();
+  if (!file || path.isAbsolute(file)) return file;
+  return path.join(modelsDir(), file);
+}
+
 // The settings from backend/.env. The defaults match .env.example.
 function settings() {
   const env = process.env;
   return {
     serverPath: (env.LLAMA_SERVER_PATH ?? "").trim(),
-    modelPath: (env.TRANSLATE_MODEL_PATH ?? "").trim(),
-    mmprojPath: (env.TRANSLATE_MMPROJ_PATH ?? "").trim(),
+    modelPath: modelFile(env.TRANSLATE_MODEL_PATH),
+    mmprojPath: modelFile(env.TRANSLATE_MMPROJ_PATH),
     port: (env.TRANSLATE_PORT ?? "").trim() || "8190",
     imageMinTokens: (env.TRANSLATE_IMAGE_MIN_TOKENS ?? "").trim() || "2048",
     imageMaxTokens: (env.TRANSLATE_IMAGE_MAX_TOKENS ?? "").trim() || "8192",
