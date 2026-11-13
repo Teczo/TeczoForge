@@ -1,3 +1,4 @@
+import dns from "node:dns";
 import { MongoClient } from "mongodb";
 import type { CollationOptions, Collection, Db, Filter } from "mongodb";
 import { HttpError } from "./httpError.js";
@@ -7,6 +8,10 @@ import type { OutputKind } from "./outputKinds.js";
 // The connection string is a secret. Never print it.
 const MONGODB_URI = process.env.MONGODB_URI;
 const DB_NAME = "teczoforge";
+
+// The Atlas address (mongodb+srv://) needs an SRV DNS lookup. On System 1 the local DNS
+// server refuses that lookup from Node ("querySrv ECONNREFUSED"), so ask public DNS instead.
+dns.setServers(["8.8.8.8", "1.1.1.1"]);
 
 // How long to wait for MongoDB before giving up. Generation must not wait long for it.
 const TIMEOUT_MS = 3000;
