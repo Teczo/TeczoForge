@@ -35,7 +35,7 @@ ComfyUI does the real generation work. This app is a simple, friendly layer on t
 | Frontend | Vite + React + TypeScript | In `frontend/`. No Next.js. |
 | Backend | Node.js + Express + TypeScript | In `backend/`. Separate from the frontend. |
 | Database | MongoDB Atlas (cloud) | Address from env var `MONGODB_URI`. First used in FRG-7. |
-| Generation engine | ComfyUI | Installed separately on System 1. Not part of this repo. |
+| Generation engine | ComfyUI | Portable build in `comfyui/` inside the repo folder, NOT in git. Models in `models/` (or `MODELS_DIR`). See `docs/comfyui-setup.md`. |
 | File storage | Local disk | Outputs in `data/outputs/`. |
 | Translation engine | llama.cpp llama-server | Installed separately on System 1. Not part of this repo. Feature plan: `docs/japanese-translate.md`. |
 
@@ -74,9 +74,13 @@ TeczoForge/
   presets/           One folder per preset (see section 6)
   data/              Generated outputs. NOT in git.
   docs/              Notes and decisions
+  comfyui/           ComfyUI program (ComfyUI_windows_portable). NOT in git.
+  models/            ALL model files: ComfyUI subfolders (diffusion_models, vae, ...) and llm/ for translate. NOT in git.
 ```
 
-`data/`, `node_modules/`, `.env`, and all model files are in `.gitignore`. Keep it that way.
+`data/`, `comfyui/`, `models/`, `node_modules/`, `.env`, and all model files are in `.gitignore`. Keep it that way.
+The models folder can live somewhere else (for example an external drive): set `MODELS_DIR` in `backend/.env`.
+`start-teczoforge.bat` writes ComfyUI's `extra_model_paths.yaml` from it at every start.
 Each of `backend/` and `frontend/` has a `.env.example` file that lists its env vars with safe default values.
 
 ## 5. How the parts talk to each other
@@ -178,7 +182,8 @@ Follow these steps for EVERY ticket. This avoids merge conflicts.
 Fill this in when the ticket that creates each part is done.
 
 - Start everything (Jaya does this): double-click `start-teczoforge.bat` in the repo root.
-  It starts ComfyUI (skipped if already running), waits for it, starts the backend and
+  It checks the models folder (`MODELS_DIR`), starts ComfyUI minimised from `comfyui\` (skipped if already
+  running, no ComfyUI browser tab), waits for it, starts the backend and
   frontend in their own windows, and opens `http://localhost:5180`. Close the windows to stop.
 - Start ComfyUI (Jaya does this): see `docs/comfyui-setup.md`
 - Backend dev: `cd backend`, then `npm run dev`
