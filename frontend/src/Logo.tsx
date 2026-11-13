@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Box } from "lucide-react";
 
-// The TeczoForge logo: the Teczo logo picture (frontend/public/logo.png) with "Forge" after it.
+// The TeczoForge logo: the "Teczo Forge" logo picture (frontend/public/logo.png).
 // If the picture is missing, a drawn cube and the name are shown instead.
 export default function Logo() {
   const [hasFile, setHasFile] = useState(true);
@@ -9,8 +9,7 @@ export default function Logo() {
   if (hasFile) {
     return (
       <div className="logo">
-        <img src="/logo.png" alt="teczo" onError={() => setHasFile(false)} />
-        <span className="logo-word-2 logo-forge">Forge</span>
+        <img src="/logo.png" alt="Teczo Forge" onError={() => setHasFile(false)} />
       </div>
     );
   }
