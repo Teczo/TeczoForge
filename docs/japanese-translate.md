@@ -314,7 +314,7 @@ T2 needs T1. T3 needs T2. T4 and T5 can come in either order.
 - HEIC photos, rotating or cropping photos in the app. (PDF files were added later: section 17.)
 - Cutting a big page into tiles. (If small writing is read badly, this is the first thing to try next.)
 - MongoDB records, projects, gallery entries for translations.
-- Deleting documents.
+- Deleting documents. (Added later: section 17.)
 - Choosing the model on the page. To test another model: change `TRANSLATE_MODEL_PATH` and
   `TRANSLATE_MMPROJ_PATH` in `.env` and restart the backend. Each result records which model made it.
 
@@ -358,3 +358,8 @@ file, the download holds all pages of that file, in order; a page that is not do
 Only the translation is in the PDF, not the Japanese text and not the warnings.
 The font comes from `TRANSLATE_PDF_FONT_PATH` (Yu Gothic from Windows by default), because a
 translation keeps Japanese names in brackets.
+
+**Removing documents.** The "Remove" button on the page calls `DELETE /api/translate/documents/:id`.
+It deletes the folder of the document in `data/translations` and takes it out of the list.
+For a page of a PDF file, all pages of that file are removed together. The page asks first,
+because it cannot be undone. A document that is being read or translated cannot be removed.

@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Request, Response } from "express";
 import { HttpError } from "./httpError.js";
@@ -221,6 +221,8 @@ async function runWorker(): Promise<void> {
         }
         break;
       }
+      // The document was removed while llama-server was starting: skip it.
+      if (!documents.has(doc.id)) continue;
       await handleDocument(doc);
     }
     await stopTranslateServer();
@@ -242,6 +244,8 @@ async function handleDocument(doc: TranslateDocument): Promise<void> {
   const settings = translateSettings();
   console.log(`Translation: ${doc.id} started.`);
   try {
+    // Not "waiting" any more from this moment, so the document cannot be removed while it is worked on.
+    doc.status = "reading";
     const photo = await readPhoto(doc.id);
     if (!photo) throw new Error("The photo of this document is not on disk any more.");
     const photoUrl = `data:${photo.info.mediaType};base64,${photo.data.toString("base64")}`;
@@ -612,6 +616,30 @@ export async function documentPdfHandler(req: Request, res: Response) {
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `attachment; filename="${doc.id}.pdf"`);
     res.send(pdf);
+  } catch (error) {
+    sendError(res, error);
+  }
+}
+
+// DELETE /api/translate/documents/:id
+// Remove a document from the list and from the disk: its photo, its texts and its record.
+// For a page of a PDF file, all pages of that file are removed together.
+// A document that is being worked on right now cannot be removed. Answer: { removed: <how many> }.
+export async function deleteDocumentHandler(req: Request, res: Response) {
+  try {
+    const doc = findDocument(req);
+    const group = doc.fileId ? [...documents.values()].filter((other) => other.fileId === doc.fileId) : [doc];
+    if (group.some((one) => one.status === "reading" || one.status === "translating")) {
+      throw new HttpError(409, "This document is being worked on. Wait until it is done, then remove it.");
+    }
+    for (const one of group) {
+      // Out of the list first, so the worker cannot pick it up while its folder is removed.
+      documents.delete(one.id);
+      // The id was checked against ID_PATTERN when the document was made or loaded.
+      await rm(folderOf(one.id), { recursive: true, force: true });
+    }
+    console.log(`Translation: ${group.length} document(s) removed.`);
+    res.json({ removed: group.length });
   } catch (error) {
     sendError(res, error);
   }

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChangeEvent, DragEvent } from "react";
-import { AlertTriangle, Check, Copy, Download, ImagePlus, Pencil, RefreshCw } from "lucide-react";
+import { AlertTriangle, Check, Copy, Download, ImagePlus, Pencil, RefreshCw, Trash2 } from "lucide-react";
 import { btn, CARD, EmptyState, FIELD, Loading, Notice, PageHeader } from "./ui";
 import { forEachPdfPage, isPdf } from "./pdfPages";
 import { splitIntoBlocks } from "./translateTables";
@@ -219,6 +219,25 @@ export default function TranslatePage() {
     }
   }
 
+  // Remove a document from the list and from the disk. For a page of a PDF file, all pages of
+  // that file are removed together. The user is asked first, because it cannot be undone.
+  async function remove(doc: DocSummary) {
+    const question = doc.fileId
+      ? `Remove all ${doc.pages} pages of "${doc.originalName}"? The pictures and the texts are deleted. This cannot be undone.`
+      : `Remove "${doc.originalName}"? The photo and the texts are deleted. This cannot be undone.`;
+    if (!window.confirm(question)) return;
+    setError(null);
+    try {
+      const response = await fetch(`/api/translate/documents/${doc.id}`, { method: "DELETE" });
+      if (!response.ok) throw new Error(await errorOf(response));
+      // Nothing is picked now, so the newest document that is left is opened.
+      setPickedId(null);
+      await loadDocs();
+    } catch (problem) {
+      setError(problem instanceof TypeError ? NO_BACKEND : (problem as Error).message);
+    }
+  }
+
   // Save a corrected Japanese text. The backend translates it again without reading the photo (FRG-94).
   // Returns true when it was saved.
   async function saveJapanese(id: string, japanese: string): Promise<boolean> {
@@ -323,7 +342,7 @@ export default function TranslatePage() {
 
               {/* Right: the picked document. */}
               <div className="min-w-0 flex-1">
-                {picked && <Result doc={picked} detail={detail?.id === picked.id ? detail : null} onTryAgain={() => void tryAgain(picked.id)} onSaveJapanese={(text) => saveJapanese(picked.id, text)} />}
+                {picked && <Result doc={picked} detail={detail?.id === picked.id ? detail : null} onTryAgain={() => void tryAgain(picked.id)} onRemove={() => void remove(picked)} onSaveJapanese={(text) => saveJapanese(picked.id, text)} />}
               </div>
             </div>
           )}
@@ -344,11 +363,13 @@ function Result({
   doc,
   detail,
   onTryAgain,
+  onRemove,
   onSaveJapanese,
 }: {
   doc: DocSummary;
   detail: DocDetail | null;
   onTryAgain: () => void;
+  onRemove: () => void;
   onSaveJapanese: (japanese: string) => Promise<boolean>;
 }) {
   const imageUrl = `/api/translate/documents/${doc.id}/image`;
@@ -389,6 +410,17 @@ function Result({
         >
           <RefreshCw size={14} />
           Try again
+        </button>
+        {/* Not while the model works on it. A waiting document can be removed. */}
+        <button
+          type="button"
+          onClick={onRemove}
+          disabled={doc.status === "reading" || doc.status === "translating"}
+          title={doc.fileId ? "Remove all pages of this PDF file" : "Remove this document"}
+          className={btn("danger", "sm")}
+        >
+          <Trash2 size={14} />
+          Remove
         </button>
       </div>
 
