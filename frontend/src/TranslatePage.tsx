@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChangeEvent, DragEvent } from "react";
-import { AlertTriangle, Check, Copy, Download, ImagePlus, Pencil, RefreshCw } from "lucide-react";
+import { AlertTriangle, Check, Copy, Download, ImagePlus, Pencil, RefreshCw, Trash2 } from "lucide-react";
 import { btn, CARD, EmptyState, FIELD, Loading, Notice, PageHeader } from "./ui";
+import { forEachPdfPage, isPdf } from "./pdfPages";
+import { splitIntoBlocks } from "./translateTables";
 
 // The Translate page (FRG-92, plan: docs/japanese-translate.md section 13).
-// The user adds photos of handwritten Japanese documents. For each photo the backend makes the
+// The user adds photos or PDF files of handwritten Japanese documents. A PDF file is cut into
+// pages in the browser (pdfPages.ts), and each page is handled like a photo (FRG-95). For each photo the backend makes the
 // Japanese text and the translation (backend/src/translateDocuments.ts). This page shows the list
 // of documents on the left, and the photo with both texts on the right.
 // Everything stays on this PC: the page only talks to our own backend.
@@ -22,6 +25,10 @@ type TranslateStatus = { setUp: boolean; problem: string | null; serverRunning: 
 type DocSummary = {
   id: string;
   originalName: string;
+  // Set when the document is one page of a PDF file (FRG-95). Otherwise null, 1 and 1.
+  fileId: string | null;
+  page: number;
+  pages: number;
   createdAt: string;
   status: DocStatus;
   japaneseEdited: boolean;
@@ -41,6 +48,17 @@ const STATUS_WORDS: Record<DocStatus, string> = {
   done: "Done",
   failed: "Failed",
 };
+
+// The name shown for a document: the file name, and the page for a PDF file.
+function titleOf(doc: DocSummary): string {
+  return doc.fileId ? `${doc.originalName} – page ${doc.page} of ${doc.pages}` : doc.originalName;
+}
+
+// 12 random hex characters. The pages of one PDF file share this id.
+function newFileId(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(6));
+  return [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
 
 function isFinished(status: DocStatus): boolean {
   return status === "done" || status === "failed";
@@ -128,45 +146,66 @@ export default function TranslatePage() {
     };
   }, [pickedId, pickedStatus]);
 
-  // Upload the photos one at a time. A photo the backend refuses does not stop the others.
-  async function addPhotos(files: File[]) {
+  // Upload one picture. `pageQuery` is "" for a photo, or the page information of a PDF page.
+  // Returns the id of the new document. Throws an error with the text to show.
+  async function uploadPicture(name: string, picture: Blob, pageQuery: string): Promise<string> {
+    let response;
+    try {
+      response = await fetch(`/api/translate/documents?name=${encodeURIComponent(name)}${pageQuery}`, {
+        method: "POST",
+        headers: { "Content-Type": picture.type || "application/octet-stream" },
+        body: picture,
+      });
+    } catch {
+      throw new Error(NO_BACKEND);
+    }
+    if (!response.ok) throw new Error(await errorOf(response));
+    return (await response.json()).id;
+  }
+
+  // Upload the files one at a time. A file the backend refuses does not stop the others.
+  // A PDF file is cut into pages first: each page is uploaded as its own picture (FRG-95).
+  async function addFiles(files: File[]) {
     if (files.length === 0 || uploading) return;
     setError(null);
     const problems: string[] = [];
-    let lastId: string | null = null;
+    // The document to open afterwards: the last photo, or the first page of the last PDF.
+    let openId: string | null = null;
     for (let index = 0; index < files.length; index++) {
       const file = files[index];
-      setUploading(`Uploading ${index + 1} of ${files.length}`);
+      const progress = `Uploading ${index + 1} of ${files.length}`;
+      setUploading(progress);
       try {
-        const response = await fetch(`/api/translate/documents?name=${encodeURIComponent(file.name)}`, {
-          method: "POST",
-          headers: { "Content-Type": file.type || "application/octet-stream" },
-          body: file,
-        });
-        if (!response.ok) {
-          problems.push(`${file.name}: ${await errorOf(response)}`);
+        if (isPdf(file)) {
+          const fileId = newFileId();
+          await forEachPdfPage(file, async (picture, page, pages) => {
+            setUploading(`${progress}: page ${page} of ${pages}`);
+            const id = await uploadPicture(file.name, picture, `&fileId=${fileId}&page=${page}&pages=${pages}`);
+            if (page === 1) openId = id;
+            await loadDocs();
+          });
         } else {
-          lastId = (await response.json()).id;
+          openId = await uploadPicture(file.name, file, "");
         }
-      } catch {
-        problems.push(`${file.name}: ${NO_BACKEND}`);
+      } catch (problem) {
+        problems.push(`${file.name}: ${(problem as Error).message}`);
       }
       await loadDocs();
     }
     setUploading(null);
-    if (lastId) setPickedId(lastId);
+    if (openId) setPickedId(openId);
     if (problems.length > 0) setError(problems.join("\n"));
   }
 
   function onPickFiles(event: ChangeEvent<HTMLInputElement>) {
-    void addPhotos([...(event.target.files ?? [])]);
+    void addFiles([...(event.target.files ?? [])]);
     event.target.value = ""; // So the same file can be picked again.
   }
 
   function onDrop(event: DragEvent<HTMLDivElement>) {
     event.preventDefault();
     setDragOver(false);
-    void addPhotos([...event.dataTransfer.files]);
+    void addFiles([...event.dataTransfer.files]);
   }
 
   async function tryAgain(id: string) {
@@ -174,6 +213,25 @@ export default function TranslatePage() {
     try {
       const response = await fetch(`/api/translate/documents/${id}/retry`, { method: "POST" });
       if (!response.ok) throw new Error(await errorOf(response));
+      await loadDocs();
+    } catch (problem) {
+      setError(problem instanceof TypeError ? NO_BACKEND : (problem as Error).message);
+    }
+  }
+
+  // Remove a document from the list and from the disk. For a page of a PDF file, all pages of
+  // that file are removed together. The user is asked first, because it cannot be undone.
+  async function remove(doc: DocSummary) {
+    const question = doc.fileId
+      ? `Remove all ${doc.pages} pages of "${doc.originalName}"? The pictures and the texts are deleted. This cannot be undone.`
+      : `Remove "${doc.originalName}"? The photo and the texts are deleted. This cannot be undone.`;
+    if (!window.confirm(question)) return;
+    setError(null);
+    try {
+      const response = await fetch(`/api/translate/documents/${doc.id}`, { method: "DELETE" });
+      if (!response.ok) throw new Error(await errorOf(response));
+      // Nothing is picked now, so the newest document that is left is opened.
+      setPickedId(null);
       await loadDocs();
     } catch (problem) {
       setError(problem instanceof TypeError ? NO_BACKEND : (problem as Error).message);
@@ -227,7 +285,7 @@ export default function TranslatePage() {
               dragOver ? "border-accent bg-accent-soft" : "border-line-strong bg-sidebar"
             }`}
           >
-            <input ref={fileInput} type="file" accept="image/png,image/jpeg,image/webp" multiple onChange={onPickFiles} className="hidden" />
+            <input ref={fileInput} type="file" accept="image/png,image/jpeg,image/webp,application/pdf" multiple onChange={onPickFiles} className="hidden" />
             <button
               type="button"
               onClick={() => fileInput.current?.click()}
@@ -235,10 +293,10 @@ export default function TranslatePage() {
               className={`${btn("primary")} disabled:cursor-wait`}
             >
               <ImagePlus size={16} />
-              Add photos
+              Add photos or PDF
             </button>
             <span className="text-sm text-ink-2">
-              {uploading ?? "Or drop photos here. PNG, JPEG or WebP. Photos of handwritten Japanese documents."}
+              {uploading ?? "Or drop files here. PNG, JPEG, WebP or PDF. Photos or scans of handwritten Japanese documents."}
             </span>
           </div>
 
@@ -246,7 +304,7 @@ export default function TranslatePage() {
             <Notice tone="warning" className="mb-6">The GPU is busy with a generation job. Translation starts when it finishes.</Notice>
           )}
 
-          {docs && docs.length === 0 && <EmptyState icon={<ImagePlus size={18} />} title="No documents yet" text="Add a photo to start." />}
+          {docs && docs.length === 0 && <EmptyState icon={<ImagePlus size={18} />} title="No documents yet" text="Add a photo or a PDF file to start." />}
 
           {docs && docs.length > 0 && (
             <div className="flex items-start gap-6">
@@ -268,7 +326,7 @@ export default function TranslatePage() {
                         className="h-14 w-14 shrink-0 rounded-lg bg-frame object-cover"
                       />
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm font-medium text-ink">{doc.originalName}</span>
+                        <span className="block truncate text-sm font-medium text-ink">{titleOf(doc)}</span>
                         <span className={`block text-xs ${statusColour(doc.status)}`}>{STATUS_WORDS[doc.status]}</span>
                         {doc.warnings.length > 0 && (
                           <span className="mt-0.5 flex items-center gap-1 text-xs text-warning">
@@ -284,7 +342,7 @@ export default function TranslatePage() {
 
               {/* Right: the picked document. */}
               <div className="min-w-0 flex-1">
-                {picked && <Result doc={picked} detail={detail?.id === picked.id ? detail : null} onTryAgain={() => void tryAgain(picked.id)} onSaveJapanese={(text) => saveJapanese(picked.id, text)} />}
+                {picked && <Result doc={picked} detail={detail?.id === picked.id ? detail : null} onTryAgain={() => void tryAgain(picked.id)} onRemove={() => void remove(picked)} onSaveJapanese={(text) => saveJapanese(picked.id, text)} />}
               </div>
             </div>
           )}
@@ -305,11 +363,13 @@ function Result({
   doc,
   detail,
   onTryAgain,
+  onRemove,
   onSaveJapanese,
 }: {
   doc: DocSummary;
   detail: DocDetail | null;
   onTryAgain: () => void;
+  onRemove: () => void;
   onSaveJapanese: (japanese: string) => Promise<boolean>;
 }) {
   const imageUrl = `/api/translate/documents/${doc.id}/image`;
@@ -318,7 +378,7 @@ function Result({
   return (
     <div className={`${CARD} p-5`}>
       <div className="mb-4 flex flex-wrap items-center gap-3">
-        <h2 className="m-0 min-w-0 flex-1 truncate text-lg font-medium text-ink">{doc.originalName}</h2>
+        <h2 className="m-0 min-w-0 flex-1 truncate text-lg font-medium text-ink">{titleOf(doc)}</h2>
         <span className={`text-sm ${statusColour(doc.status)}`}>{STATUS_WORDS[doc.status]}</span>
         <a
           href={`/api/translate/documents/${doc.id}/text`}
@@ -330,6 +390,18 @@ function Result({
           <Download size={14} />
           Download .txt
         </a>
+        {/* The translation as a PDF, with tables. For a page of a PDF file: all pages of that file (FRG-95). */}
+        <a
+          href={`/api/translate/documents/${doc.id}/pdf`}
+          download
+          title={doc.fileId ? "The translation of all pages of this PDF file" : "The translation as a PDF file"}
+          className={`${btn("secondary", "sm")} ${
+            doc.status === "done" ? "" : "pointer-events-none opacity-40"
+          }`}
+        >
+          <Download size={14} />
+          Download PDF
+        </a>
         <button
           type="button"
           onClick={onTryAgain}
@@ -339,11 +411,22 @@ function Result({
           <RefreshCw size={14} />
           Try again
         </button>
+        {/* Not while the model works on it. A waiting document can be removed. */}
+        <button
+          type="button"
+          onClick={onRemove}
+          disabled={doc.status === "reading" || doc.status === "translating"}
+          title={doc.fileId ? "Remove all pages of this PDF file" : "Remove this document"}
+          className={btn("danger", "sm")}
+        >
+          <Trash2 size={14} />
+          Remove
+        </button>
       </div>
 
       {/* The photo: big, scrolls inside its box, a click opens it full size in a new tab. */}
       <a href={imageUrl} target="_blank" rel="noreferrer" title="Open the photo full size" className="mb-4 block max-h-[70vh] overflow-auto rounded-xl bg-frame">
-        <img src={imageUrl} alt={`Photo: ${doc.originalName}`} className="block w-full" />
+        <img src={imageUrl} alt={`Photo: ${titleOf(doc)}`} className="block w-full" />
       </a>
 
       {doc.status === "failed" && (
@@ -485,9 +568,38 @@ function TextBox({
           {copied ? "Copied" : "Copy"}
         </button>
       </div>
-      <div lang={lang} className="min-h-12 rounded-xl border border-line bg-sidebar px-4 py-3 text-[15px] leading-relaxed whitespace-pre-wrap text-ink">
-        {text !== "" ? text : <span className="text-ink-3">{waiting ? "Not ready yet..." : "No text."}</span>}
+      <div lang={lang} className="min-h-12 rounded-xl border border-line bg-sidebar px-4 py-3 text-[15px] leading-relaxed text-ink">
+        {text !== "" ? <TextWithTables text={text} /> : <span className="text-ink-3">{waiting ? "Not ready yet..." : "No text."}</span>}
       </div>
     </section>
+  );
+}
+
+// A text, with its tables shown as real tables (FRG-95). The model writes a table as a
+// Markdown table; translateTables.ts finds the tables in the text.
+function TextWithTables({ text }: { text: string }) {
+  return (
+    <div className="space-y-3">
+      {splitIntoBlocks(text).map((block, index) =>
+        block.kind === "text" ? (
+          <div key={index} className="whitespace-pre-wrap">{block.text}</div>
+        ) : (
+          // A wide table scrolls sideways inside its box.
+          <div key={index} className="overflow-x-auto">
+            <table className="border-collapse text-sm">
+              <tbody>
+                {block.rows.map((cells, rowIndex) => (
+                  <tr key={rowIndex} className={block.header && rowIndex === 0 ? "bg-hover font-medium" : ""}>
+                    {cells.map((cell, cellIndex) => (
+                      <td key={cellIndex} className="border border-line-strong px-2.5 py-1.5 align-top whitespace-pre-wrap">{cell}</td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ),
+      )}
+    </div>
   );
 }

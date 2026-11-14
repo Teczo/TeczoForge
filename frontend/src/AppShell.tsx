@@ -82,7 +82,7 @@ export default function AppShell(props: AppShellProps) {
       {!closed && (
         <aside className="sticky top-0 flex h-screen w-60 shrink-0 flex-col border-r border-line bg-sidebar">
           {/* Top: logo */}
-          <div className="flex h-(--header-h) shrink-0 items-center px-4 [&_.logo]:text-xl [&_.logo_img]:h-6 [&_.logo-forge]:ml-[-5px] [&_.logo-forge]:text-[20px]">
+          <div className="flex h-(--header-h) shrink-0 items-center px-4 [&_.logo]:text-xl [&_.logo_img]:h-6">
             <Logo />
           </div>
 

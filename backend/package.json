@@ -17,11 +17,13 @@
     "@anthropic-ai/sdk": "^0.132.1",
     "dotenv": "^18.0.5",
     "express": "^5.2.1",
-    "mongodb": "^7.7.0"
+    "mongodb": "^7.7.0",
+    "pdfkit": "^0.20.2"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",
     "@types/node": "^26.6.4",
+    "@types/pdfkit": "^0.17.7",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2"
   }

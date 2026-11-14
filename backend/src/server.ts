@@ -67,7 +67,9 @@ import { estimateHandler } from "./estimate.js";
 import { timeTestHandler } from "./timeTest.js";
 import {
   createDocumentHandler,
+  deleteDocumentHandler,
   documentImageHandler,
+  documentPdfHandler,
   documentTextHandler,
   editJapaneseHandler,
   getDocumentHandler,
@@ -233,8 +235,12 @@ app.post("/api/translate/documents", express.raw({ type: TRANSLATE_UPLOAD_TYPES,
 app.get("/api/translate/documents", listDocumentsHandler);
 app.get("/api/translate/documents/:id", getDocumentHandler);
 app.get("/api/translate/documents/:id/image", documentImageHandler);
+// Remove a document. For a page of a PDF file: all pages of that file.
+app.delete("/api/translate/documents/:id", deleteDocumentHandler);
 app.post("/api/translate/documents/:id/retry", retryDocumentHandler);
 app.get("/api/translate/documents/:id/text", documentTextHandler);
+// The translation as a PDF, with tables drawn as tables (FRG-95).
+app.get("/api/translate/documents/:id/pdf", documentPdfHandler);
 // Save a corrected Japanese text and translate it again, without reading the photo again (FRG-94).
 app.put("/api/translate/documents/:id/japanese", express.json(), editJapaneseHandler);
 

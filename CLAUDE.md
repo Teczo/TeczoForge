@@ -51,8 +51,8 @@ Rules:
 Wroom tickets say "do not add a dependency". The packages below are part of the
 locked stack, so they are allowed when a ticket needs them. Use the smallest set.
 
-- Backend: `express`, `cors`, `dotenv`, `ws`, `mongodb`, `typescript`, `tsx`, `@types/node`, `@types/express`, `@types/cors`, `@types/ws`
-- Frontend: `vite`, `react`, `react-dom`, `typescript`, `@vitejs/plugin-react`, `@types/react`, `@types/react-dom`, `tailwindcss`, `@tailwindcss/vite`, `lucide-react`, `@fontsource-variable/inter` (the Inter font, so it works offline)
+- Backend: `express`, `cors`, `dotenv`, `ws`, `mongodb`, `typescript`, `tsx`, `@types/node`, `@types/express`, `@types/cors`, `@types/ws`, `pdfkit`, `@types/pdfkit` (the PDF download of a translation, FRG-95)
+- Frontend: `vite`, `react`, `react-dom`, `typescript`, `@vitejs/plugin-react`, `@types/react`, `@types/react-dom`, `tailwindcss`, `@tailwindcss/vite`, `lucide-react`, `@fontsource-variable/inter` (the Inter font, so it works offline), `pdfjs-dist` (reads PDF files on the Translate page, FRG-95)
 
 Anything not on this list: say what and why, then stop and ask.
 
