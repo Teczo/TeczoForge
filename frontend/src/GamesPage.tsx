@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useRef, useState } from "react";
 import type { ChangeEvent, ReactNode } from "react";
 import { AlertTriangle, ArrowLeft, CheckCircle2, FileUp, Gamepad2, Hand } from "lucide-react";
-import Media, { outputKind } from "./Media";
+import Media, { ModelPreview, outputKind } from "./Media";
 import BatchBar, { useActiveBatches } from "./BatchBar";
 import EstimateView from "./Estimate";
 import { Badge, btn, CARD, CARD_HOVER, EmptyState, FIELD, Loading, Modal, PageHeader } from "./ui";
@@ -940,13 +940,18 @@ function AssetReview({ gameId, asset, onChanged, canEditPrompt }: AssetReviewPro
 function ResultTile({ job, approved, canApprove, onApprove }: { job: ResultJob; approved: boolean; canApprove: boolean; onApprove: () => void }) {
   const kind = outputKind(job);
   const done = job.status === "done" && job.imageUrl;
-  // The 3D viewer needs at least 320 px of height (.model-viewer in styles.css), so a 3D tile is bigger.
-  const size = done && kind === "3d" ? "w-80" : "w-56";
+  // A 3D result shows its picture until "View 3D" is pressed: a page has many results, and a
+  // browser can only keep a few live 3D views.
+  const [viewing3d, setViewing3d] = useState(false);
+  // The 3D viewer needs at least 320 px of height (.model-viewer in styles.css), so an open 3D tile is bigger.
+  const big = done && kind === "3d" && viewing3d;
   return (
-    <div className={`${size} overflow-hidden rounded-lg border ${approved ? "border-success" : "border-line"}`}>
-      <div className={`flex ${done && kind === "3d" ? "h-80" : "h-56"} items-center justify-center overflow-hidden bg-frame`}>
-        {done ? (
-          <Media url={job.imageUrl!} kind={kind} alt="Result" mode={kind === "3d" ? "full" : "thumbnail"} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+    <div className={`${big ? "w-80" : "w-56"} overflow-hidden rounded-lg border ${approved ? "border-success" : "border-line"}`}>
+      <div className={`flex ${big ? "h-80" : "h-56"} items-center justify-center overflow-hidden bg-frame`}>
+        {done && kind === "3d" ? (
+          <ModelPreview url={job.imageUrl!} alt="Result" open={viewing3d} onToggle={() => setViewing3d(!viewing3d)} style={{ width: "100%", height: "100%" }} />
+        ) : done ? (
+          <Media url={job.imageUrl!} kind={kind} alt="Result" mode="thumbnail" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
         ) : (
           <span className="px-3 text-center text-xs text-ink-3">
             {job.status === "queued"
