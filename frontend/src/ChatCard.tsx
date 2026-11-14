@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import Media, { outputKind, useAvatarCheck } from "./Media";
+import Media, { ModelPreview, outputKind, useAvatarCheck } from "./Media";
 import { confirmResearchOnly } from "./PresetBadges";
 import SendToMenu from "./SendToMenu";
 import { CardForm } from "./Board";
@@ -46,6 +46,7 @@ export default function ChatCard({ card: ref, presets, onOpenInGenerate }: ChatC
   const [card, setCard] = useState<Card | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [viewing3d, setViewing3d] = useState(false); // The live 3D viewer is open (3D results only).
   const [form, setForm] = useState<FormState | null>(null);
   const isAvatar = useAvatarCheck();
 
@@ -133,7 +134,12 @@ export default function ChatCard({ card: ref, presets, onOpenInGenerate }: ChatC
       {active && <ProgressView progress={card.progress} onCancel={null} cancelling={false} />}
       {card?.status === "done" && card.imageUrl && (
         <div className="chat-card-result">
-          <Media url={card.imageUrl} kind={outputKind(card)} mode="full" alt={prompt} sound={isAvatar(card)} />
+          {outputKind(card) === "3d" ? (
+            // A chat can have many 3D results: each shows its picture until "View 3D" is pressed.
+            <ModelPreview url={card.imageUrl} alt={prompt} open={viewing3d} onToggle={() => setViewing3d(!viewing3d)} />
+          ) : (
+            <Media url={card.imageUrl} kind={outputKind(card)} mode="full" alt={prompt} sound={isAvatar(card)} />
+          )}
         </div>
       )}
       {problem && <p className="message error">{problem}</p>}

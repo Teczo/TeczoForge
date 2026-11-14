@@ -2,6 +2,8 @@ import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import type { CSSProperties, KeyboardEvent, MouseEvent } from "react";
 import { Box, Download, Music, Pause, Play } from "lucide-react";
 import { loadPresets } from "./SendToMenu";
+import { makeThumbnail, thumbnailUrl } from "./modelThumbnail";
+import { btn } from "./ui";
 
 // The 3D viewer (FRG-27) uses the large "three" package. It is loaded only the first time a
 // model is shown in full, so pages without a 3D result stay small.
@@ -60,8 +62,8 @@ type MediaProps = {
 };
 
 // Shows a picture with <img>, a video with <video>, a sound with the browser's audio player
-// (FRG-30), and a 3D model in the 3D viewer (FRG-27). In grids a 3D model is a tile with an
-// icon and the file name.
+// (FRG-30), and a 3D model in the 3D viewer (FRG-27). In grids a 3D model is a saved picture
+// of the model (ModelThumb).
 export default function Media({ url, kind, alt, style, mode, sound = false }: MediaProps) {
   const fileName = url.split("/").pop() ?? url;
   if (kind === "audio") {
@@ -85,13 +87,7 @@ export default function Media({ url, kind, alt, style, mode, sound = false }: Me
         </Suspense>
       );
     }
-    // A thumbnail sits inside a button, so it cannot hold a link. Its detail view has Download.
-    return (
-      <div className="file-tile" style={style} title={alt}>
-        <Box size={36} />
-        <span className="file-tile-name">{fileName}</span>
-      </div>
-    );
+    return <ModelThumb key={url} url={url} fileName={fileName} alt={alt} style={style} />;
   }
   if (kind === "image") {
     return <img src={url} alt={alt} loading={mode === "thumbnail" ? "lazy" : undefined} style={style} />;
@@ -104,6 +100,49 @@ export default function Media({ url, kind, alt, style, mode, sound = false }: Me
   // already started muted does not carry on playing out loud.
   if (sound) return <video key="sound" src={url} title={alt} controls playsInline preload="metadata" style={style} />;
   return <video key="muted" src={url} title={alt} controls autoPlay loop muted playsInline style={style} />;
+}
+
+// The small view of a 3D model in a grid: a saved picture of the model (see modelThumbnail.ts).
+// A model without a picture shows the icon tile while its picture is made, then the picture.
+// A thumbnail sits inside a button, so it cannot hold a link. Its detail view has Download.
+function ModelThumb({ url, fileName, alt, style }: { url: string; fileName: string; alt: string; style?: CSSProperties }) {
+  // "saved": show the picture from the backend. "making": it was missing, so it is being made.
+  // "made": show the new picture. "none": it could not be made, so the icon tile stays.
+  const [state, setState] = useState<"saved" | "making" | "made" | "none">("saved");
+
+  // loading="lazy": the browser asks for the picture only when the tile is near the screen, so
+  // pictures are only made for models the user really scrolls to.
+  function pictureMissing() {
+    if (state !== "saved") return setState("none");
+    setState("making");
+    makeThumbnail(url).then((ok) => setState(ok ? "made" : "none"));
+  }
+
+  if (state === "saved" || state === "made") {
+    // "?made": a new address, so the browser does not reuse its "not found" answer.
+    return <img src={thumbnailUrl(url) + (state === "made" ? "?made" : "")} alt={alt} title={alt} loading="lazy" style={style} onError={pictureMissing} />;
+  }
+  return (
+    <div className="file-tile" style={style} title={alt}>
+      <Box size={36} />
+      <span className="file-tile-name">{state === "making" ? "Making the picture..." : fileName}</span>
+    </div>
+  );
+}
+
+// A 3D model as its picture, with a "View 3D" button that swaps in the live 3D viewer.
+// For pages that can show many models at once (chat, games): a browser can only keep a few live
+// 3D views, and each one holds the whole model in graphics memory.
+type ModelPreviewProps = { url: string; alt: string; open: boolean; onToggle: () => void; style?: CSSProperties };
+export function ModelPreview({ url, alt, open, onToggle, style }: ModelPreviewProps) {
+  return (
+    <div className="relative" style={style}>
+      <Media url={url} kind="3d" mode={open ? "full" : "thumbnail"} alt={alt} style={style && { width: "100%", height: "100%", objectFit: "cover" }} />
+      <button type="button" className={`${btn("secondary", "xs")} absolute left-2 top-2`} onClick={onToggle}>
+        {open ? "Close 3D" : "View 3D"}
+      </button>
+    </div>
+  );
 }
 
 // The large view of a sound: the browser's player (play, seek, volume), the file name, its
