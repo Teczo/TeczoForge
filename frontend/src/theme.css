@@ -115,28 +115,6 @@
   color-scheme: dark;
 }
 
-/* Sample pictures on the Generate page. They are small pictures, not theme colours, so they are
-   the same in light and dark. */
-.model-thumb {
-  /* --hue is set by Generate.tsx from the model name. */
-  background: linear-gradient(135deg, hsl(var(--hue, 200) 60% 30%), hsl(calc(var(--hue, 200) + 30) 65% 50%));
-}
-.sample-art-1 {
-  background: linear-gradient(135deg, #1e4d6b, #d9a35c);
-}
-.sample-art-2 {
-  background: linear-gradient(135deg, #3a1a6b, #1ec8ff);
-}
-.sample-art-3 {
-  background: linear-gradient(135deg, #1a1f26, #4a5a6a);
-}
-.sample-art-4 {
-  background: linear-gradient(135deg, #6b1a5a, #b98cff);
-}
-.sample-art-5 {
-  background: linear-gradient(135deg, #6b5a3a, #e8d8b8);
-}
-
 /* The same variables as Tailwind colours. "inline" means the class reads the variable live,
    so one class works in both themes. Example: bg-card, text-ink-2, border-line, shadow-float. */
 @theme inline {

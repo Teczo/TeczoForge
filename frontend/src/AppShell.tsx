@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
-import { ChevronDown, Folder, Gamepad2, Image, Languages, LayoutDashboard, LogOut, MessageSquare, Moon, Package, PanelLeft, Plus, Sparkles, Sun, UserRound } from "lucide-react";
+import { ChevronDown, Folder, Gamepad2, Image, Languages, LayoutDashboard, LogOut, MessageSquare, Moon, Package, PanelLeft, Plus, Sparkles, Sun } from "lucide-react";
 import type { Project } from "./App";
 import Logo from "./Logo";
 import RecentChats, { useRecentChats } from "./RecentChats";
@@ -15,13 +15,12 @@ import { btn, ICON, ICON_BUTTON } from "./ui";
 export type Status = "checking" | "online" | "offline" | "unknown";
 
 // The pages, by the name in the address (see currentPage() in App.tsx).
-export type Page = "chat" | "generate" | "avatar" | "gallery" | "board" | "projects" | "games" | "packs" | "translate";
+export type Page = "chat" | "generate" | "gallery" | "board" | "projects" | "games" | "packs" | "translate";
 
 // The page links in the sidebar. Chat is the home page: it is also opened with "New chat" or a recent chat.
 export const NAV_ITEMS = [
   { page: "chat", href: "#/chat", label: "Chat", icon: MessageSquare },
   { page: "generate", href: "#/generate", label: "Generate", icon: Sparkles },
-  { page: "avatar", href: "#/avatar", label: "Avatar", icon: UserRound }, // The Generate page, on the Avatar category (FRG-86).
   { page: "gallery", href: "#/gallery", label: "Gallery", icon: Image },
   { page: "board", href: "#/board", label: "Board", icon: LayoutDashboard },
   { page: "projects", href: "#/projects", label: "Projects", icon: Folder },

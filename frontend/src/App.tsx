@@ -13,7 +13,7 @@ import GamesPage from "./GamesPage";
 import PacksPage from "./PacksPage";
 import TranslatePage from "./TranslatePage";
 
-// Which page to show comes from the address: #/generate, #/avatar (FRG-86), #/board, #/projects,
+// Which page to show comes from the address: #/generate, #/board, #/projects,
 // #/games (or #/games/<game id> to open one game, FRG-67), #/packs (or #/packs/<pack id>, FRG-78), #/translate (FRG-92),
 // #/gallery (or #/gallery/<job id> to open one job), or the Chat page, which is the home page:
 // #/, #/chat, or #/chat/<conversation id> (FRG-46).
@@ -21,7 +21,6 @@ import TranslatePage from "./TranslatePage";
 function currentPage(): Page {
   const hash = window.location.hash;
   if (hash === "#/generate") return "generate";
-  if (hash === "#/avatar") return "avatar";
   if (hash === "#/board") return "board";
   if (hash === "#/projects") return "projects";
   if (hash === "#/games" || hash.startsWith("#/games/")) return "games";
@@ -311,7 +310,7 @@ export default function App() {
           onChanged={reloadProjects}
         />
       ) : (
-        <Generate startValues={useAgain} onStartValuesUsed={() => setUseAgain(null)} project={project} avatar={page === "avatar"} />
+        <Generate startValues={useAgain} onStartValuesUsed={() => setUseAgain(null)} project={project} />
       )}
     </AppShell>
   );
