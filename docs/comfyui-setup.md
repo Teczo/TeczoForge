@@ -4,7 +4,9 @@ Last checked: 2026-11-04
 
 ## Install
 
-- Install path: `C:\AI\ComfyUI_windows_portable\`
+- Install path: `comfyui\ComfyUI_windows_portable\` inside the repo folder (not in git).
+  Moved there from `C:\AI\ComfyUI_windows_portable\` on 2026-11-14. The old folder is renamed to `C:\AI\ComfyUI_windows_portable_OLD\`.
+- Models: in `models\` inside the repo folder (not in git), or wherever `MODELS_DIR` in `backend\.env` points. See "Models folder" below.
 - Type: official Windows portable build (NVIDIA)
 - Source: `github.com/Comfy-Org/ComfyUI` (the old `comfyanonymous/ComfyUI` address redirects here)
 - ComfyUI version: 0.39.0
@@ -21,18 +23,35 @@ Last checked: 2026-11-04
 
 ## How to start
 
-Open PowerShell and run:
+Double-click `start-teczoforge.bat` in the repo folder (or the TeczoForge desktop shortcut). It:
 
-```powershell
-cd C:\AI\ComfyUI_windows_portable
-.\run_nvidia_gpu.bat
-```
+1. Reads `MODELS_DIR` from `backend\.env` (empty: the `models\` folder in the repo).
+2. Stops with a clear message if that folder does not exist (for example, the external drive is not plugged in).
+3. Writes `comfyui\ComfyUI_windows_portable\ComfyUI\extra_model_paths.yaml`, so ComfyUI looks for every
+   model type in `MODELS_DIR\<subfolder>`. This file is made new at every start. Do not edit it by hand.
+4. Starts ComfyUI in a **minimised** window on the taskbar, with the same flags as `run_nvidia_gpu.bat`
+   plus `--disable-auto-launch` (no extra ComfyUI browser tab). It uses `conhost.exe`, the classic console
+   window, because Windows Terminal ignores "start minimised".
 
-- It must be started from that folder. Starting it from another folder fails with "The system cannot find the path specified".
-- Double-clicking `run_nvidia_gpu.bat` in File Explorer also works.
-- Wait for: `To see the GUI go to: http://127.0.0.1:8188`
-- Keep the window open. Closing it stops ComfyUI.
-- To stop: press `Ctrl + C` in that window.
+- To see the ComfyUI log, click the "ComfyUI" window on the taskbar. At the top it shows
+  `Adding extra search path ... <MODELS_DIR>\...` for each model type.
+- Closing that window stops ComfyUI.
+- `run_nvidia_gpu.bat` in the ComfyUI folder still works, but then the window is not minimised and a browser tab opens.
+
+## Models folder
+
+All model files are in ONE folder: `MODELS_DIR` in `backend\.env`. Empty means `models\` in the repo folder.
+Inside it are ComfyUI's usual subfolders (`diffusion_models\`, `text_encoders\`, `vae\`, `loras\`, ...)
+and `llm\qwen3.8-27b\` for the translate model. The translate paths in `backend\.env` are relative to this folder,
+for example `TRANSLATE_MODEL_PATH=llm\qwen3.8-27b\Qwen3.8-27B-UD-Q5_K_M.gguf`.
+
+### How to move models to an external drive
+
+1. Close the ComfyUI, backend and frontend windows.
+2. Move the whole `models` folder to the drive, for example to `E:\TeczoForgeModels`.
+3. In `backend\.env`, set `MODELS_DIR=E:\TeczoForgeModels`. Then start TeczoForge as usual.
+
+If the drive is not plugged in, `start-teczoforge.bat` says so and does not start ComfyUI.
 
 ## Address
 
@@ -41,7 +60,11 @@ cd C:\AI\ComfyUI_windows_portable
 
 ## Models installed
 
-All inside `C:\AI\ComfyUI_windows_portable\ComfyUI\models\`.
+All inside the models folder (`MODELS_DIR`, see above). The 3D and music presets also need these files:
+`trellis_2_int8_convrot`, `pixal3d_int8_convrot`, `acestep_v1.5_xl_turbo_bf16` (`diffusion_models\`),
+`trellis_2_shape_vae_bf16`, `trellis_2_texture_vae_bf16`, `ace_1.5_vae` (`vae\`), `qwen_0.6b_ace15`, `qwen_4b_ace15`
+(`text_encoders\`), `dino_v3_L_naf_fp32` (`clip_vision\`), `moge_2_vitl_normal_fp16` (`geometry_estimation\`)
+and `birefnet` (`background_removal\`).
 
 | File | Folder | Size |
 |---|---|---|
@@ -61,7 +84,7 @@ All inside `C:\AI\ComfyUI_windows_portable\ComfyUI\models\`.
 | `wan2.2_t2v_lightx2v_4steps_lora_v1.1_high_noise.safetensors` | `loras\` | 1.23 GB |
 
 Note: the Download button in ComfyUI saves files through the browser.
-Check that each file ends up in the folder listed above.
+Check that each file ends up in the models folder, in the subfolder listed above.
 
 ## First test (text to image)
 

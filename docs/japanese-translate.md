@@ -41,7 +41,7 @@ Claude Code must NOT do these steps (CLAUDE.md section 7, rules 5 and 6 in spiri
    `cudart-llama-bin-win-cuda-13.x-x64.zip`. Extract both into one folder, for example
    `C:\llama.cpp`. Check: `C:\llama.cpp\llama-server.exe --version`.
 2. **Download the model.** From `huggingface.co/unsloth/Qwen3.8-27B-GGUF`, tab "Files",
-   download two files into one folder, for example `D:\models\qwen3.8-27b`:
+   download two files into `models\llm\qwen3.8-27b` in the repo folder (or `llm\qwen3.8-27b` inside `MODELS_DIR`):
    - the main model: the `UD-Q5_K_M` file (about 20 GB)
    - the vision file: the `mmproj` file (`mmproj-F32.gguf` if it is there, else `mmproj-BF16.gguf`)
 3. **Fill in `backend/.env`** (section 6).
@@ -84,8 +84,8 @@ Browser --> Backend (Express) --> llama-server (127.0.0.1:8190)   started and st
 | Name | Example | Meaning |
 |---|---|---|
 | `LLAMA_SERVER_PATH` | `C:\llama.cpp\llama-server.exe` | Empty: the feature is off. The page says "Translation is not set up". |
-| `TRANSLATE_MODEL_PATH` | `D:\models\qwen3.8-27b\Qwen3.8-27B-UD-Q5_K_M.gguf` | The main model file. |
-| `TRANSLATE_MMPROJ_PATH` | `D:\models\qwen3.8-27b\mmproj-F32.gguf` | The vision file. |
+| `TRANSLATE_MODEL_PATH` | `llm\qwen3.8-27b\Qwen3.8-27B-UD-Q5_K_M.gguf` | The main model file. Relative paths are inside `MODELS_DIR`; full paths also work. |
+| `TRANSLATE_MMPROJ_PATH` | `llm\qwen3.8-27b\mmproj-BF16.gguf` | The vision file. Relative to `MODELS_DIR`, like the main model. |
 | `TRANSLATE_PORT` | `8190` | Port for llama-server. |
 | `TRANSLATE_IMAGE_MIN_TOKENS` | `2048` | Lowest number of image tokens per photo. |
 | `TRANSLATE_IMAGE_MAX_TOKENS` | `8192` | Highest number of image tokens per photo. |

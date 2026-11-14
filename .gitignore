@@ -9,6 +9,10 @@ data/
 .env.*
 !.env.example
 
+# ComfyUI program and the models folder (very large, never commit)
+comfyui/
+models/
+
 # AI model files (very large, never commit)
 *.safetensors
 *.ckpt

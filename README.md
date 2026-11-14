@@ -320,3 +320,9 @@ and for the chat page `ANTHROPIC_API_KEY`, `CLAUDE_MODEL` and the optional `CHAT
 `FFMPEG_PATH` is the full path to ffmpeg.exe, used to take the last frame of a video).
 The chat text goes to the Claude API on the internet. Generation stays on this PC.
 For ComfyUI install details, models and measured speeds, see `docs/comfyui-setup.md`.
+
+**ComfyUI and models (not in git).** Put the ComfyUI portable build in `comfyui\ComfyUI_windows_portable\`
+and all model files in `models\` (same subfolder names ComfyUI uses, plus `llm\` for the translate model).
+`MODELS_DIR` in `backend/.env` can point to another folder, for example on an external drive; empty means `models\`.
+The translate paths (`TRANSLATE_MODEL_PATH`, `TRANSLATE_MMPROJ_PATH`) are relative to that folder.
+`start-teczoforge.bat` checks the folder, tells ComfyUI where the models are, and starts ComfyUI minimised.
