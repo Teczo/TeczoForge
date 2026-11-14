@@ -1,18 +1,16 @@
-import { useEffect, useRef, useState } from "react";
-import type { FormEvent, ReactNode } from "react";
+import { useEffect, useState } from "react";
+import type { ReactNode } from "react";
 import { Archive, Image, LayoutDashboard, MessageSquare, MoreHorizontal, Pencil, Plus } from "lucide-react";
 import type { Project } from "./App";
-import { changeProject, UNSORTED_NAME } from "./ProjectDialogs";
-import { Badge, btn, FIELD, LABEL, Loading, Modal, Notice, PageHeader } from "./ui";
+import { askConfirm, askText, showMessage } from "./dialogs";
+import { changeProject, CreateProjectDialog, MAX_NAME_LENGTH, UNSORTED_NAME } from "./ProjectDialogs";
+import { Badge, btn, Loading, Notice, PageHeader } from "./ui";
 
 // The Projects page (FRG-50): every project as a tile, and "Create project".
 // A click on a tile makes it the current project and opens the Chat page.
 // The tile menu renames or archives a project (before FRG-50 this was the "Manage projects" dialog).
 
 const NO_BACKEND = "Could not reach the backend. Make sure it is running, then try again.";
-
-// The longest project name the backend accepts (backend/src/projects.ts).
-const MAX_NAME_LENGTH = 60;
 
 // One project, as GET /api/projects?summary=1 returns it (FRG-49).
 type ProjectTile = Project & {
@@ -53,25 +51,30 @@ export default function ProjectsPage({ currentProjectId, onOpen, onChanged }: Pr
     load();
   }, []);
 
-  // Rename or archive (the same calls as the old "Manage projects" dialog), then load again.
-  async function change(tile: ProjectTile, fields: { name?: string; archived?: boolean }) {
-    const problem = await changeProject(tile.id, fields);
-    if (problem) window.alert(problem);
-    else onChanged();
+  // Rename: the dialog saves the new name itself, so a backend error (for example a used name)
+  // shows inside the dialog and the user can fix it.
+  async function rename(tile: ProjectTile) {
+    const name = await askText({
+      title: "Rename project",
+      label: "Name",
+      value: tile.name,
+      maxLength: MAX_NAME_LENGTH,
+      onSubmit: (value) => (value === tile.name ? Promise.resolve(null) : changeProject(tile.id, { name: value })),
+    });
+    if (name === null || name === tile.name) return;
+    onChanged();
     await load();
   }
 
-  function rename(tile: ProjectTile) {
-    const name = window.prompt(`New name for this project (at most ${MAX_NAME_LENGTH} characters):`, tile.name);
-    if (name === null || name.trim() === "" || name.trim() === tile.name) return;
-    change(tile, { name });
-  }
-
-  function archive(tile: ProjectTile) {
+  // Archive (the same call as the old "Manage projects" dialog), then load again.
+  async function archive(tile: ProjectTile) {
     const files = tile.jobCount === 1 ? "1 file" : `${tile.jobCount} files`;
-    const question = `Archive "${tile.name}"? It leaves the project picker. Its ${files}, cards and chats are kept.`;
-    if (!window.confirm(question)) return;
-    change(tile, { archived: true });
+    const message = `"${tile.name}" leaves the project picker. Its ${files}, cards and chats are kept.`;
+    if (!(await askConfirm({ title: "Archive project?", message, confirmLabel: "Archive" }))) return;
+    const problem = await changeProject(tile.id, { archived: true });
+    if (problem) await showMessage({ title: "Could not archive the project", message: problem });
+    else onChanged();
+    await load();
   }
 
   return (
@@ -223,80 +226,6 @@ function MenuItem({ icon, label, onClick }: { icon: ReactNode; label: string; on
       <span className="text-ink-2">{icon}</span>
       {label}
     </button>
-  );
-}
-
-// "Create project": a small dialog with a name field. Shows the backend's error, for example a used name.
-function CreateProjectDialog({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
-  const [name, setName] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    inputRef.current?.focus();
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
-
-  async function create(event: FormEvent) {
-    event.preventDefault();
-    if (name.trim() === "") return;
-    setBusy(true);
-    setError(null);
-    try {
-      const response = await fetch("/api/projects", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name }),
-      });
-      const body = await response.json().catch(() => null);
-      if (!body) setError(NO_BACKEND);
-      else if (!response.ok) setError(body.error ?? "Could not make the project.");
-      else onCreated();
-    } catch {
-      setError(NO_BACKEND);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <Modal title="Create project" onClose={onClose}>
-      <form onSubmit={create}>
-        <label className="block">
-          <span className={LABEL}>Name</span>
-          <input
-            ref={inputRef}
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            maxLength={MAX_NAME_LENGTH}
-            placeholder="For example: Summer campaign"
-            className={`${FIELD} h-9`}
-          />
-        </label>
-        {error && <p className="mt-3 mb-0 text-sm text-danger">{error}</p>}
-        <div className="mt-5 flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className={btn("secondary")}
-          >
-            Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={busy || name.trim() === ""}
-            className={btn("primary")}
-          >
-            {busy ? "Creating..." : "Create"}
-          </button>
-        </div>
-      </form>
-    </Modal>
   );
 }
 

@@ -1,4 +1,5 @@
 import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, TextareaHTMLAttributes } from "react";
+import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 
 // The shared parts of the look: Button, Input, Card, Modal, Tabs, Badge, Notice, EmptyState, PageHeader.
@@ -88,9 +89,11 @@ type ModalProps = {
 const MODAL_WIDTH = { sm: "max-w-sm", lg: "max-w-4xl", xl: "max-w-5xl" };
 
 // A dialog on top of the page. A click outside it, or on the X, calls onClose.
+// It is drawn at the end of <body> (a portal), so it is always on top of the whole page, also
+// when it is opened from inside the sidebar or a card.
 export function Modal({ title, subtitle, onClose, size = "sm", children }: ModalProps) {
   const tall = size !== "sm";
-  return (
+  return createPortal(
     <div
       className={`fixed inset-0 z-50 flex justify-center bg-overlay px-4 ${tall ? "items-start overflow-y-auto py-10" : "items-center"}`}
       onClick={onClose}
@@ -112,7 +115,8 @@ export function Modal({ title, subtitle, onClose, size = "sm", children }: Modal
         </div>
         {children}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
