@@ -12,8 +12,7 @@ All files are in `frontend/src/`.
 | [x] | Loading screen (before login is known) | any | `App.tsx` (`.loading-page`) |
 | [x] | Login | any, when logged out | `Login.tsx` |
 | [x] | Chat (home page) | `#/`, `#/chat`, `#/chat/<id>` | `Chat.tsx` |
-| [x] | Generate / Create | `#/generate` | `Generate.tsx` |
-| [x] | Avatar (Generate on the Avatar category) | `#/avatar` | `Generate.tsx`, `VoicePicker.tsx` |
+| [x] | Generate / Create (Avatar is a category on it) | `#/generate` | `Generate.tsx`, `VoicePicker.tsx` |
 | [x] | Gallery grid | `#/gallery` | `Gallery.tsx` |
 | [x] | Gallery detail view | `#/gallery/<job id>` | `Gallery.tsx` (`Detail`), `ChainView.tsx` |
 | [x] | Board | `#/board` | `Board.tsx`, `BatchBar.tsx` |
@@ -25,8 +24,7 @@ All files are in `frontend/src/`.
 | [x] | Translate | `#/translate` | `TranslatePage.tsx` |
 
 Not present in the app (nothing to restyle): a Compare tool page, a model/storage page, a settings page.
-The closest parts are listed below: the pick screen (compares results side by side), the model list
-on the Generate page, and the user menu.
+The closest parts are listed below: the pick screen (compares results side by side) and the user menu.
 
 ## 2. Frame around every page
 
@@ -143,8 +141,6 @@ items, focus), `emerald-*`, `amber-*`, `red-*`, `sky-*`, `violet-*` (status), `w
 
 | Where | What | Plan |
 |---|---|---|
-| `Generate.tsx` line 198 | `hsl(...)` gradient made from the model name, for the model thumbnail | Moved to `theme.css` (`.model-thumb`). The code only passes the hue number. |
-| `Generate.tsx` lines 204-208 | Five hex gradients for the "quick prompt" cards | Moved to `theme.css` (`.sample-art-1` to `.sample-art-5`). |
 | `GamesPage.tsx` line 394 | `backgroundColor: colour` for a game's palette swatches | Kept. The colour is data from the game design file. |
 | `ModelViewer.tsx` | Three.js scene (lights) | Checked: the background comes from CSS. |
 
@@ -158,7 +154,7 @@ Every item above is ticked.
   names (`slate`, `teal`, `red`, ...) in `frontend/src` finds nothing outside that file.
 - Newer pages (Chat, Projects, Games, Packs, Pick screen, Translate, the sidebar and top bar) use the
   shared parts in `ui.tsx` and Tailwind theme classes (`bg-card`, `text-ink`, `border-line`, ...).
-- Older pages (Login, Generate, Avatar, Gallery, Board) still use the classes in `styles.css`
+- Older pages (Login, Generate, Gallery, Board) still use the classes in `styles.css`
   (`.button`, `.input`, `.panel`, `.message`, ...). Those classes were restyled and read the same
   theme variables, so they look the same as the shared parts.
 - The one colour that stays in code: the palette swatches of a game (`GamesPage.tsx`), because the

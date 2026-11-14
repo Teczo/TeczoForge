@@ -48,7 +48,7 @@ Backend (Express, 127.0.0.1:4000) ──► ComfyUI (127.0.0.1:8188)   HTTP + on
 
   | Field | Example | What it does |
   |---|---|---|
-  | `model` | `"Z-Image-Turbo"` | The sidebar **Models** list is built from this. A new model shows up by itself. Chat tells Claude the model. |
+  | `model` | `"Z-Image-Turbo"` | The name of the model the preset uses. Chat tells Claude the model. |
   | `licence` | `"Apache 2.0"` | Shown as a tooltip on the badge. |
   | `clientWork` | `"yes"`, `"no"`, `"conditions"` | Badge on the preset picker, board cards and gallery detail: **Client work OK**, **Research only**, **Check licence**. Running a Research only preset asks once. |
   | `licenceNote` | `"Credit the author."` | One short line. Shown next to **Check licence**, and in the Research only question. |
@@ -139,9 +139,9 @@ Backend (Express, 127.0.0.1:4000) ──► ComfyUI (127.0.0.1:8188)   HTTP + on
 - `AppShell.tsx` (FRG-46, Tailwind + lucide-react): left sidebar with logo, New chat, page links, **project picker** ("+ New project" at the end), the Recent chats, and the user menu with Log out; Backend/ComfyUI status box at the top right.
 - `RecentChats.tsx` (FRG-47): the chats of the chosen project in the sidebar, newest first. New chat makes a chat in the project and opens it; on hover Rename, Move to project, Delete (asks first). The list loads again after these, after a project change, and when the Chat page says a chat was made or got its title.
 - `PresetBadges.tsx`: the licence badge and **Test** label of a preset, the Research only question, and the estimated time text (FRG-32).
-- `Generate.tsx`: three columns. **Sidebar** (categories + models from the `model` field of the presets), **Create panel** (image upload,
-  prompt, preset picker, Quick Prompts, Advanced Settings, Generate), **Result panel** (large view,
-  download, full screen, strip of the 10 latest results).
+- `Generate.tsx`: three columns. **Sidebar** (categories; Avatar is one of them), **Create panel** (image upload,
+  prompt, preset picker, Advanced Settings (closed until clicked), Generate), **Result panel** (large view,
+  download, full screen). It starts empty; older results are in the Gallery.
 - `Gallery.tsx`: grid of finished jobs → detail view (prompt, maker, preset, seed, size, time) with **Use again** and **Download**. Jobs with a start image show **Start image → Result**. Pictures have **Use in chat** (attach to the last open chat) and **Send to**. Shows **Made from** (link to the start picture's job) and **Used in** (links).
 - `SendToMenu.tsx`: the **Send to** menu (FRG-26) on picture results: result panel, gallery detail, Done board cards and chat cards. One item per preset with an image input (`sendToLabel` or the name), each with **Open in Generate** and **Add to board**.
 - `ProjectDialogs.tsx`: `changeProject` (rename or archive, used by the Projects page) and **Move to project** (used by the gallery job view and the sidebar chat list) (FRG-43).
@@ -171,7 +171,6 @@ Backend (Express, 127.0.0.1:4000) ──► ComfyUI (127.0.0.1:8188)   HTTP + on
 - ✅ Live progress: queue position ("2 jobs ahead"), step progress bar, "Saving the result…"
 - ✅ Random seed by default, or a fixed seed you type, with a shuffle button
 - ✅ Result viewer with download and full screen. Videos autoplay, loop and are muted.
-- ✅ Recent results strip on the Generate page
 - ✅ Gallery with video tags, a detail view and "made by"
 - ✅ **Use again**: fills the Generate form from a gallery job
 - ✅ Every job is saved to MongoDB (also failed ones, with the error), including the seed that was used
@@ -251,7 +250,6 @@ Severity: 🔴 fix soon · 🟠 important before team or remote use · 🟡 impr
 | Sidebar → Create | **Edit / Inpaint** | A preset with `"type": "edit"` and a mask input (new input kind `mask` + a brush canvas) |
 | Sidebar → Create | **Upscale** | A preset with `"type": "upscale"` (for example an ESRGAN model or a tiled diffusion upscale) |
 | Create panel | **Presets** button | A browser for saved prompt and style presets |
-| Create panel | **Quick Prompts** (Cinematic Landscape, Futuristic City, Product Render, Anime Character, Interior Design) + "View more" | A list of starter prompts / style templates that fill the prompt box |
 | Advanced Settings | **Steps** selector | A new `steps` input in `preset.json` (or Fast / Quality modes) |
 
 The sidebar categories turn on **by themselves** when a matching preset folder exists. No code change is needed.

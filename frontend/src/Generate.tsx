@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import type { CSSProperties, FormEvent, ReactNode } from "react";
+import type { FormEvent, ReactNode } from "react";
 import Media, { outputKind, useAvatarCheck } from "./Media";
 import type { OutputKind } from "./Media";
 import SendToMenu, { ExtendButton } from "./SendToMenu";
 import PresetBadges, { confirmResearchOnly, formatSeconds } from "./PresetBadges";
 import type { Project } from "./App";
-import { ArrowRight, Box, ChevronDown, ChevronUp, Download, Film, Folder, Image, Layers, Maximize, Monitor, Music, Paperclip, Pencil, Play, Scaling, Settings, Shuffle, Sparkles, Tag, Upload, UserRound, Video, Volume2, Zap } from "lucide-react";
+import { Box, ChevronDown, ChevronUp, Download, Film, Folder, Image, Layers, Maximize, Monitor, Music, Paperclip, Pencil, Scaling, Settings, Shuffle, Sparkles, Tag, Upload, UserRound, Video } from "lucide-react";
 import TimeTest from "./TimeTest";
 import VoicePicker from "./VoicePicker";
 
@@ -159,7 +159,7 @@ function promptLines(text: string): string[] {
 // A group with no presets is shown as "Soon". So a new preset folder with, for example,
 // "type": "upscale" turns on the Upscale item by itself, with no code change.
 type Category = { id: string; label: string; Icon: (p: { size?: number }) => ReactNode; matches: (p: Preset) => boolean };
-// The Avatar link in the sidebar (#/avatar) opens this group (FRG-86).
+// Avatar videos: a photo and a voice in, a talking video out (FRG-86).
 const AVATAR: Category = { id: "avatar", label: "Avatar", Icon: UserRound, matches: (p) => p.type === "avatar" };
 const CATEGORIES: Category[] = [
   { id: "image", label: "Image", Icon: Image, matches: (p) => p.type === "image" },
@@ -185,31 +185,7 @@ function firstPresetOf(category: Category, presets: Preset[]): Preset | undefine
   return inGroup.find((p) => !hasImageInput(p)) ?? inGroup[0];
 }
 
-// The models in the left menu, from the "model" field of the presets (FRG-32). Only for show:
-// the preset decides which model really runs. A new model folder shows up here by itself.
-// note: the groups its presets are in. hue: picked from the name, so the thumbnail colour stays the same.
-// The thumbnail gradient itself is in theme.css (.model-thumb); it uses this hue.
-type Model = { name: string; note: string; hue: number };
-function modelsOf(presets: Preset[]): Model[] {
-  const names = [...new Set(presets.map((p) => p.model).filter((name) => name !== ""))];
-  return names.map((name) => {
-    const groups = [...new Set(presets.filter((p) => p.model === name).map((p) => categoryOf(p).label))];
-    let hue = 0;
-    for (const char of name) hue = (hue * 31 + char.charCodeAt(0)) % 360;
-    return { name, note: groups.join(", "), hue };
-  });
-}
-
-// The Quick Prompts cards. Not working yet ("Soon"). art: the sample picture, a gradient in theme.css.
-const QUICK_PROMPTS = [
-  { label: "Cinematic Landscape", art: "sample-art-1" },
-  { label: "Futuristic City", art: "sample-art-2" },
-  { label: "Product Render", art: "sample-art-3" },
-  { label: "Anime Character", art: "sample-art-4" },
-  { label: "Interior Design", art: "sample-art-5" },
-];
-
-// A finished result shown on the right: made just now, or from the job history.
+// A finished result shown on the right. Older results are in the Gallery.
 // jobId: for "Send to" (FRG-26). kind: image, video, audio or 3d (FRG-29).
 type Result = { url: string; kind: OutputKind; alt: string; jobId?: string; presetId?: string | null; audioUsed?: string };
 
@@ -221,20 +197,15 @@ const RESULT_TITLES: Record<OutputKind, string> = {
   "3d": "Generated 3D Model",
 };
 
-// How many recent results to show under the large picture.
-const RECENT_COUNT = 10;
-
 type GenerateProps = {
   startValues?: StartValues | null;
   onStartValuesUsed?: () => void;
   // The project chosen in the header (FRG-41). New jobs go into it.
   // undefined while loading, null if the projects could not be loaded: then the backend uses "Unsorted".
   project?: Project | null;
-  // The address is #/avatar: show the Avatar category (FRG-86).
-  avatar?: boolean;
 };
 
-export default function Generate({ startValues = null, onStartValuesUsed, project, avatar = false }: GenerateProps) {
+export default function Generate({ startValues = null, onStartValuesUsed, project }: GenerateProps) {
   const [presets, setPresets] = useState<Preset[] | null>(null);
   const [presetsError, setPresetsError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -254,10 +225,9 @@ export default function Generate({ startValues = null, onStartValuesUsed, projec
   const [progress, setProgress] = useState<Progress | null>(null);
   const [cancelling, setCancelling] = useState(false);
   const [shown, setShown] = useState<Result | null>(null);
-  const [recent, setRecent] = useState<Result[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
-  const [showSettings, setShowSettings] = useState(true);
+  const [showSettings, setShowSettings] = useState(false); // Advanced Settings start closed.
   const stageRef = useRef<HTMLDivElement>(null);
   const isAvatar = useAvatarCheck();
 
@@ -291,8 +261,8 @@ export default function Generate({ startValues = null, onStartValuesUsed, projec
               setNotice(`Filled in from the gallery. Press Generate to make it again.`);
             }
           } else {
-            // Start with the first Image preset, like the top item of the left menu. #/avatar: the first avatar preset.
-            const first = (avatar ? firstPresetOf(AVATAR, list) : undefined) ?? firstPresetOf(CATEGORIES[0], list) ?? list[0];
+            // Start with the first Image preset, like the top item of the left menu.
+            const first = firstPresetOf(CATEGORIES[0], list) ?? list[0];
             setPresetId(first.id);
             setValues(defaultValues(first));
             if (startValues) setNotice(`The preset "${startValues.presetId}" no longer exists, so nothing was filled in.`);
@@ -304,28 +274,6 @@ export default function Generate({ startValues = null, onStartValuesUsed, projec
       }
     }
     loadPresets();
-  }, []);
-
-  // Load the latest results for the row under the large picture. If the job history
-  // (MongoDB) is offline, the row stays empty. Generating still works.
-  useEffect(() => {
-    async function loadRecent() {
-      try {
-        const response = await fetch(`/api/jobs?status=done&limit=${RECENT_COUNT}`);
-        if (!response.ok) return;
-        const body: {
-          jobs: { id?: string; presetId: string | null; imageUrl: string | null; outputKind?: string; inputs: Record<string, unknown>; audioUsed?: string }[];
-        } = await response.json();
-        const results: Result[] = body.jobs
-          .filter((job) => job.imageUrl)
-          .map((job) => ({ url: job.imageUrl!, kind: outputKind(job), alt: String(job.inputs.prompt ?? ""), jobId: job.id, presetId: job.presetId, audioUsed: job.audioUsed }));
-        setRecent(results);
-        setShown((current) => current ?? results[0] ?? null);
-      } catch {
-        // No history to show. That is fine.
-      }
-    }
-    loadRecent();
   }, []);
 
   // After a page refresh: find my jobs that are still waiting or running, and follow them.
@@ -383,7 +331,6 @@ export default function Generate({ startValues = null, onStartValuesUsed, projec
             audioUsed: body.audioUsed,
           };
           setShown(result);
-          setRecent((current) => [result, ...current.filter((r) => r.url !== result.url)].slice(0, RECENT_COUNT));
           stopFollowing();
         } else if (body.status === "done" || body.status === "failed" || body.status === "draft") {
           // "draft": a board card whose job did not finish. It went back to the Ready column.
@@ -449,28 +396,6 @@ export default function Generate({ startValues = null, onStartValuesUsed, projec
     setTotalLength(0);
     setClipPrompts("");
   }
-
-  // The Avatar or Generate link was clicked while this page is open (FRG-86): go to that category.
-  useEffect(() => {
-    if (!presets || !preset) return;
-    const inAvatar = categoryOf(preset) === AVATAR;
-    if (avatar && !inAvatar) {
-      const first = firstPresetOf(AVATAR, presets);
-      if (first) choosePreset(first.id);
-    } else if (!avatar && inAvatar) {
-      const first = firstPresetOf(CATEGORIES[0], presets) ?? presets[0];
-      choosePreset(first.id);
-    }
-  }, [avatar]);
-
-  // The other way round: another way changed the preset (the left menu, "Send to", "Use again").
-  // Keep the address, and so the highlighted sidebar link, the same as the category.
-  useEffect(() => {
-    if (!preset) return;
-    const inAvatar = categoryOf(preset) === AVATAR;
-    if (inAvatar && window.location.hash === "#/generate") window.location.replace("#/avatar");
-    if (!inAvatar && window.location.hash === "#/avatar") window.location.replace("#/generate");
-  }, [presetId]);
 
   // Start the job. The backend answers at once with its id; the effect above follows it.
   async function handleSubmit(event: FormEvent) {
@@ -600,25 +525,6 @@ export default function Generate({ startValues = null, onStartValuesUsed, projec
                 {c.label}
                 {!available && <span className="soon">Soon</span>}
               </button>
-            );
-          })}
-        </div>
-        <hr />
-        <div className="models">
-          <h3>Models</h3>
-          {modelsOf(presets).map((model) => {
-            const active = model.name === preset.model;
-            return (
-              <div key={model.name} className={`model ${active ? "active" : ""}`}>
-                <div className="model-thumb" style={{ "--hue": model.hue } as CSSProperties}>
-                  <Sparkles size={22} />
-                </div>
-                <div className="model-text">
-                  <div className="model-name">{model.name}</div>
-                  <div className="model-note">{model.note}</div>
-                </div>
-                {active && <span className="badge">In use</span>}
-              </div>
             );
           })}
         </div>
@@ -787,31 +693,6 @@ export default function Generate({ startValues = null, onStartValuesUsed, projec
         </div>
 
         <div className="create-section">
-          <div className="section-head">
-            <Zap size={22} />
-            <h3>Quick Prompts</h3>
-            <span className="soon" style={{ marginLeft: 0 }}>
-              Soon
-            </span>
-            <div className="right">
-              <button type="button" className="ghost-button" disabled title="Coming soon">
-                View more <ArrowRight size={16} />
-              </button>
-            </div>
-          </div>
-          <div className="quick-grid">
-            {QUICK_PROMPTS.map((q) => (
-              <button key={q.label} type="button" className="quick-card" disabled title="Coming soon">
-                <div className={`quick-art ${q.art}`}>
-                  <Image size={22} />
-                </div>
-                <span>{q.label}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="create-section">
           <button
             type="button"
             className="collapse-head"
@@ -931,25 +812,6 @@ export default function Generate({ startValues = null, onStartValuesUsed, projec
           )}
         </div>
 
-        {recent.length > 0 && (
-          <div className="strip">
-            {recent.map((result) => (
-              <button
-                key={result.url}
-                className={shown?.url === result.url ? "active" : ""}
-                onClick={() => setShown(result)}
-                title={result.alt}
-              >
-                <Media url={result.url} kind={result.kind} mode="thumbnail" alt={result.alt} />
-                {result.kind === "video" && (
-                  <span className="video-tag">
-                    {isAvatar(result) ? <Volume2 size={10} aria-label="With sound" /> : <Play size={10} className="fill-current" />} Video
-                  </span>
-                )}
-              </button>
-            ))}
-          </div>
-        )}
       </section>
     </div>
   );
