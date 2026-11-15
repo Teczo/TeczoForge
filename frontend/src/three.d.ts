@@ -40,6 +40,8 @@ declare module "three" {
     position: Vector3;
     children: Object3D[];
     add(...objects: Object3D[]): this;
+    remove(...objects: Object3D[]): this;
+    lookAt(x: number, y: number, z: number): void;
     traverse(callback: (object: Object3D) => void): void;
   }
 
@@ -64,7 +66,7 @@ declare module "three" {
 
   export class WebGLRenderer {
     domElement: HTMLCanvasElement;
-    constructor(parameters?: { antialias?: boolean; alpha?: boolean });
+    constructor(parameters?: { antialias?: boolean; alpha?: boolean; preserveDrawingBuffer?: boolean });
     setPixelRatio(value: number): void;
     setSize(width: number, height: number, updateStyle?: boolean): void;
     setAnimationLoop(callback: (() => void) | null): void;

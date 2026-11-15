@@ -32,6 +32,7 @@ import { extendHandler, sendToHandler, usedInHandler } from "./sendTo.js";
 import { listPresets } from "./presets.js";
 import { createProjectHandler, listProjectsHandler, updateProjectHandler } from "./projects.js";
 import { AUDIO_TYPES, IMAGE_TYPES, MAX_UPLOAD_BYTES, uploadAudioHandler, uploadHandler, useOutputHandler } from "./upload.js";
+import { MAX_THUMBNAIL_BYTES, saveThumbnailHandler, THUMBNAILS_DIR } from "./thumbnails.js";
 import { checkSessionSecret, loginHandler, logoutHandler, meHandler, requireLogin } from "./auth.js";
 import { checkGameFileHandler } from "./gameFile.js";
 import { checkPackFileHandler } from "./packFile.js";
@@ -274,6 +275,9 @@ app.use(
     },
   }),
 );
+// Pictures of 3D models for the grids (see thumbnails.ts). The browser draws one and sends it here.
+app.use("/api/thumbnails", express.static(THUMBNAILS_DIR));
+app.post("/api/thumbnails/:name", express.raw({ type: "image/png", limit: MAX_THUMBNAIL_BYTES }), saveThumbnailHandler);
 // "Use in chat": copy a finished picture into data/inputs as a start image (FRG-25).
 app.post("/api/inputs/from-output", express.json(), useOutputHandler);
 

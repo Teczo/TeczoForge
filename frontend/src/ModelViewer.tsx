@@ -6,11 +6,13 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { Box, Download } from "lucide-react";
+import { keepThumbnail, THUMBNAIL_SIZE } from "./modelThumbnail";
 
 // The 3D viewer (FRG-27). Shows a .glb model: drag to rotate, scroll or pinch to zoom,
 // right-drag to move. "Reset view" goes back to the first view.
-// This file is the only one that uses "three". Media.tsx loads it only when a model is shown,
-// so other pages do not download three.
+// It also draws the still pictures of models for the grids (renderThumbnail, at the end).
+// This file is the only one that uses "three". Media.tsx and modelThumbnail.ts load it only when
+// a model is shown or a picture must be made, so other pages do not download three.
 
 type ModelViewerProps = { url: string; alt: string; style?: CSSProperties };
 
@@ -69,21 +71,25 @@ export default function ModelViewer({ url, alt, style }: ModelViewerProps) {
         model = gltf.scene;
         scene.add(model);
 
-        // Put the model in the middle and move the camera back until all of it fits.
-        const bounds = new Box3().setFromObject(model);
-        const center = bounds.getCenter(new Vector3());
-        const size = bounds.isEmpty() ? 1 : bounds.getSize(new Vector3()).length() || 1;
-        model.position.sub(center);
-        camera.near = size / 100;
-        camera.far = size * 100;
-        camera.updateProjectionMatrix();
-        camera.position.set(size * 0.6, size * 0.35, size * 0.9);
+        const size = frameModel(model, camera);
         controls.target.set(0, 0, 0);
         controls.minDistance = size * 0.1;
         controls.maxDistance = size * 10;
         controls.update();
         controls.saveState(); // "Reset view" goes back here.
         setState("ready");
+
+        // Keep a square picture of this first view for the grids, if the model has none yet.
+        // The canvas is square only for this one draw; resize() puts it back before the next frame.
+        renderer.setPixelRatio(1);
+        renderer.setSize(THUMBNAIL_SIZE, THUMBNAIL_SIZE, false);
+        camera.aspect = 1;
+        camera.updateProjectionMatrix();
+        renderer.render(scene, camera);
+        const picture = canvasPicture(renderer.domElement);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        resize();
+        keepThumbnail(url, picture);
       })
       .catch((error) => {
         console.error("Could not show the 3D model:", error);
@@ -129,6 +135,61 @@ export default function ModelViewer({ url, alt, style }: ModelViewerProps) {
       </div>
     </div>
   );
+}
+
+// Put the model in the middle and move the camera back until all of it fits.
+// Returns the size of the model (the diagonal of its box).
+function frameModel(model: Object3D, camera: PerspectiveCamera): number {
+  const bounds = new Box3().setFromObject(model);
+  const center = bounds.getCenter(new Vector3());
+  const size = bounds.isEmpty() ? 1 : bounds.getSize(new Vector3()).length() || 1;
+  model.position.sub(center);
+  camera.near = size / 100;
+  camera.far = size * 100;
+  camera.updateProjectionMatrix();
+  camera.position.set(size * 0.6, size * 0.35, size * 0.9);
+  camera.lookAt(0, 0, 0);
+  return size;
+}
+
+// What the canvas shows right now, as a PNG. Call it straight after a draw.
+function canvasPicture(canvas: HTMLCanvasElement): Promise<Blob | null> {
+  return new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+}
+
+// ---- Pictures for the grids (see modelThumbnail.ts) ----
+
+// One hidden renderer for all pictures, kept for as long as the page is open. A browser allows
+// only a few renderers, so making a new one for each picture would switch off the 3D viewers.
+let pictureMaker: { renderer: WebGLRenderer; scene: Scene; camera: PerspectiveCamera } | null = null;
+
+// Draw a model once, from the same first view as the viewer, and give back the PNG picture.
+// The model is freed again after the draw. modelThumbnail.ts calls this for one model at a time.
+export async function renderThumbnail(url: string): Promise<Blob> {
+  if (!pictureMaker) {
+    const renderer = new WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
+    renderer.setSize(THUMBNAIL_SIZE, THUMBNAIL_SIZE, false);
+    const scene = new Scene();
+    const pmrem = new PMREMGenerator(renderer);
+    const room = new RoomEnvironment();
+    scene.environment = pmrem.fromScene(room, 0.04).texture;
+    room.dispose();
+    pmrem.dispose();
+    pictureMaker = { renderer, scene, camera: new PerspectiveCamera(40, 1, 0.01, 1000) };
+  }
+  const { renderer, scene, camera } = pictureMaker;
+  const model = (await new GLTFLoader().loadAsync(url)).scene;
+  try {
+    scene.add(model);
+    frameModel(model, camera);
+    renderer.render(scene, camera);
+    const picture = await canvasPicture(renderer.domElement);
+    if (!picture) throw new Error("The browser could not save the picture.");
+    return picture;
+  } finally {
+    scene.remove(model);
+    disposeModel(model);
+  }
 }
 
 // Free the model's memory on the graphics card.
