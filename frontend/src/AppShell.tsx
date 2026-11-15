@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { ChevronDown, Folder, Gamepad2, Image, Languages, LayoutDashboard, LogOut, MessageSquare, Moon, Package, PanelLeft, Plus, Sparkles, Sun, UserRound } from "lucide-react";
 import type { Project } from "./App";
 import Logo from "./Logo";
+import { CreateProjectDialog } from "./ProjectDialogs";
 import RecentChats, { useRecentChats } from "./RecentChats";
 import { useTheme } from "./theme";
 import type { Theme } from "./theme";
@@ -207,30 +208,9 @@ type ProjectPickerProps = {
 function ProjectPicker({ projects, project, onChoose, onCreated }: ProjectPickerProps) {
   const [creating, setCreating] = useState(false);
 
-  async function createProject() {
-    const name = window.prompt("Name of the new project (at most 60 characters):");
-    if (name === null || name.trim() === "") return;
-    setCreating(true);
-    try {
-      const response = await fetch("/api/projects", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name }),
-      });
-      const body = await response.json().catch(() => null);
-      if (!body) window.alert("Could not reach the backend. Make sure it is running, then try again.");
-      else if (!response.ok) window.alert(body.error ?? "Could not make the project.");
-      else onCreated(body);
-    } catch {
-      window.alert("Could not reach the backend. Make sure it is running, then try again.");
-    } finally {
-      setCreating(false);
-    }
-  }
-
   function onChange(value: string) {
     if (value === NEW_PROJECT) {
-      createProject();
+      setCreating(true);
       return;
     }
     const chosen = projects.find((p) => p.id === value);
@@ -254,28 +234,40 @@ function ProjectPicker({ projects, project, onChoose, onCreated }: ProjectPicker
   }
 
   return (
-    <label className="block" title="Current project: new files go here, and the gallery shows its files">
-      {label}
-      <div className="relative">
-        <Folder {...ICON} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-ink-3" />
-        <select
-          aria-label="Project"
-          value={project?.id ?? ""}
-          onChange={(event) => onChange(event.target.value)}
-          disabled={project === undefined || creating}
-          className="h-8 w-full cursor-pointer appearance-none truncate rounded-lg border border-line bg-card pr-8 pl-9 text-sm text-ink outline-none hover:border-line-strong focus:border-accent focus:ring-3 focus:ring-focus-ring disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {project === undefined && <option value="">Loading...</option>}
-          {projects.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-          {project !== undefined && <option value={NEW_PROJECT}>+ New project</option>}
-        </select>
-        <ChevronDown {...ICON} className="pointer-events-none absolute top-1/2 right-2.5 -translate-y-1/2 text-ink-3" />
-      </div>
-    </label>
+    <>
+      <label className="block" title="Current project: new files go here, and the gallery shows its files">
+        {label}
+        <div className="relative">
+          <Folder {...ICON} className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-ink-3" />
+          <select
+            aria-label="Project"
+            value={project?.id ?? ""}
+            onChange={(event) => onChange(event.target.value)}
+            disabled={project === undefined || creating}
+            className="h-8 w-full cursor-pointer appearance-none truncate rounded-lg border border-line bg-card pr-8 pl-9 text-sm text-ink outline-none hover:border-line-strong focus:border-accent focus:ring-3 focus:ring-focus-ring disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {project === undefined && <option value="">Loading...</option>}
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+            {project !== undefined && <option value={NEW_PROJECT}>+ New project</option>}
+          </select>
+          <ChevronDown {...ICON} className="pointer-events-none absolute top-1/2 right-2.5 -translate-y-1/2 text-ink-3" />
+        </div>
+      </label>
+      {/* "+ New project": the same dialog as on the Projects page. The new project becomes the current one. */}
+      {creating && (
+        <CreateProjectDialog
+          onClose={() => setCreating(false)}
+          onCreated={(created) => {
+            setCreating(false);
+            onCreated(created);
+          }}
+        />
+      )}
+    </>
   );
 }
 

@@ -78,7 +78,7 @@ export default function ChatCard({ card: ref, presets, onOpenInGenerate }: ChatC
 
   // Generate: run the draft, the same as the board's Generate button.
   async function generate() {
-    if (!confirmResearchOnly(preset)) return; // FRG-32
+    if (!(await confirmResearchOnly(preset))) return; // FRG-32
     setBusy(true);
     setProblem(null);
     try {

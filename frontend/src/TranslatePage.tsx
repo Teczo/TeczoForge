@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChangeEvent, DragEvent } from "react";
 import { AlertTriangle, Check, Copy, Download, ImagePlus, Pencil, RefreshCw, Trash2 } from "lucide-react";
+import { askConfirm, showMessage } from "./dialogs";
 import { btn, CARD, EmptyState, FIELD, Loading, Notice, PageHeader } from "./ui";
 import { forEachPdfPage, isPdf } from "./pdfPages";
 import { splitIntoBlocks } from "./translateTables";
@@ -225,7 +226,7 @@ export default function TranslatePage() {
     const question = doc.fileId
       ? `Remove all ${doc.pages} pages of "${doc.originalName}"? The pictures and the texts are deleted. This cannot be undone.`
       : `Remove "${doc.originalName}"? The photo and the texts are deleted. This cannot be undone.`;
-    if (!window.confirm(question)) return;
+    if (!(await askConfirm({ title: "Remove document?", message: question, confirmLabel: "Remove", danger: true }))) return;
     setError(null);
     try {
       const response = await fetch(`/api/translate/documents/${doc.id}`, { method: "DELETE" });
@@ -539,7 +540,7 @@ function TextBox({
       window.setTimeout(() => setCopied(false), 1500);
     } catch {
       // The browser did not allow it (for example the page is not on localhost or https).
-      window.alert("Copying did not work in this browser. Select the text and press Ctrl+C.");
+      await showMessage({ title: "Could not copy", message: "Copying did not work in this browser. Select the text and press Ctrl+C." });
     }
   }
 

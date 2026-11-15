@@ -4,6 +4,7 @@ import Media, { outputKind, useAvatarCheck } from "./Media";
 import type { OutputKind } from "./Media";
 import SendToMenu, { ExtendButton } from "./SendToMenu";
 import PresetBadges, { confirmResearchOnly, formatSeconds } from "./PresetBadges";
+import { askConfirm } from "./dialogs";
 import type { Project } from "./App";
 import { ArrowRight, Box, ChevronDown, ChevronUp, Download, Film, Folder, Image, Layers, Maximize, Monitor, Music, Paperclip, Pencil, Play, Scaling, Settings, Shuffle, Sparkles, Tag, Upload, UserRound, Video, Volume2, Zap } from "lucide-react";
 import TimeTest from "./TimeTest";
@@ -410,7 +411,12 @@ export default function Generate({ startValues = null, onStartValuesUsed, projec
   // Cancel the job the page is following. A running job asks first, because its work is lost.
   async function handleCancel() {
     if (!currentJobId) return;
-    if (progress?.state === "running" && !window.confirm("Stop this job? The work done so far is lost.")) return;
+    if (
+      progress?.state === "running" &&
+      !(await askConfirm({ title: "Stop this job?", message: "The work done so far is lost.", confirmLabel: "Stop job", danger: true }))
+    ) {
+      return;
+    }
     setCancelling(true);
     try {
       const response = await fetch(`/api/jobs/${currentJobId}/cancel`, { method: "POST" });
@@ -475,7 +481,7 @@ export default function Generate({ startValues = null, onStartValuesUsed, projec
   // Start the job. The backend answers at once with its id; the effect above follows it.
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    if (!preset || !confirmResearchOnly(preset)) return;
+    if (!preset || !(await confirmResearchOnly(preset))) return;
     setSubmitting(true);
     setProgress(null);
     setError(null);

@@ -8,6 +8,7 @@ import type { FormValues, Preset, Progress, StartValues } from "./Generate";
 import { Layers, Play, Sparkles, X } from "lucide-react";
 import type { Project } from "./App";
 import BatchBar, { cardsInBatches, useActiveBatches } from "./BatchBar";
+import { askConfirm } from "./dialogs";
 import { Badge } from "./ui";
 
 // The board (FRG-22): cards are prompts that are saved but not run yet.
@@ -156,11 +157,11 @@ export default function Board({ onOpenInGenerate, project }: BoardProps) {
 
   // Generate on one card. A "Research only" preset asks first (FRG-32).
   async function runOneCard(card: Card) {
-    if (confirmResearchOnly(presets.find((p) => p.id === card.presetId))) await runCard(card);
+    if (await confirmResearchOnly(presets.find((p) => p.id === card.presetId))) await runCard(card);
   }
 
   async function deleteCard(card: Card) {
-    if (!window.confirm(`Delete the card "${card.title}"?`)) return;
+    if (!(await askConfirm({ title: "Delete card?", message: `Delete the card "${card.title}"?`, confirmLabel: "Delete", danger: true }))) return;
     setMessage(null);
     if (await send(`/api/drafts/${card.id}`, { method: "DELETE" })) setMessage({ text: "Card deleted.", error: false });
   }
@@ -168,12 +169,16 @@ export default function Board({ onOpenInGenerate, project }: BoardProps) {
   async function generateAllReady() {
     const ready = (cards ?? []).filter((card) => columnOf(card) === "ready");
     const jobs = ready.length === 1 ? "1 job" : `${ready.length} jobs`;
-    if (!window.confirm(`Generate all Ready cards? This starts ${jobs}.`)) return;
+    if (!(await askConfirm({ title: "Generate all Ready cards?", message: `This starts ${jobs}.`, confirmLabel: "Generate" }))) return;
     // "Research only" presets (FRG-32): one question for all of them.
     const research = [...new Set(ready.map((card) => presets.find((p) => p.id === card.presetId)).filter((p) => p?.clientWork === "no"))];
     if (
       research.length > 0 &&
-      !window.confirm(`These presets are Research only (no client work): ${research.map((p) => p!.name).join(", ")}. Run them anyway?`)
+      !(await askConfirm({
+        title: "Research only presets",
+        message: `These presets are Research only (no client work): ${research.map((p) => p!.name).join(", ")}. Run them anyway?`,
+        confirmLabel: "Run anyway",
+      }))
     ) {
       return;
     }

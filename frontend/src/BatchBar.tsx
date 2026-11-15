@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { CircleX, Layers, Pause, Play, Square } from "lucide-react";
 import { clockTime, formatDuration } from "./Estimate";
+import { askConfirm } from "./dialogs";
 import { Badge, btn } from "./ui";
 import type { Tone } from "./ui";
 
@@ -102,7 +103,12 @@ export default function BatchBar({ batchId }: { batchId: string }) {
   }, [batchId]);
 
   async function press(action: "pause" | "resume" | "stop-now" | "end") {
-    if (action === "end" && !window.confirm("End this batch? Cards that have not run stay on the board in Ready.")) return;
+    if (
+      action === "end" &&
+      !(await askConfirm({ title: "End this batch?", message: "Cards that have not run stay on the board in Ready.", confirmLabel: "End batch", danger: true }))
+    ) {
+      return;
+    }
     setBusy(true);
     try {
       const response = await fetch(`/api/batches/${encodeURIComponent(batchId)}/${action}`, { method: "POST" });

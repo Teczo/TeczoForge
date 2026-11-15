@@ -1,6 +1,8 @@
 // Licence badge and "Test" label of a preset (FRG-32), from "clientWork", "licenceNote",
 // "licence" and "experimental" in preset.json. Used on the Generate page, the board and the gallery.
 
+import { askConfirm } from "./dialogs";
+
 // Only the preset fields these helpers need.
 type PresetInfo = {
   name: string;
@@ -40,12 +42,14 @@ export default function PresetBadges({ preset }: { preset: PresetInfo }) {
 }
 
 // Before running a "Research only" preset: ask once. Returns true if it may run.
-export function confirmResearchOnly(preset: PresetInfo | undefined | null): boolean {
+export async function confirmResearchOnly(preset: PresetInfo | undefined | null): Promise<boolean> {
   if (preset?.clientWork !== "no") return true;
   const note = preset.licenceNote ? `\n\n${preset.licenceNote}` : "";
-  return window.confirm(
-    `"${preset.name}" is Research only: its licence does not allow client work.${note}\n\nRun it anyway?`,
-  );
+  return askConfirm({
+    title: "Research only preset",
+    message: `"${preset.name}" is Research only: its licence does not allow client work.${note}\n\nRun it anyway?`,
+    confirmLabel: "Run anyway",
+  });
 }
 
 // A run time in words, for example "about 4 min 30 s" or "about 20 s".

@@ -3,6 +3,7 @@ import { Timer } from "lucide-react";
 import BatchBar, { useActiveBatches } from "./BatchBar";
 import EstimateView from "./Estimate";
 import type { Project } from "./App";
+import { askConfirm } from "./dialogs";
 import { btn } from "./ui";
 
 // "Time test" (FRG-76, backend/src/timeTest.ts): a batch with one Text to Image picture, then one card
@@ -24,7 +25,8 @@ export default function TimeTest({ presetIds, project }: { presetIds: string[]; 
   }, [testing]);
 
   async function start() {
-    if (!window.confirm("Run Time test? It makes 1 picture, then one job for each preset that takes a picture (3D, edit, video). This takes a few minutes.")) return;
+    const message = "It makes 1 picture, then one job for each preset that takes a picture (3D, edit, video). This takes a few minutes.";
+    if (!(await askConfirm({ title: "Run Time test?", message, confirmLabel: "Run test" }))) return;
     setBusy(true);
     setMessage(null);
     try {

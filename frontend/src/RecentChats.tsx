@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { Folder, MessageSquare, Pencil, X } from "lucide-react";
 import type { Project } from "./App";
+import { askConfirm, askText } from "./dialogs";
 import { MoveToProject } from "./ProjectDialogs";
 
 // The chats of the current project, in the sidebar's "Recent" area (FRG-47).
@@ -77,8 +78,8 @@ export function useRecentChats(projectId: string | null | undefined, version: nu
   }
 
   async function rename(conversation: ConversationSummary) {
-    const title = window.prompt("New name for this chat:", conversation.title);
-    if (title === null || title.trim() === "" || title === conversation.title) return;
+    const title = await askText({ title: "Rename chat", label: "Name", value: conversation.title });
+    if (title === null || title === conversation.title) return;
     const response = await fetch(`/api/chat/conversations/${conversation.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -91,7 +92,7 @@ export function useRecentChats(projectId: string | null | undefined, version: nu
 
   // openId: the chat open on the Chat page. If it is deleted, the Chat page shows an empty chat.
   async function remove(conversation: ConversationSummary, openId: string | null) {
-    if (!window.confirm(`Delete the chat "${conversation.title}"? This cannot be undone.`)) return;
+    if (!(await askConfirm({ title: "Delete chat?", message: `Delete the chat "${conversation.title}"? This cannot be undone.`, confirmLabel: "Delete", danger: true }))) return;
     const response = await fetch(`/api/chat/conversations/${conversation.id}`, { method: "DELETE" }).catch(() => null);
     const body = await response?.json().catch(() => null);
     if (!response?.ok) setError(body?.error ?? NO_BACKEND);
