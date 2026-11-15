@@ -204,67 +204,6 @@ svg.lucide {
   white-space: nowrap;
 }
 
-.model {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 8px;
-  margin-bottom: 6px;
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-}
-
-.model.active {
-  border-color: var(--line);
-  background: var(--hover);
-}
-
-.model.disabled {
-  opacity: 0.55;
-}
-
-.model-thumb {
-  width: 50px;
-  height: 50px;
-  border-radius: 10px;
-  flex-shrink: 0;
-  display: grid;
-  place-items: center;
-  color: var(--on-media);
-}
-
-.model-text {
-  min-width: 0;
-}
-
-.model-name,
-.model-note {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.model-name {
-  font-weight: 500;
-  font-size: 14px;
-}
-
-.model-note {
-  font-size: 13px;
-  color: var(--ink-2);
-}
-
-.badge {
-  margin-left: auto;
-  padding: 3px 8px;
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--on-primary);
-  background: var(--primary);
-  border-radius: 999px;
-  white-space: nowrap;
-}
-
 /* ---------- Create panel (middle) ---------- */
 
 .create {
@@ -563,39 +502,6 @@ svg.lucide {
   color: var(--danger);
 }
 
-/* Quick prompts */
-
-.quick-grid {
-  display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 10px;
-}
-
-.quick-card {
-  display: flex;
-  flex-direction: column;
-  padding: 0;
-  overflow: hidden;
-  background: var(--card);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-sm);
-  text-align: left;
-  opacity: 0.6;
-}
-
-.quick-art {
-  height: 74px;
-  display: grid;
-  place-items: center;
-  color: var(--on-media);
-}
-
-.quick-card span {
-  padding: 8px 10px 10px;
-  font-size: 13px;
-  line-height: 1.25;
-}
-
 /* Advanced settings */
 
 .collapse-head {
@@ -876,40 +782,6 @@ svg.lucide {
   height: 100%;
   background: var(--primary);
   transition: width 0.4s ease;
-}
-
-.strip {
-  display: flex;
-  gap: 10px;
-  margin-top: 14px;
-  overflow-x: auto;
-  padding-bottom: 6px;
-  scrollbar-width: thin;
-  scrollbar-color: var(--line) transparent;
-}
-
-.strip button {
-  position: relative;
-  flex: 0 0 auto;
-  width: 120px;
-  aspect-ratio: 4 / 3;
-  padding: 0;
-  border: 2px solid transparent;
-  border-radius: var(--radius-sm);
-  overflow: hidden;
-  background: var(--frame);
-}
-
-.strip button.active {
-  border-color: var(--ink);
-}
-
-.strip img,
-.strip video {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
 }
 
 .video-tag {
@@ -1747,13 +1619,6 @@ svg.lucide {
   .side-item {
     width: auto;
     white-space: nowrap;
-  }
-  .sidebar .models,
-  .sidebar hr {
-    display: none;
-  }
-  .quick-grid {
-    grid-template-columns: repeat(3, 1fr);
   }
   .settings-grid,
   .detail {
