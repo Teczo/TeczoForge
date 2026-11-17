@@ -1,0 +1,31 @@
+{
+  "id": "texture-make-tileable",
+  "name": "Make Texture Tileable",
+  "description": "Z-Image-Turbo. Makes a texture repeat with no visible edge. The picture is shifted by half, then the lines in the middle are repainted. The size stays the same.",
+  "promptGuide": "This preset has no prompt. It only needs a start image of a surface, for example floor, wall, metal or grass. It works best when the texture has even light, with no spotlight or dark corners.",
+  "sendToLabel": "Make tileable",
+  "model": "Z-Image-Turbo",
+  "licence": "Apache 2.0",
+  "clientWork": "yes",
+  "estimatedSeconds": 12,
+  "type": "edit",
+  "inputs": [
+    {
+      "key": "image",
+      "label": "Start image",
+      "kind": "image",
+      "node": "1",
+      "field": "image"
+    },
+    {
+      "key": "seed",
+      "label": "Seed",
+      "kind": "seed",
+      "node": "37",
+      "field": "seed"
+    }
+  ],
+  "output": {
+    "node": "41"
+  }
+}

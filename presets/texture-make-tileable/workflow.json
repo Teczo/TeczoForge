@@ -1,0 +1,380 @@
+{
+  "1": {
+    "class_type": "LoadImage",
+    "inputs": {
+      "image": "example.png"
+    }
+  },
+  "2": {
+    "class_type": "GetImageSize",
+    "inputs": {
+      "image": [
+        "1",
+        0
+      ]
+    }
+  },
+  "3": {
+    "class_type": "ImageScale",
+    "inputs": {
+      "image": [
+        "1",
+        0
+      ],
+      "upscale_method": "lanczos",
+      "width": 1024,
+      "height": 1024,
+      "crop": "disabled"
+    }
+  },
+  "10": {
+    "class_type": "ImageCrop",
+    "inputs": {
+      "image": [
+        "3",
+        0
+      ],
+      "width": 512,
+      "height": 512,
+      "x": 0,
+      "y": 0
+    }
+  },
+  "11": {
+    "class_type": "ImageCrop",
+    "inputs": {
+      "image": [
+        "3",
+        0
+      ],
+      "width": 512,
+      "height": 512,
+      "x": 512,
+      "y": 0
+    }
+  },
+  "12": {
+    "class_type": "ImageCrop",
+    "inputs": {
+      "image": [
+        "3",
+        0
+      ],
+      "width": 512,
+      "height": 512,
+      "x": 0,
+      "y": 512
+    }
+  },
+  "13": {
+    "class_type": "ImageCrop",
+    "inputs": {
+      "image": [
+        "3",
+        0
+      ],
+      "width": 512,
+      "height": 512,
+      "x": 512,
+      "y": 512
+    }
+  },
+  "14": {
+    "class_type": "ImageStitch",
+    "inputs": {
+      "image1": [
+        "13",
+        0
+      ],
+      "image2": [
+        "12",
+        0
+      ],
+      "direction": "right",
+      "match_image_size": false,
+      "spacing_width": 0,
+      "spacing_color": "white"
+    }
+  },
+  "15": {
+    "class_type": "ImageStitch",
+    "inputs": {
+      "image1": [
+        "11",
+        0
+      ],
+      "image2": [
+        "10",
+        0
+      ],
+      "direction": "right",
+      "match_image_size": false,
+      "spacing_width": 0,
+      "spacing_color": "white"
+    }
+  },
+  "16": {
+    "class_type": "ImageStitch",
+    "inputs": {
+      "image1": [
+        "14",
+        0
+      ],
+      "image2": [
+        "15",
+        0
+      ],
+      "direction": "down",
+      "match_image_size": false,
+      "spacing_width": 0,
+      "spacing_color": "white"
+    }
+  },
+  "20": {
+    "class_type": "SolidMask",
+    "inputs": {
+      "value": 0,
+      "width": 1024,
+      "height": 1024
+    }
+  },
+  "21": {
+    "class_type": "SolidMask",
+    "inputs": {
+      "value": 1,
+      "width": 192,
+      "height": 1024
+    }
+  },
+  "22": {
+    "class_type": "FeatherMask",
+    "inputs": {
+      "mask": [
+        "21",
+        0
+      ],
+      "left": 64,
+      "top": 0,
+      "right": 64,
+      "bottom": 0
+    }
+  },
+  "23": {
+    "class_type": "SolidMask",
+    "inputs": {
+      "value": 1,
+      "width": 1024,
+      "height": 192
+    }
+  },
+  "24": {
+    "class_type": "FeatherMask",
+    "inputs": {
+      "mask": [
+        "23",
+        0
+      ],
+      "left": 0,
+      "top": 64,
+      "right": 0,
+      "bottom": 64
+    }
+  },
+  "25": {
+    "class_type": "MaskComposite",
+    "inputs": {
+      "destination": [
+        "20",
+        0
+      ],
+      "source": [
+        "22",
+        0
+      ],
+      "x": 416,
+      "y": 0,
+      "operation": "add"
+    }
+  },
+  "26": {
+    "class_type": "MaskComposite",
+    "inputs": {
+      "destination": [
+        "25",
+        0
+      ],
+      "source": [
+        "24",
+        0
+      ],
+      "x": 0,
+      "y": 416,
+      "operation": "add"
+    }
+  },
+  "30": {
+    "class_type": "CLIPLoader",
+    "inputs": {
+      "clip_name": "qwen_3_4b.safetensors",
+      "type": "lumina2",
+      "device": "default"
+    }
+  },
+  "31": {
+    "class_type": "VAELoader",
+    "inputs": {
+      "vae_name": "ae.safetensors"
+    }
+  },
+  "32": {
+    "class_type": "UNETLoader",
+    "inputs": {
+      "unet_name": "z_image_turbo_bf16.safetensors",
+      "weight_dtype": "default"
+    }
+  },
+  "33": {
+    "class_type": "ModelSamplingAuraFlow",
+    "inputs": {
+      "shift": 3,
+      "model": [
+        "32",
+        0
+      ]
+    }
+  },
+  "34": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {
+      "clip": [
+        "30",
+        0
+      ],
+      "text": "seamless continuous surface texture, the same material and pattern continues smoothly across the whole image, no lines, no borders, no seams, flat even lighting"
+    }
+  },
+  "35": {
+    "class_type": "ConditioningZeroOut",
+    "inputs": {
+      "conditioning": [
+        "34",
+        0
+      ]
+    }
+  },
+  "36": {
+    "class_type": "InpaintModelConditioning",
+    "inputs": {
+      "positive": [
+        "34",
+        0
+      ],
+      "negative": [
+        "35",
+        0
+      ],
+      "vae": [
+        "31",
+        0
+      ],
+      "pixels": [
+        "16",
+        0
+      ],
+      "mask": [
+        "26",
+        0
+      ],
+      "noise_mask": true
+    }
+  },
+  "37": {
+    "class_type": "KSampler",
+    "inputs": {
+      "seed": 1,
+      "steps": 8,
+      "cfg": 1,
+      "sampler_name": "res_multistep",
+      "scheduler": "simple",
+      "denoise": 0.7,
+      "model": [
+        "33",
+        0
+      ],
+      "positive": [
+        "36",
+        0
+      ],
+      "negative": [
+        "36",
+        1
+      ],
+      "latent_image": [
+        "36",
+        2
+      ]
+    }
+  },
+  "38": {
+    "class_type": "VAEDecode",
+    "inputs": {
+      "samples": [
+        "37",
+        0
+      ],
+      "vae": [
+        "31",
+        0
+      ]
+    }
+  },
+  "39": {
+    "class_type": "ImageCompositeMasked",
+    "inputs": {
+      "destination": [
+        "16",
+        0
+      ],
+      "source": [
+        "38",
+        0
+      ],
+      "x": 0,
+      "y": 0,
+      "resize_source": false,
+      "mask": [
+        "26",
+        0
+      ]
+    }
+  },
+  "40": {
+    "class_type": "ImageScale",
+    "inputs": {
+      "image": [
+        "39",
+        0
+      ],
+      "upscale_method": "lanczos",
+      "width": [
+        "2",
+        0
+      ],
+      "height": [
+        "2",
+        1
+      ],
+      "crop": "disabled"
+    }
+  },
+  "41": {
+    "class_type": "SaveImage",
+    "inputs": {
+      "images": [
+        "40",
+        0
+      ],
+      "filename_prefix": "texture-make-tileable"
+    }
+  }
+}
