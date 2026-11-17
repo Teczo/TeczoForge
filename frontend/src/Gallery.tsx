@@ -23,6 +23,7 @@ type Job = {
   outputKind?: string; // image, video, audio or 3d (FRG-29). Missing on older jobs.
   error: string | null;
   durationMs: number;
+  maxGpuTempC?: number; // The highest GPU temperature while it ran (FRG-99). Missing when not known.
   createdAt: string;
   createdBy?: string | null; // Missing on jobs from before team logins (FRG-16).
   inputFiles?: string[]; // Kept start images and voices, for example "data/inputs/<name>" (FRG-25, FRG-84).
@@ -357,6 +358,12 @@ function Detail({ job, onBack, onUseAgain, onUseInChat, onSendToGenerate, projec
             )}
             <dt>Time taken</dt>
             <dd>{(job.durationMs / 1000).toFixed(1)} seconds</dd>
+            {job.maxGpuTempC !== undefined && (
+              <>
+                <dt>Highest GPU temperature</dt>
+                <dd>{Math.round(job.maxGpuTempC)} °C</dd>
+              </>
+            )}
             <dt>Made on</dt>
             <dd>{new Date(job.createdAt).toLocaleString()}</dd>
             {job.sourceJobId && (
