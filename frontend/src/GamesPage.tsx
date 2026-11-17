@@ -856,6 +856,8 @@ type AssetReviewProps = {
 function AssetReview({ gameId, asset, onChanged, canEditPrompt }: AssetReviewProps) {
   const [busy, setBusy] = useState<string | null>(null);
   const [errors, setErrors] = useState<string[]>([]);
+  // A note from approve or variant (FRG-98), for example "Added to the paused batch ...".
+  const [note, setNote] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null); // The prompt being edited, or null.
 
   const stepIndex = asset.steps.findIndex((step) => !step.approvedJobId);
@@ -868,6 +870,7 @@ function AssetReview({ gameId, asset, onChanged, canEditPrompt }: AssetReviewPro
   async function send(name: string, method: "POST" | "PATCH", url: string, body?: unknown): Promise<boolean> {
     setBusy(name);
     setErrors([]);
+    setNote(null);
     try {
       const response = await fetch(url, {
         method,
@@ -877,7 +880,10 @@ function AssetReview({ gameId, asset, onChanged, canEditPrompt }: AssetReviewPro
       const answer = await response.json().catch(() => null);
       if (!answer) setErrors([NO_BACKEND]);
       else if (!response.ok) setErrors([answer.error ?? "Something went wrong."]);
-      else setErrors(answer.errors ?? []);
+      else {
+        setErrors(answer.errors ?? []);
+        setNote(typeof answer.note === "string" ? answer.note : null);
+      }
       return !!answer && response.ok;
     } catch {
       setErrors([NO_BACKEND]);
@@ -955,6 +961,7 @@ function AssetReview({ gameId, asset, onChanged, canEditPrompt }: AssetReviewPro
         </div>
       )}
 
+      {note && <p className="mt-2 mb-0 text-xs text-ink-2">{note}</p>}
       {errors.length > 0 && <ErrorList title="This did not work." errors={errors} />}
     </div>
   );
