@@ -35,6 +35,7 @@ export type Job = {
   outputKind?: OutputKind; // image, video, audio or 3d (FRG-29). Older jobs: see withOutputKind.
   error: string | null;
   durationMs: number; // 0 until the job is finished.
+  maxGpuTempC?: number; // The highest GPU temperature (°C) seen while it ran (FRG-99). Missing when unknown.
   createdAt: Date;
   createdBy: string | null; // The username of who started the job. Jobs from before FRG-16 do not have it.
   cancelledBy?: string | null; // Only on cancelled jobs: who cancelled it, and when.
@@ -612,11 +613,15 @@ export async function averageDurationsByPreset(): Promise<Map<string, { averageM
 // The average time of the last `last` finished jobs of each preset (FRG-76, the time estimate in
 // estimate.ts). Single jobs only, like averageDurationsByPreset. Key: preset id. A preset with no
 // finished jobs is not in the map. Throws a 503 HttpError when MongoDB cannot be reached.
-export async function recentAverageDurations(presetIds: string[], last: number): Promise<Map<string, { averageMs: number; jobs: number }>> {
+// maxGpuTempC (FRG-99): the highest GPU temperature of those same jobs, null when none has one.
+export async function recentAverageDurations(
+  presetIds: string[],
+  last: number,
+): Promise<Map<string, { averageMs: number; jobs: number; maxGpuTempC: number | null }>> {
   try {
     const jobs = await getJobsCollection();
     const rows = await jobs
-      .aggregate<{ _id: string; averageMs: number; jobs: number }>([
+      .aggregate<{ _id: string; averageMs: number; jobs: number; maxGpuTempC: number | null }>([
         {
           $match: {
             status: "done",
@@ -627,12 +632,13 @@ export async function recentAverageDurations(presetIds: string[], last: number):
           },
         },
         { $sort: { createdAt: -1 } },
-        { $group: { _id: "$presetId", durations: { $push: "$durationMs" } } },
-        { $project: { recent: { $slice: ["$durations", last] } } },
-        { $project: { averageMs: { $avg: "$recent" }, jobs: { $size: "$recent" } } },
+        { $group: { _id: "$presetId", durations: { $push: "$durationMs" }, temps: { $push: { $ifNull: ["$maxGpuTempC", null] } } } },
+        { $project: { recent: { $slice: ["$durations", last] }, recentTemps: { $slice: ["$temps", last] } } },
+        // $max skips the nulls (jobs from before FRG-99, or with the temperature unknown).
+        { $project: { averageMs: { $avg: "$recent" }, jobs: { $size: "$recent" }, maxGpuTempC: { $max: "$recentTemps" } } },
       ])
       .toArray();
-    return new Map(rows.map((row) => [row._id, { averageMs: Math.round(row.averageMs), jobs: row.jobs }]));
+    return new Map(rows.map((row) => [row._id, { averageMs: Math.round(row.averageMs), jobs: row.jobs, maxGpuTempC: row.maxGpuTempC ?? null }]));
   } catch (error) {
     console.warn(`Warning: could not read the job times. ${safeMessage(error)}`);
     throw new HttpError(503, "Job times are not available because MongoDB cannot be reached.");
