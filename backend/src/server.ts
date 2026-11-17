@@ -66,6 +66,7 @@ import {
 } from "./batches.js";
 import { estimateHandler } from "./estimate.js";
 import { timeTestHandler } from "./timeTest.js";
+import { gpuHandler, startGpuReader } from "./gpuTemp.js";
 import {
   createDocumentHandler,
   deleteDocumentHandler,
@@ -115,6 +116,9 @@ app.use("/api", requireLogin);
 
 // Who is logged in. The page asks this first: 401 means "show the login form".
 app.get("/api/me", meHandler);
+
+// The GPU temperature (FRG-99, gpuTemp.ts): { temperatureC, readAt, known }.
+app.get("/api/gpu", gpuHandler);
 
 app.get("/api/health", async (_req, res) => {
   const reachable = await isComfyUIReachable();
@@ -308,6 +312,8 @@ app.listen(PORT, HOST, () => {
   startJobChecker();
   // The first check pauses the batches that were running when the backend stopped.
   startBatchRunner();
+  // Read the GPU temperature every 5 seconds (FRG-99).
+  startGpuReader();
   // Read the translation documents from disk. Unfinished ones start again.
   loadTranslateDocuments();
 });

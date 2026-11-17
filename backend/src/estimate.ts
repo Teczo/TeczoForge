@@ -19,11 +19,20 @@ const MAX_COUNT = 10_000;
 
 export type EstimateSource = "history" | "preset" | "unknown";
 
-export type PresetEstimate = { presetId: string; name: string; eachMs: number | null; source: EstimateSource };
+// maxGpuTempC (FRG-99): the highest GPU temperature of the recent finished jobs, null when not known.
+export type PresetEstimate = { presetId: string; name: string; eachMs: number | null; source: EstimateSource; maxGpuTempC: number | null };
 
 export type Estimate = {
   totalMs: number; // Only the presets with a known time.
-  perPreset: { presetId: string; name: string; count: number; eachMs: number | null; totalMs: number | null; source: EstimateSource }[];
+  perPreset: {
+    presetId: string;
+    name: string;
+    count: number;
+    eachMs: number | null;
+    totalMs: number | null;
+    source: EstimateSource;
+    maxGpuTempC: number | null;
+  }[];
   unknownPresets: string[];
 };
 
@@ -32,7 +41,7 @@ export type Estimate = {
 export async function presetEstimates(presetIds: string[]): Promise<Map<string, PresetEstimate>> {
   const ids = [...new Set(presetIds)];
   const presets = new Map((await listPresets()).map((preset) => [preset.id, preset]));
-  let history = new Map<string, { averageMs: number }>();
+  let history = new Map<string, { averageMs: number; maxGpuTempC: number | null }>();
   try {
     if (ids.length > 0) history = await recentAverageDurations(ids, HISTORY_JOBS);
   } catch {
@@ -44,9 +53,10 @@ export async function presetEstimates(presetIds: string[]): Promise<Map<string, 
     const preset = presets.get(presetId);
     const name = preset?.name ?? presetId;
     const averageMs = history.get(presetId)?.averageMs;
-    if (averageMs !== undefined) estimates.set(presetId, { presetId, name, eachMs: averageMs, source: "history" });
-    else if (preset?.estimatedSeconds) estimates.set(presetId, { presetId, name, eachMs: preset.estimatedSeconds * 1000, source: "preset" });
-    else estimates.set(presetId, { presetId, name, eachMs: null, source: "unknown" });
+    const maxGpuTempC = history.get(presetId)?.maxGpuTempC ?? null;
+    if (averageMs !== undefined) estimates.set(presetId, { presetId, name, eachMs: averageMs, source: "history", maxGpuTempC });
+    else if (preset?.estimatedSeconds) estimates.set(presetId, { presetId, name, eachMs: preset.estimatedSeconds * 1000, source: "preset", maxGpuTempC });
+    else estimates.set(presetId, { presetId, name, eachMs: null, source: "unknown", maxGpuTempC });
   }
   return estimates;
 }
@@ -58,8 +68,8 @@ export async function estimateJobs(items: { presetId: string; count: number }[])
   const estimates = await presetEstimates([...counts.keys()]);
 
   const perPreset = [...counts].map(([presetId, count]) => {
-    const { name, eachMs, source } = estimates.get(presetId)!;
-    return { presetId, name, count, eachMs, totalMs: eachMs === null ? null : eachMs * count, source };
+    const { name, eachMs, source, maxGpuTempC } = estimates.get(presetId)!;
+    return { presetId, name, count, eachMs, totalMs: eachMs === null ? null : eachMs * count, source, maxGpuTempC };
   });
   return {
     totalMs: perPreset.reduce((sum, row) => sum + (row.totalMs ?? 0), 0),

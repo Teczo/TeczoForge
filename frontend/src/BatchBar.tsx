@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
-import { CircleX, Layers, Pause, Play, Square } from "lucide-react";
+import { CircleX, Layers, Pause, Play, Square, Thermometer } from "lucide-react";
 import { clockTime, formatDuration } from "./Estimate";
 import { askConfirm } from "./dialogs";
 import { Badge, btn } from "./ui";
@@ -11,6 +11,33 @@ import type { Tone } from "./ui";
 // Only the user who started the batch sees the buttons. Everyone else can watch it.
 
 const REFRESH_MS = 2000;
+// The backend reads the GPU temperature every 5 seconds (FRG-99, backend/src/gpuTemp.ts).
+const GPU_REFRESH_MS = 5000;
+
+// The GPU temperature in °C, loaded again every 5 seconds. null: not known (nvidia-smi could not be
+// read, or the backend does not answer). undefined: still loading.
+export function useGpuTemperature(): number | null | undefined {
+  const [temperature, setTemperature] = useState<number | null | undefined>(undefined);
+  useEffect(() => {
+    let stopped = false;
+    async function load() {
+      try {
+        const response = await fetch("/api/gpu");
+        const body = await response.json().catch(() => null);
+        if (!stopped) setTemperature(response.ok && body?.known ? body.temperatureC : null);
+      } catch {
+        if (!stopped) setTemperature(null);
+      }
+    }
+    load();
+    const timer = setInterval(load, GPU_REFRESH_MS);
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+    };
+  }, []);
+  return temperature;
+}
 const NO_BACKEND = "Could not reach the backend. Make sure it is running, then try again.";
 
 // One batch, as GET /api/batches returns it. Only the parts the page uses.
@@ -80,6 +107,7 @@ export default function BatchBar({ batchId }: { batchId: string }) {
   const [batch, setBatch] = useState<BatchDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const gpuTemperature = useGpuTemperature(); // FRG-99
 
   async function load() {
     try {
@@ -150,6 +178,12 @@ export default function BatchBar({ batchId }: { batchId: string }) {
             )}
             {batch.createdBy && <> · started by {batch.createdBy}</>}
           </div>
+          {open && gpuTemperature !== undefined && (
+            <div className="flex items-center gap-1 text-xs text-ink-2">
+              <Thermometer size={13} className="shrink-0" />
+              {gpuTemperature === null ? "GPU temperature unknown" : `GPU ${Math.round(gpuTemperature)} °C`}
+            </div>
+          )}
           {open && batch.timeLeft.left > 0 && (
             <div className="text-xs text-ink-2">
               {batch.timeLeft.unknownCards > 0 ? "at least about" : "about"} {formatDuration(batch.timeLeft.leftMs)} left · ends about{" "}

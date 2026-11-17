@@ -12,6 +12,7 @@ import { findActiveJobs, findJob, knownUnsortedProjectId, listJobs, markChainRoo
 import type { Job, JobStatus } from "./db.js";
 import { forgetSteps, getSteps } from "./progress.js";
 import { pickOutputFile } from "./outputKinds.js";
+import { gpuTemperature, onGpuTemperature } from "./gpuTemp.js";
 import { checkTargetProjectId, projectForNewItem } from "./projects.js";
 
 // Jobs (FRG-20).
@@ -76,6 +77,16 @@ export type LiveJob = {
 // Unfinished jobs, and jobs that finished in the last hour. Key: job id.
 const liveJobs = new Map<string, LiveJob>();
 
+// Each GPU reading (FRG-99, every 5 s): the jobs ComfyUI is working on keep the highest one.
+// It is saved with the job when it finishes. Waiting jobs are not on the GPU yet, so they are skipped.
+onGpuTemperature((temperatureC) => {
+  for (const live of liveJobs.values()) {
+    if (live.job.status === "running" || live.finishing) {
+      live.job.maxGpuTempC = Math.max(live.job.maxGpuTempC ?? temperatureC, temperatureC);
+    }
+  }
+});
+
 export function isActive(status: JobStatus): boolean {
   return status === "queued" || status === "running";
 }
@@ -124,6 +135,9 @@ export const CANCELLED_CARD_ERROR = "The job was cancelled. Press Generate to ru
 export async function finish(live: LiveJob, status: "done" | "failed" | "cancelled", fields: Partial<Job>) {
   const { job } = live;
   Object.assign(job, fields, { status, durationMs: Date.now() - job.createdAt.getTime() });
+  // A job shorter than one GPU reading (5 s) gets the reading of now (FRG-99).
+  const gpu = gpuTemperature();
+  if (status === "done" && job.maxGpuTempC === undefined && gpu.known) job.maxGpuTempC = gpu.temperatureC!;
   live.finishing = false;
   if (job.promptId) forgetSteps(job.promptId);
 
@@ -132,6 +146,7 @@ export async function finish(live: LiveJob, status: "done" | "failed" | "cancell
   if (job.title !== undefined && status !== "done") {
     const reason = status === "cancelled" ? CANCELLED_CARD_ERROR : job.error;
     Object.assign(job, { status: "draft", column: "ready", promptId: null, durationMs: 0, error: reason });
+    delete job.maxGpuTempC; // A new run of the card measures again.
     await save(live);
     if (liveJobs.get(job.id) === live) liveJobs.delete(job.id);
     return;

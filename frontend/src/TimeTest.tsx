@@ -74,7 +74,7 @@ export default function TimeTest({ presetIds, project }: { presetIds: string[]; 
       ))}
       {showTimes && presetIds.length > 0 && (
         <div className="mt-3">
-          <EstimateView key={round} title="One job of each preset" items={presetIds.map((presetId) => ({ presetId, count: 1 }))} />
+          <EstimateView key={round} title="One job of each preset" items={presetIds.map((presetId) => ({ presetId, count: 1 }))} showGpu />
         </div>
       )}
     </div>

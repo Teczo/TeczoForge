@@ -8,7 +8,15 @@ import { Clock } from "lucide-react";
 // One row per preset, as POST /api/estimate answers it.
 export type Estimate = {
   totalMs: number;
-  perPreset: { presetId: string; name: string; count: number; eachMs: number | null; totalMs: number | null; source: "history" | "preset" | "unknown" }[];
+  perPreset: {
+    presetId: string;
+    name: string;
+    count: number;
+    eachMs: number | null;
+    totalMs: number | null;
+    source: "history" | "preset" | "unknown";
+    maxGpuTempC?: number | null; // FRG-99: the highest GPU temperature of the recent finished jobs.
+  }[];
   unknownPresets: string[];
 };
 
@@ -60,7 +68,16 @@ function useEstimate(items: { presetId: string; count: number }[]): Estimate | s
 }
 
 // The summary line, the hint, and a table per preset.
-export default function EstimateView({ items, title = "Time estimate" }: { items: { presetId: string; count: number }[]; title?: string }) {
+// showGpu (FRG-99): add a column with the highest GPU temperature of each preset (used by Time test).
+export default function EstimateView({
+  items,
+  title = "Time estimate",
+  showGpu = false,
+}: {
+  items: { presetId: string; count: number }[];
+  title?: string;
+  showGpu?: boolean;
+}) {
   const estimate = useEstimate(items);
   // Clock times move on: work the finish time out again every 30 seconds.
   const [, setTick] = useState(0);
@@ -96,7 +113,7 @@ export default function EstimateView({ items, title = "Time estimate" }: { items
           <table className="w-full border-collapse text-left text-sm">
             <thead className="bg-frame text-xs text-ink-2">
               <tr>
-                {["Preset", "Jobs", "Each", "Total", "Source"].map((head) => (
+                {["Preset", "Jobs", "Each", "Total", "Source", ...(showGpu ? ["GPU max"] : [])].map((head) => (
                   <th key={head} className="px-3 py-2 font-medium">
                     {head}
                   </th>
@@ -111,6 +128,9 @@ export default function EstimateView({ items, title = "Time estimate" }: { items
                   <td className="px-3 py-2">{row.eachMs === null ? "not known" : formatDuration(row.eachMs)}</td>
                   <td className="px-3 py-2">{row.totalMs === null ? "not known" : formatDuration(row.totalMs)}</td>
                   <td className={`px-3 py-2 text-xs ${row.source === "unknown" ? "text-warning" : "text-ink-2"}`}>{SOURCE_LABELS[row.source]}</td>
+                  {showGpu && (
+                    <td className="px-3 py-2">{typeof row.maxGpuTempC === "number" ? `${Math.round(row.maxGpuTempC)} °C` : "not known"}</td>
+                  )}
                 </tr>
               ))}
             </tbody>
