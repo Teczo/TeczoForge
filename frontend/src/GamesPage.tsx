@@ -68,6 +68,19 @@ const NEED_LABELS: Record<string, string> = {
   tiling: "Tiling",
 };
 
+// Needs TeczoForge can do itself (FRG-96), with the preset of their step and the step name.
+// The same presets as NEED_PRESETS in backend/src/gameFile.ts. A need is only done by TeczoForge
+// when the asset really has that step (the preset was installed at import), else it stays "by hand".
+const NEED_STEPS: Record<string, { presetId: string; label: string }> = {
+  tiling: { presetId: "texture-make-tileable", label: "Make tileable" },
+  transparent_bg: { presetId: "image-remove-bg", label: "Remove background" },
+};
+
+// The name of a step from its preset, for example "Remove background". null for other presets.
+function needStepLabel(presetId: string): string | null {
+  return Object.values(NEED_STEPS).find((step) => step.presetId === presetId)?.label ?? null;
+}
+
 const STATUS_STYLES: Record<AssetStatus, { label: string; tone: Tone }> = {
   planned: { label: "Planned", tone: "neutral" },
   generating: { label: "Generating", tone: "info" },
@@ -411,7 +424,7 @@ function PreviewTable({ assets }: { assets: PlannedAsset[] }) {
           <Cell>{asset.type}</Cell>
           <Cell>{asset.use}</Cell>
           <Cell>
-            <Needs needs={asset.needs} external={asset.source === "external"} />
+            <Needs needs={asset.needs} external={asset.source === "external"} stepPresets={asset.steps.map((step) => step.preset)} />
           </Cell>
         </tr>
       ))}
@@ -511,7 +524,7 @@ function GameDetail({ id }: { id: string }) {
                   <Cell>{asset.type}</Cell>
                   <Cell>{asset.use}</Cell>
                   <Cell>
-                    <Needs needs={asset.needs} external={asset.source === "external"} />
+                    <Needs needs={asset.needs} external={asset.source === "external"} stepPresets={asset.steps.map((step) => step.presetId)} />
                   </Cell>
                   <Cell>
                     <StatusBadge status={asset.status} />
@@ -539,14 +552,20 @@ function StatusBadge({ status }: { status: AssetStatus }) {
   return <Badge tone={style.tone}>{style.label}</Badge>;
 }
 
-// The needs of an asset, and the "to do by hand" note. TeczoForge does not do any of these:
-// someone does them by hand after the export. An external asset is made by hand as a whole.
-function Needs({ needs, external }: { needs: string[]; external: boolean }) {
+// The needs of an asset. A need with a TeczoForge step (FRG-96: the asset has a step with its preset)
+// is done by TeczoForge. Every other need gets the "to do by hand" note: someone does it by hand after
+// the export (rigging and animation always). An external asset is made by hand as a whole.
+// stepPresets: the preset ids of the asset's steps.
+function Needs({ needs, external, stepPresets }: { needs: string[]; external: boolean; stepPresets: string[] }) {
   if (needs.length === 0 && !external) return <span className="text-ink-3">-</span>;
+  const byForge = needs.filter((need) => NEED_STEPS[need] && stepPresets.includes(NEED_STEPS[need].presetId));
+  const byHand = needs.filter((need) => !byForge.includes(need));
+  const label = (need: string) => NEED_LABELS[need] ?? need;
   return (
     <div className="space-y-1">
       {external && <HandNote>To do by hand: not made by TeczoForge</HandNote>}
-      {needs.length > 0 && <HandNote>To do by hand: {needs.map((need) => NEED_LABELS[need] ?? need).join(", ")}</HandNote>}
+      {byForge.length > 0 && <div className="text-xs text-ink-3">By TeczoForge: {byForge.map(label).join(", ")}</div>}
+      {byHand.length > 0 && <HandNote>To do by hand: {byHand.map(label).join(", ")}</HandNote>}
     </div>
   );
 }
@@ -816,6 +835,11 @@ function useJobs(ids: string[], key: string): ResultJob[] {
 // What each step of an asset makes, shown above its results.
 function stepLabel(asset: GameAsset, index: number): string {
   if (asset.type === "model") return index === 0 ? "Step 1 of 2: reference picture" : "Step 2 of 2: 3D model";
+  // A picture with need steps (FRG-96), for example "Step 2 of 2: Remove background".
+  if (asset.steps.length > 1) {
+    const name = index === 0 ? "picture" : (needStepLabel(asset.steps[index].presetId) ?? asset.steps[index].presetId);
+    return `Step ${index + 1} of ${asset.steps.length}: ${name}`;
+  }
   return "Results";
 }
 

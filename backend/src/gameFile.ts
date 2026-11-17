@@ -1,6 +1,7 @@
 import type { Request, Response } from "express";
 import { HttpError } from "./httpError.js";
 import { sendError } from "./jobs.js";
+import { presetFolderExists } from "./presets.js";
 
 // Game design files (FRG-65). The format is in docs/game-design-format.md.
 // A game design file is a .md file with free prose and exactly ONE ```json block
@@ -45,6 +46,22 @@ const NEEDS = ["rigging", "animation", "transparent_bg", "tiling"];
 export const IMAGE_PRESET = "text-to-image-basic";
 const MODEL_PRESET = "image-to-3d-trellis2";
 const MUSIC_PRESET = "music-ace-step-xl";
+
+// Needs that TeczoForge can do itself (FRG-96): each one is an extra step after the picture, with
+// this preset. The order here is the order of the steps: tiling first, then the background.
+// rigging and animation are not here: they are always done by hand.
+const NEED_PRESETS: { need: string; preset: string }[] = [
+  { need: "tiling", preset: "texture-make-tileable" },
+  { need: "transparent_bg", preset: "image-remove-bg" },
+];
+
+// The extra steps of a picture asset for its needs, in order. Only picture types get them (models
+// are left alone: the 3D preset already removes the background). A need only gets a step when its
+// preset folder is installed; otherwise it stays "to do by hand".
+export function needPresets(type: string, needs: string[]): string[] {
+  if (!isAssetType(type) || !ASSET_TYPES[type].image) return [];
+  return NEED_PRESETS.filter((item) => needs.includes(item.need) && presetFolderExists(item.preset)).map((item) => item.preset);
+}
 
 type AssetType = "model" | "texture" | "sprite" | "background" | "ui" | "icon" | "music" | "sfx";
 
@@ -395,7 +412,7 @@ function checkAsset(value: unknown, number: number, game: GamePlan["game"], seen
     source,
     needs,
     exportFolder: `${ASSET_TYPES[type].folder}/${category}/`,
-    steps: source === "external" ? [] : stepsFor(type, prompt, game),
+    steps: source === "external" ? [] : stepsFor(type, prompt, needs, game),
   };
   if (size) asset.size = size;
   if (targetHeight !== undefined) asset.target_height_m = targetHeight;
@@ -428,7 +445,7 @@ export function conceptPrompt(game: PromptGame): string {
   return imagePrompt(game, game.name, "key art, concept art");
 }
 
-function stepsFor(type: AssetType, prompt: string, game: GamePlan["game"]): PlanStep[] {
+function stepsFor(type: AssetType, prompt: string, needs: string[], game: GamePlan["game"]): PlanStep[] {
   if (type === "model") {
     // The 3D step uses the reference picture, not text.
     return [
@@ -437,7 +454,9 @@ function stepsFor(type: AssetType, prompt: string, game: GamePlan["game"]): Plan
     ];
   }
   if (type === "sfx") return [];
-  return [{ preset: type === "music" ? MUSIC_PRESET : IMAGE_PRESET, prompt: firstStepPrompt(game, type, prompt) }];
+  const first = { preset: type === "music" ? MUSIC_PRESET : IMAGE_PRESET, prompt: firstStepPrompt(game, type, prompt) };
+  // The need steps (FRG-96) use the approved picture of the step before, not text.
+  return [first, ...needPresets(type, needs).map((preset) => ({ preset, prompt: "" }))];
 }
 
 // The concept art: made by TeczoForge first, sets the look for every other asset.

@@ -328,8 +328,9 @@ export async function makeConceptHandler(req: Request, res: Response) {
 // ---- Review, variants and approve (FRG-69) ----
 // Only results a person approved go into the game. Each asset works on one step at a time: the
 // first step without an approved result. On that step:
-// - Approve a finished result. A model's reference picture then gets its 3D card (step 2), made
-//   with "Send to" (sendTo.ts) and queued at once. The last step approved: the asset is approved.
+// - Approve a finished result. If the asset has a next step, it gets its card at once, made from the
+//   approved result with "Send to" (sendTo.ts) and queued: a model's 3D step, or a picture's need
+//   steps (FRG-96: make tileable, remove background). The last step approved: the asset is approved.
 // - Make variant: a new card with the same preset and values, a new seed, and the asset's prompt.
 // - Edit prompt: saved on the asset, used for the next variant (first step only).
 // External assets: "Mark as done by hand" approves them with no file.
@@ -356,7 +357,7 @@ function currentStepIndex(asset: GameAsset): number {
 
 // POST /api/games/<id>/assets/<assetId>/approve
 // Body: { "jobId": "<a finished result of the current step>" }.
-// Saves it as the step's approvedJobId. If the asset has another step (models: the 3D step), its
+// Saves it as the step's approvedJobId. If the asset has another step (the 3D step, or a need step), its
 // card is made from the approved picture and queued, and the asset is "generating" again.
 // Otherwise the asset is "approved". Answer: { asset, errors }.
 export async function approveHandler(req: Request, res: Response) {
