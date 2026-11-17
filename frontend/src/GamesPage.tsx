@@ -797,7 +797,7 @@ function StepButton({ label, onClick, disabled }: { label: string; onClick: () =
 // ---- Review, variants and approve (FRG-69) ----
 
 // One result, as GET /api/jobs/<id> returns it. Only the parts the page uses.
-type ResultJob = { id: string; status: string; imageUrl: string | null; outputKind?: string | null; error: string | null };
+type ResultJob = { id: string; presetId?: string | null; status: string; imageUrl: string | null; outputKind?: string | null; error: string | null };
 
 // Load these jobs, and load them again every few seconds while one is waiting or running.
 function useJobs(ids: string[], key: string): ResultJob[] {
@@ -967,13 +967,25 @@ function ResultTile({ job, approved, canApprove, onApprove }: { job: ResultJob; 
   // A 3D result shows its picture until "View 3D" is pressed: a page has many results, and a
   // browser can only keep a few live 3D views.
   const [viewing3d, setViewing3d] = useState(false);
-  // The 3D viewer needs at least 320 px of height (.model-viewer in styles.css), so an open 3D tile is bigger.
-  const big = done && kind === "3d" && viewing3d;
+  // A result of the tiling step (FRG-97) can be shown 2 x 2, to check for seams before approving.
+  const tileable = done && kind === "image" && job.presetId === NEED_STEPS.tiling.presetId;
+  const [tiled, setTiled] = useState(false);
+  // The 3D viewer needs at least 320 px of height (.model-viewer in styles.css), so an open 3D tile is
+  // bigger. The tiled preview is bigger too, so each of the 4 copies is easy to see.
+  const big = done && ((kind === "3d" && viewing3d) || (tileable && tiled));
   return (
     <div className={`${big ? "w-80" : "w-56"} overflow-hidden rounded-lg border ${approved ? "border-success" : "border-line"}`}>
       <div className={`flex ${big ? "h-80" : "h-56"} items-center justify-center overflow-hidden bg-frame`}>
         {done && kind === "3d" ? (
           <ModelPreview url={job.imageUrl!} alt="Result" open={viewing3d} onToggle={() => setViewing3d(!viewing3d)} style={{ width: "100%", height: "100%" }} />
+        ) : tileable && tiled ? (
+          // The picture repeated: each copy is half the frame wide and high, so 2 x 2 copies fill it.
+          <div
+            role="img"
+            aria-label="Tiled preview, 2 by 2"
+            className="h-full w-full"
+            style={{ backgroundImage: `url(${JSON.stringify(job.imageUrl)})`, backgroundSize: "50% 50%", backgroundRepeat: "repeat" }}
+          />
         ) : done ? (
           <Media url={job.imageUrl!} kind={kind} alt="Result" mode="thumbnail" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
         ) : (
@@ -988,7 +1000,12 @@ function ResultTile({ job, approved, canApprove, onApprove }: { job: ResultJob; 
           </span>
         )}
       </div>
-      <div className="p-2">
+      <div className="space-y-2 p-2">
+        {tileable && (
+          <button type="button" onClick={() => setTiled(!tiled)} className={`${btn("secondary", "xs")} w-full`}>
+            {tiled ? "Single picture" : "Tiled preview"}
+          </button>
+        )}
         {approved ? (
           <span className="flex items-center justify-center gap-1.5 py-1 text-xs font-medium text-success">
             <CheckCircle2 size={14} /> Approved
