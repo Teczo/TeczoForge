@@ -1,0 +1,24 @@
+{
+  "id": "image-remove-bg",
+  "name": "Remove Background",
+  "description": "BiRefNet. Upload a picture and get a PNG with a see-through background. Only the main object is kept.",
+  "promptGuide": "This preset has no prompt. It only needs a start image. It works best with one clear object on a plain background, for example an icon, a sprite or a product shot.",
+  "sendToLabel": "Remove background",
+  "model": "BiRefNet",
+  "licence": "MIT",
+  "clientWork": "yes",
+  "estimatedSeconds": 5,
+  "type": "edit",
+  "inputs": [
+    {
+      "key": "image",
+      "label": "Start image",
+      "kind": "image",
+      "node": "1",
+      "field": "image"
+    }
+  ],
+  "output": {
+    "node": "6"
+  }
+}
