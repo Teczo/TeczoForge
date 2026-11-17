@@ -1,8 +1,8 @@
 import type { Request, Response } from "express";
 import type { Collection } from "mongodb";
 import { HttpError } from "./httpError.js";
-import { averageDurationsByPreset, findReadyDrafts, GAME_ASSET_STATUSES, getGameAssetsCollection, getGamesCollection, getProjectsCollection, safeMessage } from "./db.js";
-import type { Game, GameAsset, GameAssetStatus, Job } from "./db.js";
+import { averageDurationsByPreset, findReadyDrafts, GAME_ASSET_STATUSES, getBatchesCollection, getGameAssetsCollection, getGamesCollection, getProjectsCollection, safeMessage } from "./db.js";
+import type { Batch, Game, GameAsset, GameAssetStatus, Job } from "./db.js";
 import { checkGameFile, conceptPrompt, firstStepPrompt, IMAGE_PRESET, readGameFileBody } from "./gameFile.js";
 import type { PlannedAsset } from "./gameFile.js";
 import { findAnyJob, JOB_ID_PATTERN, onJobDone, sendError } from "./jobs.js";
@@ -11,7 +11,7 @@ import { loadPreset } from "./presets.js";
 import { sendToBoard } from "./sendTo.js";
 import { addProject } from "./projects.js";
 import { exportGame } from "./gameExport.js";
-import { cardsInActiveBatches, createBatch } from "./batches.js";
+import { addCardsToBatch, cardsInActiveBatches, createBatch } from "./batches.js";
 
 // Games (FRG-66).
 // Importing a game design file saves a game, its project (kind "game", same name as the game),
@@ -259,6 +259,43 @@ async function runCards(cards: { id: string; title: string }[]): Promise<{ queue
   return { queued, errors };
 }
 
+// ---- The game's batch (FRG-98) ----
+// The next step of an approved asset, and a variant, are not sent straight to ComfyUI: their card goes
+// into the game's batch (batches.ts, FRG-75), so it can be paused like "Generate all". The same idea as
+// addToPackBatch in packRun.ts. "Make concept art" still runs its 3 cards at once.
+
+// The batch to add a game card to: the newest running or paused batch of the game, else its newest done
+// batch (it runs again for the new card), else null. An ended batch is never used.
+async function gameBatch(gameId: string): Promise<Batch | null> {
+  const batches = await getBatchesCollection();
+  const owner = { "owner.type": "game", "owner.id": gameId };
+  const options = { projection: { _id: 0 }, sort: { createdAt: -1 } } as const;
+  return (
+    (await batches.findOne({ ...owner, state: { $in: ["running", "paused"] } }, options)) ??
+    (await batches.findOne({ ...owner, state: "done" }, options))
+  );
+}
+
+// Put one new card into the game's batch, or start a new batch with it.
+// Returns a note for the answer (or null), and the problems in plain English.
+async function addToGameBatch(game: Game, card: Job, createdBy: string | null): Promise<{ note: string | null; errors: string[] }> {
+  const title = card.title ?? card.id;
+  try {
+    const batch = await gameBatch(game.id);
+    if (batch) {
+      await addCardsToBatch(batch.id, [card.id]);
+      return { note: batch.state === "paused" ? `Added to the paused batch "${batch.name}". Press Resume to run it.` : null, errors: [] };
+    }
+    await createBatch({ name: `${game.name}: next steps`, cardIds: [card.id], projectId: game.projectId, owner: { type: "game", id: game.id }, createdBy });
+    return { note: null, errors: [] };
+  } catch (error) {
+    // The card is saved on the board either way, so it can still be run with "Generate all".
+    if (!(error instanceof HttpError)) console.error(`Game card ${card.id} could not be added to a batch:`, error);
+    const reason = error instanceof HttpError ? error.message : "it could not be added to a batch. See the backend log.";
+    return { note: null, errors: [`${title}: ${reason} The card is in Ready on the board. Press "Generate all" to run it.`] };
+  }
+}
+
 // POST /api/games/<id>/concept
 // "Make concept art": 3 cards in the game's project, queued at once. They belong to the concept asset
 // ({CODE}_REF_Style_Concept, type "reference"), which is added the first time.
@@ -329,9 +366,11 @@ export async function makeConceptHandler(req: Request, res: Response) {
 // Only results a person approved go into the game. Each asset works on one step at a time: the
 // first step without an approved result. On that step:
 // - Approve a finished result. If the asset has a next step, it gets its card at once, made from the
-//   approved result with "Send to" (sendTo.ts) and queued: a model's 3D step, or a picture's need
-//   steps (FRG-96: make tileable, remove background). The last step approved: the asset is approved.
-// - Make variant: a new card with the same preset and values, a new seed, and the asset's prompt.
+//   approved result with "Send to" (sendTo.ts) and put into the game's batch (FRG-98): a model's 3D
+//   step, or a picture's need steps (FRG-96: make tileable, remove background). The last step
+//   approved: the asset is approved.
+// - Make variant: a new card with the same preset and values, a new seed, and the asset's prompt,
+//   also put into the game's batch (FRG-98).
 // - Edit prompt: saved on the asset, used for the next variant (first step only).
 // External assets: "Mark as done by hand" approves them with no file.
 
@@ -358,8 +397,9 @@ function currentStepIndex(asset: GameAsset): number {
 // POST /api/games/<id>/assets/<assetId>/approve
 // Body: { "jobId": "<a finished result of the current step>" }.
 // Saves it as the step's approvedJobId. If the asset has another step (the 3D step, or a need step), its
-// card is made from the approved picture and queued, and the asset is "generating" again.
-// Otherwise the asset is "approved". Answer: { asset, errors }.
+// card is made from the approved picture and put into the game's batch (FRG-98), and the asset is
+// "generating" again. Otherwise the asset is "approved".
+// Answer: { asset, errors, note }. note: for example "Added to the paused batch ...", or null.
 export async function approveHandler(req: Request, res: Response) {
   try {
     const game = await loadGame(req);
@@ -384,6 +424,7 @@ export async function approveHandler(req: Request, res: Response) {
     if (claimed.matchedCount === 0) throw new HttpError(409, "This step was already approved. Refresh the page.");
 
     let errors: string[] = [];
+    let note: string | null = null;
     if (next) {
       let card: Job;
       try {
@@ -396,9 +437,9 @@ export async function approveHandler(req: Request, res: Response) {
         throw error;
       }
       await withGames(({ assets }) => assets.updateOne({ id: asset.id }, { $push: { [`steps.${index + 1}.jobIds`]: card.id } }));
-      errors = (await runCards([{ id: card.id, title: card.title ?? asset.assetId }])).errors;
+      ({ note, errors } = await addToGameBatch(game, card, res.locals.username ?? null));
     }
-    res.json({ asset: await findAsset(asset.id), errors });
+    res.json({ asset: await findAsset(asset.id), errors, note });
   } catch (error) {
     sendError(res, error);
   }
@@ -406,8 +447,8 @@ export async function approveHandler(req: Request, res: Response) {
 
 // POST /api/games/<id>/assets/<assetId>/variant
 // "Make variant": a new card for the current step, with the same preset and values as its newest
-// card, a new random seed, and (first step) the asset's prompt as it is now. Queued at once.
-// Answer: { asset, errors }.
+// card, a new random seed, and (first step) the asset's prompt as it is now. Put into the game's
+// batch (FRG-98). Answer: { asset, errors, note }, like approve.
 export async function variantHandler(req: Request, res: Response) {
   try {
     const game = await loadGame(req);
@@ -439,8 +480,8 @@ export async function variantHandler(req: Request, res: Response) {
     await withGames(({ assets }) =>
       assets.updateOne({ id: asset.id }, { $push: { [`steps.${index}.jobIds`]: card.id }, $set: { status: "generating" } }),
     );
-    const { errors } = await runCards([{ id: card.id, title: card.title ?? asset.assetId }]);
-    res.json({ asset: await findAsset(asset.id), errors });
+    const { note, errors } = await addToGameBatch(game, card, res.locals.username ?? null);
+    res.json({ asset: await findAsset(asset.id), errors, note });
   } catch (error) {
     sendError(res, error);
   }
