@@ -1,9 +1,17 @@
+import { existsSync } from "node:fs";
 import { access, readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { HttpError } from "./httpError.js";
 
 // The presets folder at the root of the repo.
 const PRESETS_DIR = path.join(import.meta.dirname, "..", "..", "presets");
+
+// True when the preset folder has both its files. Used by game files (FRG-96): a need only gets a
+// TeczoForge step when its preset is installed.
+export function presetFolderExists(presetId: string): boolean {
+  const folder = path.join(PRESETS_DIR, presetId);
+  return existsSync(path.join(folder, "preset.json")) && existsSync(path.join(folder, "workflow.json"));
+}
 
 // Limits for user input.
 const MAX_TEXT_LENGTH = 2000;
