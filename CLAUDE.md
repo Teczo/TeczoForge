@@ -264,6 +264,8 @@ for history only. `docs/design/ui-inventory.md` lists every page and part of the
      `bg-success-soft`, `shadow-float`, ...
    - Plain CSS: `var(--card)`, `var(--ink)`, `var(--line)`, ...
    A new colour gets a new variable in `theme.css`, with a light and a dark value.
+   Exception: the translation overlay on the Translate page (`docs/translate-overlay.md`) takes the
+   paper colour and the ink colour from the photo itself. Those colours come from the picture, not from the theme.
 4. Use the shared parts in `frontend/src/ui.tsx` before making a new one: `Button` / `btn()`,
    `Input` / `FIELD`, `Card` / `CARD`, `Modal`, `Tabs`, `Badge`, `Notice`, `EmptyState`,
    `PageHeader`. The sidebar and top bar are in `AppShell.tsx`.
