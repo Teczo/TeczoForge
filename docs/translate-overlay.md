@@ -224,7 +224,7 @@ always matches the newest texts. An old document gets an overlay after "Try agai
 
 ## 11. Drawing the overlay (frontend)
 
-New files: `frontend/src/translateOverlay.ts` (the sums: find the ink, colours, fitting the text)
+New files: `frontend/src/translateOverlayFit.ts` (the sums: find the ink, colours, fitting the text)
 and `frontend/src/TranslateOverlay.tsx` (the SVG layer). Each step below is a small function.
 
 The photo is read once into a canvas at full size, to look at its pixels. A box on the 0-1000 grid
@@ -262,6 +262,23 @@ becomes pixels by `x * photoWidth / 1000` and `y * photoHeight / 1000`.
 
 The fitting function, `fitBlock(block, measure)`, gets the measuring function from outside. So the
 SVG, the PNG download, and a PDF later all use the same result.
+
+Added in FRG-105, after testing on TestPDF:
+
+- The file is `translateOverlayFit.ts`, not `translateOverlay.ts`: on Windows that name and
+  `TranslateOverlay.tsx` are the same import.
+- Step 1: along the line, the box is never shorter than the model's box (lighter ink at the ends can miss
+  the ink test). Then the ink is followed past both ends until a gap of half a line height. It stops at a
+  shadow or the edge of the page (a run of positions with no paper), and at the line of another block.
+- Step 3: each side colour is taken just inside the block. A side more than 25 darker than the block's
+  middle paper colour (a shadow) takes the middle colour instead.
+- Step 6: a vertical block also grows down, which makes its line longer. A block stops growing at any block
+  that starts lower and overlaps it from left to right, even when they touch (table rows).
+- Step 8: all patches are drawn first, then all texts, so a patch never hides the text of the block above.
+  The texts do not catch the mouse, so hovering them shows the title of the patch.
+- A block of one line with at most 2 Japanese characters, whose English cannot be written without
+  breaking a word, is a seal or a mark: it is not drawn, and its Japanese stays visible.
+- The "|" of a Markdown table in the English become spaces; "|---|" lines are dropped.
 
 On the page:
 

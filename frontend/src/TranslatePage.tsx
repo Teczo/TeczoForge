@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChangeEvent, DragEvent } from "react";
-import { AlertTriangle, Check, Copy, Download, ImagePlus, Pencil, RefreshCw, Trash2 } from "lucide-react";
+import { AlertTriangle, Check, Copy, Download, ExternalLink, ImagePlus, Pencil, RefreshCw, Trash2 } from "lucide-react";
 import { askConfirm, showMessage } from "./dialogs";
-import { btn, CARD, EmptyState, FIELD, Loading, Notice, PageHeader } from "./ui";
+import { btn, CARD, EmptyState, FIELD, Loading, Notice, PageHeader, Tabs } from "./ui";
+import { TranslateOverlay } from "./TranslateOverlay";
 import { forEachPdfPage, isPdf } from "./pdfPages";
 import { splitIntoBlocks } from "./translateTables";
 
@@ -38,6 +39,8 @@ type DocSummary = {
   model: string;
   imageTokens: string;
   seconds: number;
+  // The translation on the photo (FRG-104): "none", "done" or "failed".
+  overlay: "none" | "done" | "failed";
 };
 // One document with both texts, as GET /api/translate/documents/<id> returns it.
 type DocDetail = DocSummary & { japanese: string; english: string };
@@ -360,6 +363,54 @@ function statusColour(status: DocStatus): string {
   return "text-ink-2";
 }
 
+type PhotoMode = "translated" | "original";
+
+// The photo. With a translation on the photo (FRG-105): the tabs "Translated" | "Original" above it.
+// The original photo is a link that opens it full size. The translated view is not a link, so the mouse
+// can hover the blocks; it has an "Open full size" button instead.
+function PhotoView({ doc, imageUrl }: { doc: DocSummary; imageUrl: string }) {
+  const hasOverlay = doc.status === "done" && doc.overlay === "done";
+  const [mode, setMode] = useState<PhotoMode>("translated");
+  const alt = `Photo: ${titleOf(doc)}`;
+  const box = "mb-4 block max-h-[70vh] overflow-auto rounded-xl bg-frame";
+
+  if (!hasOverlay) {
+    return (
+      <a href={imageUrl} target="_blank" rel="noreferrer" title="Open the photo full size" className={box}>
+        <img src={imageUrl} alt={alt} className="block w-full" />
+      </a>
+    );
+  }
+  return (
+    <>
+      <div className="mb-2 flex flex-wrap items-center gap-2">
+        <Tabs
+          label="Photo"
+          items={[
+            { value: "translated", label: "Translated", title: "The translation on the photo" },
+            { value: "original", label: "Original", title: "The photo as uploaded" },
+          ]}
+          value={mode}
+          onChange={setMode}
+        />
+        <a href={imageUrl} target="_blank" rel="noreferrer" className={`${btn("ghost", "sm")} ml-auto`}>
+          <ExternalLink size={14} />
+          Open full size
+        </a>
+      </div>
+      {mode === "translated" ? (
+        <div className={box}>
+          <TranslateOverlay docId={doc.id} imageUrl={imageUrl} alt={alt} />
+        </div>
+      ) : (
+        <a href={imageUrl} target="_blank" rel="noreferrer" title="Open the photo full size" className={box}>
+          <img src={imageUrl} alt={alt} className="block w-full" />
+        </a>
+      )}
+    </>
+  );
+}
+
 // The photo, the two texts and the buttons of one document.
 function Result({
   doc,
@@ -426,10 +477,8 @@ function Result({
         </button>
       </div>
 
-      {/* The photo: big, scrolls inside its box, a click opens it full size in a new tab. */}
-      <a href={imageUrl} target="_blank" rel="noreferrer" title="Open the photo full size" className="mb-4 block max-h-[70vh] overflow-auto rounded-xl bg-frame">
-        <img src={imageUrl} alt={`Photo: ${titleOf(doc)}`} className="block w-full" />
-      </a>
+      {/* key: each document starts in the "Translated" view, and a new overlay is drawn after Try again. */}
+      <PhotoView key={`${doc.id}-${doc.status}-${doc.seconds}`} doc={doc} imageUrl={imageUrl} />
 
       {doc.status === "failed" && (
         <p className="mb-4 rounded-xl border border-danger-line bg-danger-soft px-4 py-3 text-sm text-danger">

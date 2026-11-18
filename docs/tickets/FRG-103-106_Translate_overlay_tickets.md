@@ -149,7 +149,7 @@ If it does not, stop and ask.
 
 **In scope**
 
-1. Everything in spec 11. New files `frontend/src/translateOverlay.ts` and `frontend/src/TranslateOverlay.tsx`.
+1. Everything in spec 11. New files `frontend/src/translateOverlayFit.ts` and `frontend/src/TranslateOverlay.tsx`.
 2. `fitBlock(block, measure)` gets the measuring function from outside (spec 11, last paragraph),
    so FRG-106 can use the same result.
 3. The `Tabs` "Translated" | "Original" above the photo, and the "Open full size" button (spec 11, "On the page").
