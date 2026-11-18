@@ -17,7 +17,7 @@ const NO_BACKEND = "Could not reach the backend. Make sure it is running, then t
 // While a document is not finished, ask the backend again this often.
 const REFRESH_MS = 2000;
 
-type DocStatus = "waiting" | "reading" | "translating" | "done" | "failed";
+type DocStatus = "waiting" | "reading" | "translating" | "placing" | "done" | "failed";
 
 // GET /api/translate/status
 type TranslateStatus = { setUp: boolean; problem: string | null; serverRunning: boolean; gpuBusy: boolean; waiting: number };
@@ -46,6 +46,7 @@ const STATUS_WORDS: Record<DocStatus, string> = {
   waiting: "Waiting",
   reading: "Reading the handwriting",
   translating: "Translating",
+  placing: "Placing the text on the photo",
   done: "Done",
   failed: "Failed",
 };
@@ -416,7 +417,7 @@ function Result({
         <button
           type="button"
           onClick={onRemove}
-          disabled={doc.status === "reading" || doc.status === "translating"}
+          disabled={doc.status === "reading" || doc.status === "translating" || doc.status === "placing"}
           title={doc.fileId ? "Remove all pages of this PDF file" : "Remove this document"}
           className={btn("danger", "sm")}
         >
@@ -460,7 +461,8 @@ function Result({
         waiting={doc.status === "waiting" || doc.status === "reading"}
         onSave={finished ? onSaveJapanese : undefined}
       />
-      <TextBox title="Translation" text={detail?.english ?? ""} waiting={!finished} />
+      {/* While the text is placed on the photo, the translation is already there. */}
+      <TextBox title="Translation" text={detail?.english ?? ""} waiting={!finished && doc.status !== "placing"} />
 
       {finished && (
         <p className="mt-4 mb-0 text-xs text-ink-3">

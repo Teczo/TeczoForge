@@ -75,3 +75,58 @@ function checkLine(item: unknown): LayoutLine | null {
 
   return { block, dir, box: [x1, y1, x2, y2], text };
 }
+
+// ---------- Call 4 and layout.json (FRG-104, spec 8 and 9) ----------
+
+// The longest translation of one block we accept.
+const MAX_BLOCK_ENGLISH_LENGTH = 2000;
+
+// One block in layout.json: its lines from call 3, and its translation from call 4.
+export type LayoutBlock = {
+  block: number;
+  dir: "h" | "v";
+  lines: { box: [number, number, number, number]; japanese: string }[];
+  english: string;
+};
+
+// layout.json. Boxes are on a 0-1000 grid of the photo.
+export type Layout = { grid: number; blocks: LayoutBlock[] };
+
+// The lines of call 3 put together by block number, in the order the blocks first appear.
+// A block takes the direction of its first line.
+export function groupBlocks(lines: LayoutLine[]): Omit<LayoutBlock, "english">[] {
+  const blocks = new Map<number, Omit<LayoutBlock, "english">>();
+  for (const line of lines) {
+    let block = blocks.get(line.block);
+    if (!block) {
+      block = { block: line.block, dir: line.dir, lines: [] };
+      blocks.set(line.block, block);
+    }
+    block.lines.push({ box: line.box, japanese: line.text });
+  }
+  return [...blocks.values()];
+}
+
+// Read the call 4 answer: the translation of each block, by block number.
+// Only block numbers in `known` are kept, and the first translation of a block wins.
+// Returns null when the answer is not JSON in the expected shape.
+export function parseBlockEnglish(answer: string, known: Set<number>): Map<number, string> | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(answer);
+  } catch {
+    return null;
+  }
+  const given = (parsed as { blocks?: unknown })?.blocks;
+  if (!Array.isArray(given)) return null;
+  const english = new Map<number, string>();
+  for (const item of given) {
+    const { block, english: text } = (item ?? {}) as Record<string, unknown>;
+    if (typeof block !== "number" || !known.has(block) || english.has(block)) continue;
+    if (typeof text !== "string") continue;
+    const trimmed = text.trim();
+    if (trimmed === "" || trimmed.length > MAX_BLOCK_ENGLISH_LENGTH) continue;
+    english.set(block, trimmed);
+  }
+  return english;
+}

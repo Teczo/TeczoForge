@@ -80,6 +80,7 @@ import {
   retryDocumentHandler,
   TRANSLATE_UPLOAD_TYPES,
   translateStatusHandler,
+  documentLayoutHandler,
 } from "./translateDocuments.js";
 
 // Settings come from backend/.env. The defaults match .env.example.
@@ -240,6 +241,8 @@ app.post("/api/translate/documents", express.raw({ type: TRANSLATE_UPLOAD_TYPES,
 app.get("/api/translate/documents", listDocumentsHandler);
 app.get("/api/translate/documents/:id", getDocumentHandler);
 app.get("/api/translate/documents/:id/image", documentImageHandler);
+// Where each block of the page is, and its translation: the translation on the photo (FRG-104).
+app.get("/api/translate/documents/:id/layout", documentLayoutHandler);
 // Remove a document. For a page of a PDF file: all pages of that file.
 app.delete("/api/translate/documents/:id", deleteDocumentHandler);
 app.post("/api/translate/documents/:id/retry", retryDocumentHandler);
