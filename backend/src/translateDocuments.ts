@@ -10,7 +10,20 @@ import type { ImageInfo } from "./inputs.js";
 import { IMAGE_TYPES } from "./upload.js";
 import { makeTranslationPdf, pdfFontProblem } from "./translatePdf.js";
 import type { PdfPart } from "./translatePdf.js";
-import { READ_SYSTEM_TEXT, READ_USER_TEXT, translateSystemText, translateUserText } from "./translatePrompt.js";
+import {
+  BLOCKS_SCHEMA,
+  blocksSystemText,
+  blocksUserText,
+  LAYOUT_SCHEMA,
+  LAYOUT_SYSTEM_TEXT,
+  layoutUserText,
+  READ_SYSTEM_TEXT,
+  READ_USER_TEXT,
+  translateSystemText,
+  translateUserText,
+} from "./translatePrompt.js";
+import { groupBlocks, GRID_SIZE, parseBlockEnglish, parseLayout } from "./translateLayout.js";
+import type { Layout } from "./translateLayout.js";
 import {
   checkTranslateSetup,
   isTranslateServerRunning,
@@ -29,6 +42,9 @@ import {
 // Each document is a folder in data/translations. No MongoDB is used.
 // One worker handles the documents one at a time, oldest first:
 //   call 1: photo -> Japanese text.   call 2: Japanese text + photo -> translation.
+//   When TRANSLATE_OVERLAY is on (FRG-104, plan: docs/translate-overlay.md):
+//   call 3: photo + Japanese text -> where each line is.
+//   call 4: Japanese of each block + translation -> translation of each block (no photo).
 // The documents are private client data. Their text is never written to the log (CLAUDE.md section 7, rule 11).
 
 // data/translations at the root of the repo.
@@ -46,6 +62,11 @@ export const MAX_PDF_PAGES = 30;
 const MAX_ANSWER_TOKENS = 4096;
 // How long to wait for one model call.
 const CALL_TIMEOUT_MS = 10 * 60 * 1000;
+// The most text the call 3 answer may have. A full page has many lines, and each line needs a box.
+const LAYOUT_MAX_TOKENS = 8192;
+// The warnings of the translation on the photo (spec 8 and 9).
+const OVERLAY_FAILED = "The translation could not be placed on the photo.";
+const OVERLAY_PARTLY = "Some parts of the page have no translation on the photo.";
 // The longest corrected Japanese text we accept (FRG-94). A full page is far below this.
 const MAX_JAPANESE_LENGTH = 20_000;
 // While ComfyUI has a job, look at its queue again this often (FRG-93).
@@ -56,7 +77,10 @@ const FREE_WAIT_MS = 3000;
 // HEIC is read too, only so we can refuse it with a clear message.
 export const TRANSLATE_UPLOAD_TYPES = [...IMAGE_TYPES, "image/heic", "image/heif", "application/octet-stream"];
 
-type Status = "waiting" | "reading" | "translating" | "done" | "failed";
+// "placing": calls 3 and 4 put the translation on the photo (FRG-104).
+type Status = "waiting" | "reading" | "translating" | "placing" | "done" | "failed";
+// The translation on the photo: "none" (not made: switched off, or an old document), "done" or "failed".
+type Overlay = "none" | "done" | "failed";
 
 // This is record.json (spec 10).
 type TranslateDocument = {
@@ -77,6 +101,7 @@ type TranslateDocument = {
   model: string;
   imageTokens: string;
   seconds: number;
+  overlay: Overlay;
 };
 
 // All documents, by id. Read from disk once at the start, then every change is also saved to disk.
@@ -120,7 +145,9 @@ export function loadTranslateDocuments(): void {
       doc.fileId ??= null;
       doc.page ??= 1;
       doc.pages ??= 1;
-      if (doc.status === "reading" || doc.status === "translating") doc.status = "waiting";
+      // Documents from before FRG-104 have no overlay field.
+      doc.overlay ??= "none";
+      if (doc.status === "reading" || doc.status === "translating" || doc.status === "placing") doc.status = "waiting";
       documents.set(doc.id, doc);
     } catch {
       console.warn(`Warning: translation document ${name} has no readable record.json. It is skipped.`);
@@ -260,6 +287,9 @@ async function handleDocument(doc: TranslateDocument): Promise<void> {
     doc.english = "";
     doc.error = null;
     doc.warnings = [];
+    // The old overlay goes first, so an overlay never belongs to older texts.
+    doc.overlay = "none";
+    await rm(path.join(folderOf(doc.id), "layout.json"), { force: true });
     doc.model = settings.modelName;
     doc.imageTokens = `${settings.imageMinTokens}-${settings.imageMaxTokens}`;
     doc.seconds = 0;
@@ -281,6 +311,24 @@ async function handleDocument(doc: TranslateDocument): Promise<void> {
     doc.english = translated.text;
     cutOff = cutOff || translated.cutOff;
     doc.warnings = [...(cutOff ? ["The text may be cut off at the end."] : []), ...checkResult(doc.japanese, doc.english)];
+
+    // Calls 3 and 4: the translation on the photo. If they fail, the texts are still fine:
+    // the document is done, with a warning.
+    if (overlayOn()) {
+      doc.status = "placing";
+      await saveDocument(doc);
+      try {
+        const layout = await makeLayout(doc, photoUrl, settings.targetLanguage);
+        await writeFile(path.join(folderOf(doc.id), "layout.json"), JSON.stringify(layout.layout, null, 2), "utf8");
+        doc.overlay = "done";
+        if (layout.missing > 0) doc.warnings.push(OVERLAY_PARTLY);
+      } catch (error) {
+        doc.overlay = "failed";
+        doc.warnings.push(OVERLAY_FAILED);
+        // The error text is our own wording. It never holds text from the document.
+        console.error(`Translation: ${doc.id} could not place the translation on the photo. ${messageOf(error)}`);
+      }
+    }
     doc.status = "done";
     console.log(`Translation: ${doc.id} done.`);
   } catch (error) {
@@ -291,6 +339,44 @@ async function handleDocument(doc: TranslateDocument): Promise<void> {
   }
   doc.seconds = Math.round((Date.now() - startedAt) / 1000);
   await saveDocument(doc);
+}
+
+// TRANSLATE_OVERLAY in backend/.env: any value other than "off" means on (FRG-104, spec 6).
+function overlayOn(): boolean {
+  return (process.env.TRANSLATE_OVERLAY ?? "").trim().toLowerCase() !== "off";
+}
+
+// Calls 3 and 4 for one document. Returns layout.json, and how many blocks got no translation.
+// Throws when there is nothing to draw. The error texts never hold text from the document.
+async function makeLayout(doc: TranslateDocument, photoUrl: string, language: string): Promise<{ layout: Layout; missing: number }> {
+  // Call 3: photo + Japanese text -> where each line is.
+  const placed = await askModel(LAYOUT_SYSTEM_TEXT, layoutUserText(doc.japanese), {
+    photoUrl,
+    maxTokens: LAYOUT_MAX_TOKENS,
+    schema: LAYOUT_SCHEMA,
+  });
+  const found = parseLayout(placed.text);
+  if (!found) throw new Error(`The answer of call 3 was not JSON in the expected shape${placed.cutOff ? " (it was cut off)" : ""}.`);
+  if (found.lines.length === 0) throw new Error("Call 3 found no lines that passed the checks.");
+  const blocks = groupBlocks(found.lines);
+
+  // Call 4: the Japanese of each block + the full translation -> translation of each block. No photo.
+  const asked = blocks.map((block) => ({ block: block.block, japanese: block.lines.map((line) => line.japanese).join("\n") }));
+  const answered = await askModel(blocksSystemText(language), blocksUserText(doc.english, asked), {
+    photoUrl: null,
+    schema: BLOCKS_SCHEMA,
+  });
+  const english = parseBlockEnglish(answered.text, new Set(blocks.map((block) => block.block)));
+  if (!english) throw new Error(`The answer of call 4 was not JSON in the expected shape${answered.cutOff ? " (it was cut off)" : ""}.`);
+  if (english.size === 0) throw new Error("Call 4 gave no translation for any block.");
+
+  // A block with no translation is not drawn, so it is left out of layout.json.
+  const drawn = blocks.flatMap((block) => {
+    const text = english.get(block.block);
+    return text === undefined ? [] : [{ ...block, english: text }];
+  });
+  console.log(`Translation: ${doc.id} placed ${drawn.length} of ${blocks.length} block(s) on the photo.`);
+  return { layout: { grid: GRID_SIZE, blocks: drawn }, missing: blocks.length - drawn.length };
 }
 
 // ---------- Checks on a result (FRG-94, spec 11) ----------
@@ -488,6 +574,7 @@ export async function createDocumentHandler(req: Request, res: Response) {
       model: settings.modelName,
       imageTokens: `${settings.imageMinTokens}-${settings.imageMaxTokens}`,
       seconds: 0,
+      overlay: "none",
     };
     await mkdir(folderOf(doc.id), { recursive: true });
     await writeFile(path.join(folderOf(doc.id), `source.${info.extension}`), data);
@@ -528,6 +615,20 @@ export async function documentImageHandler(req: Request, res: Response) {
     if (!photo) throw new HttpError(404, "The photo of this document is not on disk any more.");
     res.setHeader("Content-Type", photo.info.mediaType);
     res.send(photo.data);
+  } catch (error) {
+    sendError(res, error);
+  }
+}
+
+// GET /api/translate/documents/:id/layout  (FRG-104, spec 9 and 10)
+// layout.json: where each block of the page is, and its translation.
+export async function documentLayoutHandler(req: Request, res: Response) {
+  try {
+    const doc = findDocument(req);
+    const filePath = path.join(folderOf(doc.id), "layout.json");
+    if (doc.overlay !== "done" || !existsSync(filePath)) throw new HttpError(404, "This document has no overlay.");
+    res.setHeader("Content-Type", "application/json; charset=utf-8");
+    res.send(await readFile(filePath, "utf8"));
   } catch (error) {
     sendError(res, error);
   }
@@ -632,7 +733,7 @@ export async function deleteDocumentHandler(req: Request, res: Response) {
   try {
     const doc = findDocument(req);
     const group = doc.fileId ? [...documents.values()].filter((other) => other.fileId === doc.fileId) : [doc];
-    if (group.some((one) => one.status === "reading" || one.status === "translating")) {
+    if (group.some((one) => one.status === "reading" || one.status === "translating" || one.status === "placing")) {
       throw new HttpError(409, "This document is being worked on. Wait until it is done, then remove it.");
     }
     for (const one of group) {

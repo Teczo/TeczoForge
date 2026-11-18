@@ -97,3 +97,44 @@ export const LAYOUT_SCHEMA = {
   },
   required: ["lines"],
 };
+
+// Call 4 (FRG-104, plan: docs/translate-overlay.md section 8): text only, no photo.
+// The Japanese of each block from call 3 and the full translation from call 2 go in,
+// the translation of each block comes out, as JSON. `language` is TRANSLATE_TARGET_LANGUAGE.
+export function blocksSystemText(language: string): string {
+  return `You are a careful translator of Japanese business and technical documents into ${language}.
+You get numbered blocks of Japanese text from one page, and a full translation of the same page.
+Translate each block on its own, so it can be printed in the place of the Japanese.
+Rules:
+- Where the full translation already covers the same text, use its wording. Do not translate it in a new way.
+- Keep the block numbers. Give every block exactly one translation.
+- Copy all numbers, dates, units and codes exactly.
+- Write names of people and places in romaji only, without the Japanese in brackets.
+- Keep it short: it must fit in the same space as the Japanese. Do not add notes or explanations.
+- If a block cannot be read, write [unclear].
+Answer with JSON only.`;
+}
+
+// `blocks`: the Japanese of each block, its lines joined with a new line.
+export function blocksUserText(english: string, blocks: { block: number; japanese: string }[]): string {
+  return `Full translation:\n${english}\n\nBlocks:\n${JSON.stringify(blocks, null, 1)}`;
+}
+
+// The JSON schema of the call 4 answer.
+export const BLOCKS_SCHEMA = {
+  type: "object",
+  properties: {
+    blocks: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          block: { type: "integer" },
+          english: { type: "string" },
+        },
+        required: ["block", "english"],
+      },
+    },
+  },
+  required: ["blocks"],
+};
