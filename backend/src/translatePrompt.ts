@@ -51,3 +51,49 @@ Answer with the translation only.`;
 export function translateUserText(japanese: string): string {
   return `Transcript:\n${japanese}\n\nTranslate this document.`;
 }
+
+// Call 3 (FRG-103, plan: docs/translate-overlay.md section 7): the photo and the Japanese text go in,
+// the place of every line comes out, as JSON. Boxes are on a 0-1000 grid of the photo.
+export const LAYOUT_SYSTEM_TEXT = `You find where text is written in a photo of a Japanese document.
+You get the photo, and a transcript that was made from the same photo.
+For every line of Japanese text in the photo, give:
+- "box": the box around the line, as [x1, y1, x2, y2] on a 0-1000 grid.
+  0,0 is the top left corner of the photo. 1000,1000 is the bottom right corner.
+- "text": the text of that line, copied from the transcript.
+- "dir": "h" for a horizontal line, "v" for a vertical column.
+- "block": a number. Lines of the same paragraph, the same note or the same table cell get the same number.
+  Number the blocks from 1, in reading order.
+Rules:
+- One entry for each line of the page. A vertical column is one line.
+- A table cell is its own block.
+- Leave out seals, stamps, signatures and drawings.
+- Leave out text that is only in English, or only numbers and codes.
+- Leave out faint text that shows through from the back of the paper.
+Answer with JSON only.`;
+
+export function layoutUserText(japanese: string): string {
+  return `Transcript:\n${japanese}\n\nFind every line of Japanese text in the photo.`;
+}
+
+// The JSON schema of the call 3 answer. llama-server makes the model follow it.
+// The numbers in "box" have no range here on purpose: the backend checks and cuts them (translateLayout.ts),
+// and the FRG-103 test needs to see the numbers the model really gives.
+export const LAYOUT_SCHEMA = {
+  type: "object",
+  properties: {
+    lines: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          block: { type: "integer" },
+          dir: { type: "string", enum: ["h", "v"] },
+          box: { type: "array", items: { type: "number" }, minItems: 4, maxItems: 4 },
+          text: { type: "string" },
+        },
+        required: ["block", "dir", "box", "text"],
+      },
+    },
+  },
+  required: ["lines"],
+};

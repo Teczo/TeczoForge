@@ -11,6 +11,7 @@
     "user": "tsx src/setUser.ts",
     "secret": "tsx src/makeSecret.ts",
     "translate-test": "tsx src/translateTest.ts",
+    "translate-layout-test": "tsx src/translateLayoutTest.ts",
     "games-add-steps": "tsx src/gamesAddSteps.ts",
     "typecheck": "tsc --noEmit"
   },

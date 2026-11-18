@@ -195,6 +195,10 @@ Fill this in when the ticket that creates each part is done.
   paste it into `backend/.env`). If it is set but shorter than 32 characters, the backend will not start.
 - Test the translation engine: `cd backend`, then `npm run translate-test`. It starts llama-server,
   asks the model to say OK, prints the answer, and stops llama-server again. Uses about 22 GB of GPU memory while it runs.
+- Test where the model finds the lines on a photo (FRG-103): `cd backend`, then
+  `npm run translate-layout-test -- <document id>`. The document must be "done". It writes
+  `layout-test.html` (the boxes drawn on the photo) and `layout-test.json` into the document's folder in
+  `data/translations`, and prints counts only. Uses the GPU like `translate-test`, and stops if ComfyUI has a job.
 - Tests: (not set yet)
 - Lint: (not set yet)
 

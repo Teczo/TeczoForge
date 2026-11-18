@@ -35,7 +35,7 @@ import {
 export const TRANSLATIONS_DIR = path.join(import.meta.dirname, "..", "..", "data", "translations");
 
 // An id looks like tr-1794373826681-a1b2c3. It is checked before it is used in any path.
-const ID_PATTERN = /^tr-[0-9]+-[0-9a-f]{6}$/;
+export const ID_PATTERN = /^tr-[0-9]+-[0-9a-f]{6}$/;
 // The file name the user sees is cut to this many characters.
 const MAX_NAME_LENGTH = 120;
 // The pages of one PDF file share this id. The browser makes it: 12 hex characters (FRG-95).
@@ -96,7 +96,7 @@ async function saveDocument(doc: TranslateDocument): Promise<void> {
 }
 
 // The photo of a document, as uploaded: source.jpg, source.png or source.webp.
-async function readPhoto(id: string): Promise<{ data: Buffer; info: ImageInfo } | null> {
+export async function readPhoto(id: string): Promise<{ data: Buffer; info: ImageInfo } | null> {
   for (const extension of ["jpg", "png", "webp"]) {
     const filePath = path.join(folderOf(id), `source.${extension}`);
     if (!existsSync(filePath)) continue;
@@ -268,7 +268,7 @@ async function handleDocument(doc: TranslateDocument): Promise<void> {
     let cutOff = false;
     if (!keepJapanese) {
       // Call 1: photo -> Japanese text.
-      const read = await askModel(READ_SYSTEM_TEXT, READ_USER_TEXT, photoUrl);
+      const read = await askModel(READ_SYSTEM_TEXT, READ_USER_TEXT, { photoUrl });
       if (read.text === "") throw new Error("The model found no text in this photo.");
       doc.japanese = read.text;
       cutOff = read.cutOff;
@@ -277,7 +277,7 @@ async function handleDocument(doc: TranslateDocument): Promise<void> {
     }
 
     // Call 2: Japanese text + photo -> translation.
-    const translated = await askModel(translateSystemText(settings.targetLanguage, keepJapanese), translateUserText(doc.japanese), photoUrl);
+    const translated = await askModel(translateSystemText(settings.targetLanguage, keepJapanese), translateUserText(doc.japanese), { photoUrl });
     doc.english = translated.text;
     cutOff = cutOff || translated.cutOff;
     doc.warnings = [...(cutOff ? ["The text may be cut off at the end."] : []), ...checkResult(doc.japanese, doc.english)];
@@ -358,9 +358,17 @@ export function checkResult(japanese: string, english: string): string[] {
   return warnings;
 }
 
-// One call to the model: a system text, a user text and the photo. Returns the answer text,
+// What one model call sends besides the two texts.
+// photoUrl: the photo as a data: URL, or null for a call without the photo (call 4, FRG-104).
+// maxTokens: the most text the answer may have. Calls 1 and 2 use MAX_ANSWER_TOKENS.
+// schema: a JSON schema the answer must follow (calls 3 and 4). Calls 1 and 2 have none.
+export type AskOptions = { photoUrl: string | null; maxTokens?: number; schema?: object };
+
+// One call to the model: a system text, a user text, and the options above. Returns the answer text,
 // and cutOff = true when the model ran out of room before it finished.
-async function askModel(systemText: string, userText: string, photoUrl: string): Promise<{ text: string; cutOff: boolean }> {
+export async function askModel(systemText: string, userText: string, options: AskOptions): Promise<{ text: string; cutOff: boolean }> {
+  const userContent: object[] = [{ type: "text", text: userText }];
+  if (options.photoUrl !== null) userContent.push({ type: "image_url", image_url: { url: options.photoUrl } });
   let response;
   try {
     response = await fetch(`${translateServerUrl()}/v1/chat/completions`, {
@@ -369,16 +377,11 @@ async function askModel(systemText: string, userText: string, photoUrl: string):
       body: JSON.stringify({
         temperature: 0,
         repeat_penalty: 1.1,
-        max_tokens: MAX_ANSWER_TOKENS,
+        max_tokens: options.maxTokens ?? MAX_ANSWER_TOKENS,
+        ...(options.schema ? { response_format: { type: "json_schema", json_schema: { name: "answer", strict: true, schema: options.schema } } } : {}),
         messages: [
           { role: "system", content: systemText },
-          {
-            role: "user",
-            content: [
-              { type: "text", text: userText },
-              { type: "image_url", image_url: { url: photoUrl } },
-            ],
-          },
+          { role: "user", content: userContent },
         ],
       }),
       signal: AbortSignal.timeout(CALL_TIMEOUT_MS),
