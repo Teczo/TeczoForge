@@ -370,3 +370,12 @@ The English text is put on top of the photo, in the place of the Japanese, like 
 Two new model calls (3 and 4) run after calls 1 and 2, which do not change. The browser covers the
 Japanese with the paper colour and draws the English at about the size of the handwriting.
 The plan is `docs/translate-overlay.md`. The tickets are in `docs/tickets/FRG-103-106_Translate_overlay_tickets.md`.
+
+## 19. Downloads, empty table rows and tables (FRG-107 to FRG-113, planned)
+
+One "Download" button opens a dialog: the translated photo, the translated text or the plain text; all pages
+or one page; one file or one file per page (.zip). The translated photos of all pages can be one PDF.
+A bar offers to hide empty table rows, for the whole file. A bar offers to rewrite a page as a table when the
+boxes of call 3 line up in rows and columns but the text has no table (a new call 5). Both can be undone.
+The plan is `docs/translate-downloads-and-tables.md`. The tickets are in
+`docs/tickets/FRG-107-113_Translate_downloads_and_tables_tickets.md`.
