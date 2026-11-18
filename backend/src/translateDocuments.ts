@@ -680,13 +680,41 @@ export async function editJapaneseHandler(req: Request, res: Response) {
   }
 }
 
+// Which pages a download holds (FRG-107): "one" is only this page, "all" is all pages of its file.
+// Returns `fallback` when the address has no ?pages=. Any other value is refused.
+function pagesOption(req: Request, fallback: "one" | "all"): "one" | "all" {
+  const value = req.query.pages;
+  if (value === undefined) return fallback;
+  if (value === "one" || value === "all") return value;
+  throw new HttpError(400, 'The value of "pages" must be "one" or "all".');
+}
+
+// The pages of the file of a document, in page order. For a photo: only the document itself.
+function pagesOfFile(doc: TranslateDocument): TranslateDocument[] {
+  return doc.fileId
+    ? [...documents.values()].filter((other) => other.fileId === doc.fileId).sort((a, b) => a.page - b.page)
+    : [doc];
+}
+
 // GET /api/translate/documents/:id/text
 // A .txt download with the file name, the Japanese text and the translation.
+// With ?pages=all (FRG-107): all pages of the file, in page order, each with its title line.
 export function documentTextHandler(req: Request, res: Response) {
   try {
     const doc = findDocument(req);
     const language = translateSettings().targetLanguage;
-    const text = [`File: ${doc.originalName}`, "", "Japanese:", doc.japanese, "", `${language}:`, doc.english, ""].join("\r\n");
+    let text: string;
+    if (pagesOption(req, "one") === "one") {
+      text = [`File: ${doc.originalName}`, "", "Japanese:", doc.japanese, "", `${language}:`, doc.english, ""].join("\r\n");
+    } else {
+      text = pagesOfFile(doc)
+        .map((one) =>
+          one.status === "done"
+            ? [titleOf(one), "", "Japanese:", one.japanese, "", `${language}:`, one.english, ""].join("\r\n")
+            : [titleOf(one), "", "This page is not translated yet.", ""].join("\r\n"),
+        )
+        .join("\r\n");
+    }
     // The download is named after the id, so the user's file name never goes into a header.
     res.setHeader("Content-Type", "text/plain; charset=utf-8");
     res.setHeader("Content-Disposition", `attachment; filename="${doc.id}.txt"`);
@@ -704,16 +732,16 @@ function titleOf(doc: TranslateDocument): string {
 // GET /api/translate/documents/:id/pdf  (FRG-95)
 // A .pdf download with the translation. Tables are drawn as tables.
 // For a page of a PDF file, the download holds all pages of that file, in page order.
+// With ?pages=one (FRG-107): only this page.
 export async function documentPdfHandler(req: Request, res: Response) {
   try {
     const doc = findDocument(req);
+    const pages = pagesOption(req, "all");
     if (doc.status !== "done") throw new HttpError(409, "This document is not translated yet. Wait until it is done.");
     const problem = pdfFontProblem();
     if (problem) throw new HttpError(503, problem);
 
-    const group = doc.fileId
-      ? [...documents.values()].filter((other) => other.fileId === doc.fileId).sort((a, b) => a.page - b.page)
-      : [doc];
+    const group = pages === "one" ? [doc] : pagesOfFile(doc);
     const parts: PdfPart[] = group.map((one) => ({ title: titleOf(one), text: one.status === "done" ? one.english : null }));
     const pdf = await makeTranslationPdf(parts);
     // The download is named after the id, so the user's file name never goes into a header.
