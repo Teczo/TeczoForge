@@ -424,3 +424,32 @@ export function isMark(block: PreparedBlock, fitted: FittedBlock, measure: Measu
   const width = block.dir === "v" ? y2 - y1 : x2 - x1;
   return block.english.split(/\s+/).some((word) => measure(word, fitted.fontSize) > width);
 }
+
+// Where one block is drawn, the same for the SVG on screen and the PNG download (FRG-106).
+export type BlockGeometry = {
+  // The patch that covers the Japanese, in photo pixels.
+  patch: { x: number; y: number; width: number; height: number };
+  // The text is drawn from this point. A vertical block is turned 90 degrees clockwise around it.
+  origin: [number, number];
+  vertical: boolean;
+  // The baseline of each line, measured from the origin, down the text.
+  baselines: number[];
+};
+
+export function blockGeometry(block: PreparedBlock, fitted: FittedBlock): BlockGeometry {
+  const [x1, y1, x2, y2] = fitted.inner;
+  const pad = block.margin + PATCH_EXTRA;
+  const vertical = block.dir === "v";
+  // The text is written in a box `height` high (fitBlock made the lines fit its width). A vertical block
+  // is turned around its top right corner, so its text runs down the column.
+  const height = vertical ? x2 - x1 : y2 - y1;
+  // The lines sit in the middle of the box, from top to bottom.
+  const top = Math.max(0, (height - fitted.lines.length * fitted.lineHeight) / 2);
+  return {
+    patch: { x: x1 - pad, y: y1 - pad, width: x2 - x1 + pad * 2, height: y2 - y1 + pad * 2 },
+    origin: vertical ? [x2, y1] : [x1, y1],
+    vertical,
+    // The middle of each line, plus a bit, so the letters look centred.
+    baselines: fitted.lines.map((_, index) => top + index * fitted.lineHeight + fitted.lineHeight / 2 + fitted.fontSize * 0.35),
+  };
+}

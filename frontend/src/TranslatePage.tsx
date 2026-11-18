@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChangeEvent, DragEvent } from "react";
-import { AlertTriangle, Check, Copy, Download, ExternalLink, ImagePlus, Pencil, RefreshCw, Trash2 } from "lucide-react";
+import { AlertTriangle, Check, Copy, Download, ExternalLink, ImageDown, ImagePlus, Pencil, RefreshCw, Trash2 } from "lucide-react";
 import { askConfirm, showMessage } from "./dialogs";
 import { btn, CARD, EmptyState, FIELD, Loading, Notice, PageHeader, Tabs } from "./ui";
-import { TranslateOverlay } from "./TranslateOverlay";
+import { overlayPng, TranslateOverlay, useOverlay } from "./TranslateOverlay";
+import type { Overlay } from "./TranslateOverlay";
 import { forEachPdfPage, isPdf } from "./pdfPages";
 import { splitIntoBlocks } from "./translateTables";
 
@@ -365,11 +366,31 @@ function statusColour(status: DocStatus): string {
 
 type PhotoMode = "translated" | "original";
 
+// True when the document has the translation on the photo (FRG-104).
+function hasOverlayOf(doc: DocSummary): boolean {
+  return doc.status === "done" && doc.overlay === "done";
+}
+
+// A title as a file name: characters that Windows does not allow in a file name become "_".
+function fileNameOf(title: string): string {
+  return title.replace(/[\\/:*?"<>|\u0000-\u001f]/g, "_").trim() || "document";
+}
+
 // The photo. With a translation on the photo (FRG-105): the tabs "Translated" | "Original" above it.
 // The original photo is a link that opens it full size. The translated view is not a link, so the mouse
 // can hover the blocks; it has an "Open full size" button instead.
-function PhotoView({ doc, imageUrl }: { doc: DocSummary; imageUrl: string }) {
-  const hasOverlay = doc.status === "done" && doc.overlay === "done";
+function PhotoView({
+  doc,
+  imageUrl,
+  overlay,
+  problem,
+}: {
+  doc: DocSummary;
+  imageUrl: string;
+  overlay: Overlay | null;
+  problem: string | null;
+}) {
+  const hasOverlay = hasOverlayOf(doc);
   const [mode, setMode] = useState<PhotoMode>("translated");
   const alt = `Photo: ${titleOf(doc)}`;
   const box = "mb-4 block max-h-[70vh] overflow-auto rounded-xl bg-frame";
@@ -400,7 +421,7 @@ function PhotoView({ doc, imageUrl }: { doc: DocSummary; imageUrl: string }) {
       </div>
       {mode === "translated" ? (
         <div className={box}>
-          <TranslateOverlay docId={doc.id} imageUrl={imageUrl} alt={alt} />
+          <TranslateOverlay docId={doc.id} imageUrl={imageUrl} alt={alt} overlay={overlay} problem={problem} />
         </div>
       ) : (
         <a href={imageUrl} target="_blank" rel="noreferrer" title="Open the photo full size" className={box}>
@@ -427,6 +448,32 @@ function Result({
 }) {
   const imageUrl = `/api/translate/documents/${doc.id}/image`;
   const finished = isFinished(doc.status);
+  // The translation on the photo, loaded once for the screen and the PNG download (FRG-105, FRG-106).
+  // The version changes when the document is translated again, so a new overlay is drawn.
+  const { overlay, problem } = useOverlay(doc.id, imageUrl, hasOverlayOf(doc) ? `${doc.status}-${doc.seconds}` : null);
+  const [saving, setSaving] = useState(false);
+
+  // Save the translated photo as a PNG. It is made in the browser: nothing is sent to the backend.
+  async function downloadImage() {
+    if (!overlay) return;
+    setSaving(true);
+    try {
+      const blob = await overlayPng(overlay);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${fileNameOf(titleOf(doc))} - translated.png`;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      await showMessage({
+        title: "Could not make the image",
+        message: error instanceof Error ? error.message : "The image could not be made.",
+      });
+    } finally {
+      setSaving(false);
+    }
+  }
 
   return (
     <div className={`${CARD} p-5`}>
@@ -455,6 +502,17 @@ function Result({
           <Download size={14} />
           Download PDF
         </a>
+        {/* The photo with the translation on it, as a PNG made in the browser (FRG-106). */}
+        <button
+          type="button"
+          onClick={() => void downloadImage()}
+          disabled={!hasOverlayOf(doc) || overlay === null || saving}
+          title={hasOverlayOf(doc) ? "The photo with the translation on it, as a PNG file" : "This document has no translation on the photo"}
+          className={btn("secondary", "sm")}
+        >
+          <ImageDown size={14} />
+          Download translated image
+        </button>
         <button
           type="button"
           onClick={onTryAgain}
@@ -478,7 +536,7 @@ function Result({
       </div>
 
       {/* key: each document starts in the "Translated" view, and a new overlay is drawn after Try again. */}
-      <PhotoView key={`${doc.id}-${doc.status}-${doc.seconds}`} doc={doc} imageUrl={imageUrl} />
+      <PhotoView key={`${doc.id}-${doc.status}-${doc.seconds}`} doc={doc} imageUrl={imageUrl} overlay={overlay} problem={problem} />
 
       {doc.status === "failed" && (
         <p className="mb-4 rounded-xl border border-danger-line bg-danger-soft px-4 py-3 text-sm text-danger">
