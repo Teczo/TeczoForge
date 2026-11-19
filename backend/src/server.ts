@@ -75,6 +75,7 @@ import {
   documentTextHandler,
   editJapaneseHandler,
   emptyRowsHandler,
+  tableHandler,
   getDocumentHandler,
   listDocumentsHandler,
   loadTranslateDocuments,
@@ -254,6 +255,8 @@ app.get("/api/translate/documents/:id/pdf", documentPdfHandler);
 app.put("/api/translate/documents/:id/japanese", express.json(), editJapaneseHandler);
 // Hide or show the empty table rows, for all pages of a file (FRG-110).
 app.put("/api/translate/documents/:id/empty-rows", express.json(), emptyRowsHandler);
+// "Make it a table": make, undo, keep or dismiss (FRG-112).
+app.post("/api/translate/documents/:id/table", express.json(), tableHandler);
 
 // Chat with Claude (see chat.ts). Each user only sees their own conversations.
 app.get("/api/chat/status", chatStatusHandler);
