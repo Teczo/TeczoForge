@@ -302,7 +302,10 @@ You rewrite the transcript of a Japanese document as a table.
 You get the photo of a page, and a transcript of the same page that was written as plain lines.
 The page has a table (a grid of rows and columns), but the transcript does not show it.
 Rules:
-- Look at the photo to see the rows and the columns of the table.
+- Look at the photo to see the rows and the columns of the table: the lines of the grid, or the text
+  that stands in columns under each other.
+- Each space between the lines of the grid is one cell. One row of the grid is one row of the table.
+  The table has at least 2 columns. Never put a whole line of the page into one cell.
 <TABLE_RULE>
 - Use the text of the transcript. Do not read the photo again for the text, and do not correct it:
   only put the text into the right cells.
@@ -314,6 +317,11 @@ Answer with the transcript only.
 
 User text: `Transcript:\n<the Japanese text>\n\nWrite this transcript with its table.`
 
+Changed on 19 November 2026 (FRG-112). With only "Look at the photo to see the rows and the columns",
+page 2 of `TestPDF.pdf` came back as 28 rows of 1 column: every line with "|" around it. The two rules
+about cells and "at least 2 columns" were added, and the check below now asks for 2 columns. After that,
+page 2 came back as 27 rows of 2 columns, with no changed characters.
+
 ### 10.2 How it runs
 
 1. `POST /api/translate/documents/:id/table` with `{ "action": "make" }` (11) saves a copy of the old
@@ -322,8 +330,9 @@ User text: `Transcript:\n<the Japanese text>\n\nWrite this transcript with its t
    on the current Japanese text, in place of call 1. Then calls 2, 3 and 4 as usual. `japaneseEdited`
    stays as it was: a hand correction stays a hand correction.
 3. Checks on the answer of call 5:
-   1. No table in it (`splitIntoBlocks`): the old state comes back (11.1), with the warning
-      "No table could be made from this page. The text is as before." The document is `done`.
+   1. No table with at least 2 columns in it (`splitIntoBlocks`): the old state comes back (11.1), with
+      the warning "No table could be made from this page. The text is as before." The document is `done`.
+      A table of 1 column does not count: it is only the old lines with "|" around them.
    2. The characters are compared with the old Japanese text, leaving out spaces, new lines, `|`, `-`
       and `:`. When N characters are missing or new, add the warning
       "N characters of the table are not the same as in the text before. Compare the table with the photo."
