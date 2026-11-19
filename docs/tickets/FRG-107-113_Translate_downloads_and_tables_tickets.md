@@ -41,6 +41,7 @@ table but the text is not one. Both bars can be undone. Everything runs on Syste
 
 1. No new npm dependency. The .zip and the photo PDF are our own small code (spec 6 and 7).
 2. Calls 1 to 4 send exactly the same request as today. Do not change their prompts.
+   The one exception is the `"table"` field of call 3 (FRG-111, spec 9).
 3. Client documents are private. Never send them, or their text, to the Claude API or any internet
    service. Never write document text into logs or the console, and never write the answer of call 5
    there. Print counts only.
@@ -199,31 +200,35 @@ and show them again.
 
 ---
 
-## FRG-111 — Backend: find pages that look like a table
+## FRG-111 — Backend: find pages with a table
 
 **Branch:** `feat/FRG-111-translate-table-hint`
 
-**Goal:** After a page is translated, the backend knows if the photo looks like a table while the text is
+**Goal:** After a page is translated, the backend knows if the photo has a table while the text is
 not a table.
+
+**Changed on 19 Nov 2026:** the first plan (rows and columns of the call 3 boxes) did not work on
+`TestPDF.pdf`: the model draws one box per table row, not per cell. Jaya chose a `"table"` field in the call 3
+answer instead (spec 9).
 
 **In scope**
 
-1. `looksLikeTable(layout)` in `backend/src/translateLayout.ts`, with the steps and constants of spec 9.
+1. The `"table"` field in the call 3 prompt, the call 3 JSON schema, `parseLayout()` and `layout.json` (spec 9).
 2. The field `tableHint` in `record.json`, worked out after every run of the worker (spec 9). An older
    document reads as `"none"`. `"dismissed"` stays `"dismissed"`.
 3. The check script `npm run translate-table-check` (new file `backend/src/translateTableCheck.ts`, spec 9).
-   Prints counts and "table" / "no table" only. No document text. No model, no GPU.
-4. Add the command to CLAUDE.md section 10.
+   Prints yes/no answers only. No document text. No model, no GPU.
+4. `npm run translate-layout-test` also prints the call 3 answer.
+5. Add the command to CLAUDE.md section 10.
 
 **Out of scope:** call 5 and the routes (FRG-112), anything on the page (FRG-113).
 
 **Exit criteria**
 
-1. After "Try again" on page 2 of `TestPDF.pdf`, `record.json` has `tableHint: "offer"`.
-2. Page 4 has `tableHint: "none"`.
-3. The report has the output of `npm run translate-table-check` for all of Jaya's done pages, and says which
-   answers are wrong when Jaya looks at the photos. If more than 1 in 5 is wrong, say which constant would
-   help, but do not change the method.
+1. With `npm run translate-layout-test`, call 3 says "table" for page 2 of `TestPDF.pdf`.
+2. Call 3 says "no table" for page 4.
+3. The report gives the call 3 answer for pages 1 to 4, and the seconds for call 3 before and after the change
+   if known.
 4. A page whose Japanese text already has a table gets `"none"`.
 5. With `TRANSLATE_OVERLAY=off`, a new document gets `"none"`.
 6. The backend log has no document text. `tsc --noEmit` passes. No new dependency.
