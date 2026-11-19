@@ -52,6 +52,30 @@ export function translateUserText(japanese: string): string {
   return `Transcript:\n${japanese}\n\nTranslate this document.`;
 }
 
+// Call 5 (FRG-112, plan: docs/translate-downloads-and-tables.md section 10): "Make it a table".
+// The photo and the current Japanese text go in, the same text written as a Markdown table comes out.
+// It runs in place of call 1, so the reading (and a correction by hand) stays: only the layout changes.
+// It uses the same TABLE_RULE as call 1, so the table has the same form.
+export const TABLE_SYSTEM_TEXT = `You rewrite the transcript of a Japanese document as a table.
+You get the photo of a page, and a transcript of the same page that was written as plain lines.
+The page has a table (a grid of rows and columns), but the transcript does not show it.
+Rules:
+- Look at the photo to see the rows and the columns of the table: the lines of the grid, or the text
+  that stands in columns under each other.
+- Each space between the lines of the grid is one cell. One row of the grid is one row of the table.
+  The table has at least 2 columns. Never put a whole line of the page into one cell.
+${TABLE_RULE}
+- Use the text of the transcript. Do not read the photo again for the text, and do not correct it:
+  only put the text into the right cells.
+- Do not leave out any text. Text that is not in the table stays as plain lines, before or after the
+  table, in the reading order of the page.
+- Do not translate. Do not explain.
+Answer with the transcript only.`;
+
+export function tableUserText(japanese: string): string {
+  return `Transcript:\n${japanese}\n\nWrite this transcript with its table.`;
+}
+
 // Call 3 (FRG-103, plan: docs/translate-overlay.md section 7): the photo and the Japanese text go in,
 // the place of every line comes out, as JSON. Boxes are on a 0-1000 grid of the photo.
 // FRG-111 added "table": does the page have a table? (docs/translate-downloads-and-tables.md section 9).

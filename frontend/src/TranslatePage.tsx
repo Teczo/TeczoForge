@@ -20,7 +20,8 @@ const NO_BACKEND = "Could not reach the backend. Make sure it is running, then t
 // While a document is not finished, ask the backend again this often.
 const REFRESH_MS = 2000;
 
-type DocStatus = "waiting" | "reading" | "translating" | "placing" | "done" | "failed";
+// "arranging": call 5 makes a table of the Japanese text (FRG-112).
+type DocStatus = "waiting" | "reading" | "arranging" | "translating" | "placing" | "done" | "failed";
 
 // GET /api/translate/status
 type TranslateStatus = { setUp: boolean; problem: string | null; serverRunning: boolean; gpuBusy: boolean; waiting: number };
@@ -54,6 +55,7 @@ type DocDetail = DocSummary & { japanese: string; english: string };
 const STATUS_WORDS: Record<DocStatus, string> = {
   waiting: "Waiting",
   reading: "Reading the handwriting",
+  arranging: "Making a table",
   translating: "Translating",
   placing: "Placing the text on the photo",
   done: "Done",
@@ -508,7 +510,7 @@ function Result({
         <button
           type="button"
           onClick={onRemove}
-          disabled={doc.status === "reading" || doc.status === "translating" || doc.status === "placing"}
+          disabled={doc.status === "reading" || doc.status === "arranging" || doc.status === "translating" || doc.status === "placing"}
           title={doc.fileId ? "Remove all pages of this PDF file" : "Remove this document"}
           className={btn("danger", "sm")}
         >

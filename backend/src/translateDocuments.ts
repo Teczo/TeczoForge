@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Request, Response } from "express";
 import { HttpError } from "./httpError.js";
@@ -20,6 +20,8 @@ import {
   layoutUserText,
   READ_SYSTEM_TEXT,
   READ_USER_TEXT,
+  TABLE_SYSTEM_TEXT,
+  tableUserText,
   translateSystemText,
   translateUserText,
 } from "./translatePrompt.js";
@@ -46,6 +48,8 @@ import {
 //   When TRANSLATE_OVERLAY is on (FRG-104, plan: docs/translate-overlay.md):
 //   call 3: photo + Japanese text -> where each line is.
 //   call 4: Japanese of each block + translation -> translation of each block (no photo).
+//   "Make it a table" (FRG-112, plan: docs/translate-downloads-and-tables.md section 10):
+//   call 5: photo + Japanese text -> the same text as a table. It runs in place of call 1.
 // The documents are private client data. Their text is never written to the log (CLAUDE.md section 7, rule 11).
 
 // data/translations at the root of the repo.
@@ -68,6 +72,11 @@ const LAYOUT_MAX_TOKENS = 8192;
 // The warnings of the translation on the photo (spec 8 and 9).
 const OVERLAY_FAILED = "The translation could not be placed on the photo.";
 const OVERLAY_PARTLY = "Some parts of the page have no translation on the photo.";
+// "Make it a table" (FRG-112, spec 10 and 11): the warning when call 5 gives no table, and the two
+// files that keep the old state, so Undo can put it back.
+const NO_TABLE_MADE = "No table could be made from this page. The text is as before.";
+const TABLE_COPY_FILE = "before-table.json";
+const TABLE_COPY_LAYOUT = "before-table-layout.json";
 // The longest corrected Japanese text we accept (FRG-94). A full page is far below this.
 const MAX_JAPANESE_LENGTH = 20_000;
 // While ComfyUI has a job, look at its queue again this often (FRG-93).
@@ -79,7 +88,13 @@ const FREE_WAIT_MS = 3000;
 export const TRANSLATE_UPLOAD_TYPES = [...IMAGE_TYPES, "image/heic", "image/heif", "application/octet-stream"];
 
 // "placing": calls 3 and 4 put the translation on the photo (FRG-104).
-type Status = "waiting" | "reading" | "translating" | "placing" | "done" | "failed";
+// "arranging": call 5 makes a table of the Japanese text (FRG-112).
+type Status = "waiting" | "reading" | "arranging" | "translating" | "placing" | "done" | "failed";
+
+// True while the model works on a document. Such a document cannot be removed or changed.
+function isWorking(status: Status): boolean {
+  return status === "reading" || status === "arranging" || status === "translating" || status === "placing";
+}
 // The translation on the photo: "none" (not made: switched off, or an old document), "done" or "failed".
 type Overlay = "none" | "done" | "failed";
 // The offer to make a table (FRG-111, plan: docs/translate-downloads-and-tables.md section 9).
@@ -111,11 +126,91 @@ type TranslateDocument = {
   // The same for all pages of one file. The texts themselves are not changed.
   hideEmptyRows: boolean;
   tableHint: TableHint;
+  // "Make it a table" (FRG-112). makeTable: the next run of the worker runs call 5 in place of call 1.
+  // tableUndo: a copy of the state before the table exists, so Undo can put it back.
+  makeTable: boolean;
+  tableUndo: boolean;
 };
 
 // True when a text has a Markdown table in it (FRG-111).
 function hasTable(text: string): boolean {
   return splitIntoBlocks(text).some((block) => block.kind === "table");
+}
+
+// True when a text has a table with at least 2 columns (FRG-112). The check on the answer of call 5:
+// a "table" of 1 column is only the old lines with "|" around them, so it does not count.
+// splitIntoBlocks makes every row as wide as the widest one, so the first row tells the width.
+function hasRealTable(text: string): boolean {
+  return splitIntoBlocks(text).some((block) => block.kind === "table" && block.rows[0].length >= 2);
+}
+
+// ---------- The copy of the old state, for Undo (FRG-112, spec 11.1) ----------
+
+// What Undo puts back.
+type TableCopy = Pick<TranslateDocument, "japanese" | "japaneseEdited" | "english" | "warnings" | "overlay" | "seconds" | "tableHint">;
+
+// Keep the state before "Make it a table": the texts and the fields in before-table.json, and
+// layout.json (when there is one) as before-table-layout.json.
+async function saveTableCopy(doc: TranslateDocument): Promise<void> {
+  const folder = folderOf(doc.id);
+  const copy: TableCopy = {
+    japanese: doc.japanese,
+    japaneseEdited: doc.japaneseEdited,
+    english: doc.english,
+    warnings: doc.warnings,
+    overlay: doc.overlay,
+    seconds: doc.seconds,
+    tableHint: doc.tableHint,
+  };
+  await writeFile(path.join(folder, TABLE_COPY_FILE), JSON.stringify(copy, null, 2), "utf8");
+  const layout = path.join(folder, "layout.json");
+  if (existsSync(layout)) await copyFile(layout, path.join(folder, TABLE_COPY_LAYOUT));
+  else await rm(path.join(folder, TABLE_COPY_LAYOUT), { force: true });
+  doc.tableUndo = true;
+}
+
+// Delete the copy. Undo is not possible any more.
+async function dropTableCopy(doc: TranslateDocument): Promise<void> {
+  await rm(path.join(folderOf(doc.id), TABLE_COPY_FILE), { force: true });
+  await rm(path.join(folderOf(doc.id), TABLE_COPY_LAYOUT), { force: true });
+  doc.tableUndo = false;
+}
+
+// Put the old state back, and delete the copy. False when there is no readable copy.
+// The caller saves the document.
+async function restoreTableCopy(doc: TranslateDocument): Promise<boolean> {
+  const folder = folderOf(doc.id);
+  let copy: TableCopy;
+  try {
+    copy = JSON.parse(await readFile(path.join(folder, TABLE_COPY_FILE), "utf8"));
+  } catch {
+    return false;
+  }
+  doc.japanese = copy.japanese;
+  doc.japaneseEdited = copy.japaneseEdited;
+  doc.english = copy.english;
+  doc.warnings = copy.warnings;
+  doc.overlay = copy.overlay;
+  doc.seconds = copy.seconds;
+  doc.tableHint = copy.tableHint;
+  const layout = path.join(folder, "layout.json");
+  const layoutCopy = path.join(folder, TABLE_COPY_LAYOUT);
+  if (existsSync(layoutCopy)) await copyFile(layoutCopy, layout);
+  else await rm(layout, { force: true });
+  await dropTableCopy(doc);
+  return true;
+}
+
+// How many characters are not the same in two texts, in any order. Spaces, new lines, "|", "-" and ":"
+// do not count: a table adds and moves those. Used to check that call 5 only moved the text (spec 10.2).
+function characterDifference(before: string, after: string): number {
+  const counts = new Map<string, number>();
+  const characters = (text: string) => [...text].filter((character) => !/[\s|:-]/.test(character));
+  for (const character of characters(before)) counts.set(character, (counts.get(character) ?? 0) + 1);
+  for (const character of characters(after)) counts.set(character, (counts.get(character) ?? 0) - 1);
+  let difference = 0;
+  for (const count of counts.values()) difference += Math.abs(count);
+  return difference;
 }
 
 // A text as it is shown and downloaded: without the empty table rows when the person hid them (FRG-110).
@@ -170,7 +265,11 @@ export function loadTranslateDocuments(): void {
       doc.hideEmptyRows ??= false;
       // Documents from before FRG-111 have no tableHint field.
       doc.tableHint ??= "none";
-      if (doc.status === "reading" || doc.status === "translating" || doc.status === "placing") doc.status = "waiting";
+      // Documents from before FRG-112 have no makeTable and tableUndo fields.
+      doc.makeTable ??= false;
+      doc.tableUndo ??= false;
+      // makeTable stays true, so a table that was being made is made again.
+      if (isWorking(doc.status)) doc.status = "waiting";
       documents.set(doc.id, doc);
     } catch {
       console.warn(`Warning: translation document ${name} has no readable record.json. It is skipped.`);
@@ -295,18 +394,24 @@ async function handleDocument(doc: TranslateDocument): Promise<void> {
   console.log(`Translation: ${doc.id} started.`);
   try {
     // Not "waiting" any more from this moment, so the document cannot be removed while it is worked on.
-    doc.status = "reading";
+    doc.status = doc.makeTable ? "arranging" : "reading";
     const photo = await readPhoto(doc.id);
     if (!photo) throw new Error("The photo of this document is not on disk any more.");
     const photoUrl = `data:${photo.info.mediaType};base64,${photo.data.toString("base64")}`;
 
+    // "Make it a table" (FRG-112): call 5 makes a table of the current Japanese text, in place of call 1.
+    const makeTable = doc.makeTable;
+    // Any other run is newer than the copy for Undo, so the copy goes (spec 11.1).
+    if (!makeTable) await dropTableCopy(doc);
+
     // A person corrected the Japanese text (FRG-94): keep it, and do not read the photo again.
-    const keepJapanese = doc.japaneseEdited && doc.japanese !== "";
+    // A table is made from the current Japanese text too.
+    const keepJapanese = makeTable || (doc.japaneseEdited && doc.japanese !== "");
     if (!keepJapanese) {
       doc.japanese = "";
       doc.japaneseEdited = false;
     }
-    doc.status = keepJapanese ? "translating" : "reading";
+    doc.status = makeTable ? "arranging" : keepJapanese ? "translating" : "reading";
     doc.english = "";
     doc.error = null;
     doc.warnings = [];
@@ -321,7 +426,29 @@ async function handleDocument(doc: TranslateDocument): Promise<void> {
     await saveDocument(doc);
 
     let cutOff = false;
-    if (!keepJapanese) {
+    // Characters that call 5 changed. Only counted, never logged as text.
+    let changedCharacters = 0;
+    if (makeTable) {
+      // Call 5: photo + Japanese text -> the same text as a table.
+      const before = doc.japanese;
+      const arranged = await askModel(TABLE_SYSTEM_TEXT, tableUserText(before), { photoUrl });
+      if (!hasRealTable(arranged.text)) {
+        // No table (or one of 1 column): the old state comes back, with a warning. The document is done.
+        if (!(await restoreTableCopy(doc))) throw new Error("No table could be made, and the text before could not be put back.");
+        doc.warnings.push(NO_TABLE_MADE);
+        doc.makeTable = false;
+        doc.status = "done";
+        await saveDocument(doc);
+        console.log(`Translation: ${doc.id} got no table from call 5. The text before was put back.`);
+        return;
+      }
+      doc.japanese = arranged.text;
+      cutOff = arranged.cutOff;
+      changedCharacters = characterDifference(before, arranged.text);
+      doc.status = "translating";
+      await saveDocument(doc);
+      console.log(`Translation: ${doc.id} made a table (${changedCharacters} character(s) not the same as before).`);
+    } else if (!keepJapanese) {
       // Call 1: photo -> Japanese text.
       const read = await askModel(READ_SYSTEM_TEXT, READ_USER_TEXT, { photoUrl });
       if (read.text === "") throw new Error("The model found no text in this photo.");
@@ -331,11 +458,16 @@ async function handleDocument(doc: TranslateDocument): Promise<void> {
       await saveDocument(doc);
     }
 
-    // Call 2: Japanese text + photo -> translation.
-    const translated = await askModel(translateSystemText(settings.targetLanguage, keepJapanese), translateUserText(doc.japanese), { photoUrl });
+    // Call 2: Japanese text + photo -> translation. "Checked by a person" only when a person corrected it.
+    const translated = await askModel(translateSystemText(settings.targetLanguage, doc.japaneseEdited), translateUserText(doc.japanese), { photoUrl });
     doc.english = translated.text;
     cutOff = cutOff || translated.cutOff;
     doc.warnings = [...(cutOff ? ["The text may be cut off at the end."] : []), ...checkResult(doc.japanese, doc.english)];
+    if (changedCharacters > 0) {
+      doc.warnings.push(
+        `${changedCharacters} ${changedCharacters === 1 ? "character" : "characters"} of the table ${changedCharacters === 1 ? "is" : "are"} not the same as in the text before. Compare the table with the photo.`,
+      );
+    }
 
     // Calls 3 and 4: the translation on the photo. If they fail, the texts are still fine:
     // the document is done, with a warning.
@@ -366,6 +498,8 @@ async function handleDocument(doc: TranslateDocument): Promise<void> {
     // The error text is our own wording. It never holds text from the document.
     console.error(`Translation: ${doc.id} failed. ${doc.error}`);
   }
+  // The table is made (or the run failed: then Undo still puts the old texts back).
+  doc.makeTable = false;
   doc.seconds = Math.round((Date.now() - startedAt) / 1000);
   await saveDocument(doc);
 }
@@ -606,6 +740,8 @@ export async function createDocumentHandler(req: Request, res: Response) {
       overlay: "none",
       hideEmptyRows: false,
       tableHint: "none",
+      makeTable: false,
+      tableUndo: false,
     };
     await mkdir(folderOf(doc.id), { recursive: true });
     await writeFile(path.join(folderOf(doc.id), `source.${info.extension}`), data);
@@ -678,6 +814,9 @@ export async function retryDocumentHandler(req: Request, res: Response) {
     doc.error = null;
     // Start from the photo again. A corrected Japanese text is replaced by a new reading.
     doc.japaneseEdited = false;
+    // The new result is newer than the copy for Undo (FRG-112, spec 11.1).
+    doc.makeTable = false;
+    await dropTableCopy(doc);
     await saveDocument(doc);
     void runWorker();
     res.json(doc);
@@ -704,6 +843,9 @@ export async function editJapaneseHandler(req: Request, res: Response) {
     doc.japaneseEdited = true;
     doc.status = "waiting";
     doc.error = null;
+    // The new result is newer than the copy for Undo (FRG-112, spec 11.1).
+    doc.makeTable = false;
+    await dropTableCopy(doc);
     await saveDocument(doc);
     void runWorker();
     res.json(doc);
@@ -726,6 +868,50 @@ function pagesOfFile(doc: TranslateDocument): TranslateDocument[] {
   return doc.fileId
     ? [...documents.values()].filter((other) => other.fileId === doc.fileId).sort((a, b) => a.page - b.page)
     : [doc];
+}
+
+// POST /api/translate/documents/:id/table  (FRG-112, plan: docs/translate-downloads-and-tables.md section 11)
+// Body: { "action": "make" | "undo" | "keep" | "dismiss" }. Answer: the document record.
+//   make:    keep a copy of the old state, then call 5 makes a table of the Japanese text (the worker).
+//   undo:    put the old state back. Instant, no GPU. The offer does not come back.
+//   keep:    keep the table and delete the copy.
+//   dismiss: "Keep as text": the offer to make a table does not come back.
+export async function tableHandler(req: Request, res: Response) {
+  try {
+    const doc = findDocument(req);
+    const action = req.body?.action;
+    if (action === "make") {
+      if (doc.status !== "done") throw new HttpError(409, "Wait until this page is done.");
+      if (doc.japanese.trim() === "") throw new HttpError(400, "This page has no Japanese text to make a table of.");
+      if (hasTable(doc.japanese)) throw new HttpError(409, "The text already has a table. Use Edit to change it.");
+      await saveTableCopy(doc);
+      doc.makeTable = true;
+      doc.status = "waiting";
+      doc.error = null;
+      await saveDocument(doc);
+      void runWorker();
+    } else if (action === "undo" || action === "keep") {
+      if (doc.status !== "done" && doc.status !== "failed") throw new HttpError(409, "Wait until this page is done.");
+      if (!doc.tableUndo) throw new HttpError(409, "There is nothing to undo.");
+      if (action === "undo") {
+        if (!(await restoreTableCopy(doc))) throw new HttpError(409, "There is nothing to undo.");
+        doc.tableHint = "dismissed";
+        doc.status = "done";
+        doc.error = null;
+      } else {
+        await dropTableCopy(doc);
+      }
+      await saveDocument(doc);
+    } else if (action === "dismiss") {
+      doc.tableHint = "dismissed";
+      await saveDocument(doc);
+    } else {
+      throw new HttpError(400, 'The action must be "make", "undo", "keep" or "dismiss".');
+    }
+    res.json(doc);
+  } catch (error) {
+    sendError(res, error);
+  }
 }
 
 // PUT /api/translate/documents/:id/empty-rows  (FRG-110)
@@ -813,7 +999,7 @@ export async function deleteDocumentHandler(req: Request, res: Response) {
   try {
     const doc = findDocument(req);
     const group = doc.fileId ? [...documents.values()].filter((other) => other.fileId === doc.fileId) : [doc];
-    if (group.some((one) => one.status === "reading" || one.status === "translating" || one.status === "placing")) {
+    if (group.some((one) => isWorking(one.status))) {
       throw new HttpError(409, "This document is being worked on. Wait until it is done, then remove it.");
     }
     for (const one of group) {
