@@ -11,7 +11,7 @@ import { splitIntoBlocks } from "./translateTables.js";
 // It prints yes/no answers only. The text of a document is never printed (CLAUDE.md section 7, rule 11).
 //
 // "table on photo" is the answer of call 3, saved in layout.json. A document translated before FRG-111
-// has no answer yet ("?"): press "Try again" on it first.
+// has no answer yet ("not asked"): press "Try again" on it first.
 
 // The same folder and id pattern as translateDocuments.ts. That file is not imported, so this
 // script does not load the worker.
@@ -31,6 +31,7 @@ function main() {
   console.log("id                          page    table on photo  table in text  offer");
 
   let checked = 0;
+  let notAsked = 0;
   for (const id of ids.sort()) {
     const folder = path.join(TRANSLATIONS_DIR, id);
     let record: DocRecord;
@@ -49,7 +50,8 @@ function main() {
     let onPhoto = "no layout";
     if (existsSync(layoutPath)) {
       const layout = JSON.parse(readFileSync(layoutPath, "utf8")) as Layout;
-      onPhoto = layout.table === undefined ? "?" : layout.table ? "yes" : "no";
+      onPhoto = layout.table === undefined ? "not asked" : layout.table ? "yes" : "no";
+      if (layout.table === undefined) notAsked++;
     }
     const inText = splitIntoBlocks(record.japanese ?? "").some((block) => block.kind === "table");
     const page = record.fileId ? `${record.page}/${record.pages}` : "photo";
@@ -58,6 +60,10 @@ function main() {
   }
   console.log("");
   console.log(`${checked} document(s) checked.`);
+  if (notAsked > 0) {
+    console.log(`"not asked": ${notAsked} document(s) were translated before the table question was added (FRG-111).`);
+    console.log('Press "Try again" on them on the Translate page, then run this again.');
+  }
 }
 
 try {
