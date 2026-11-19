@@ -60,7 +60,10 @@ export const TABLE_SYSTEM_TEXT = `You rewrite the transcript of a Japanese docum
 You get the photo of a page, and a transcript of the same page that was written as plain lines.
 The page has a table (a grid of rows and columns), but the transcript does not show it.
 Rules:
-- Look at the photo to see the rows and the columns of the table.
+- Look at the photo to see the rows and the columns of the table: the lines of the grid, or the text
+  that stands in columns under each other.
+- Each space between the lines of the grid is one cell. One row of the grid is one row of the table.
+  The table has at least 2 columns. Never put a whole line of the page into one cell.
 ${TABLE_RULE}
 - Use the text of the transcript. Do not read the photo again for the text, and do not correct it:
   only put the text into the right cells.

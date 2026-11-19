@@ -137,6 +137,13 @@ function hasTable(text: string): boolean {
   return splitIntoBlocks(text).some((block) => block.kind === "table");
 }
 
+// True when a text has a table with at least 2 columns (FRG-112). The check on the answer of call 5:
+// a "table" of 1 column is only the old lines with "|" around them, so it does not count.
+// splitIntoBlocks makes every row as wide as the widest one, so the first row tells the width.
+function hasRealTable(text: string): boolean {
+  return splitIntoBlocks(text).some((block) => block.kind === "table" && block.rows[0].length >= 2);
+}
+
 // ---------- The copy of the old state, for Undo (FRG-112, spec 11.1) ----------
 
 // What Undo puts back.
@@ -387,7 +394,7 @@ async function handleDocument(doc: TranslateDocument): Promise<void> {
   console.log(`Translation: ${doc.id} started.`);
   try {
     // Not "waiting" any more from this moment, so the document cannot be removed while it is worked on.
-    doc.status = "reading";
+    doc.status = doc.makeTable ? "arranging" : "reading";
     const photo = await readPhoto(doc.id);
     if (!photo) throw new Error("The photo of this document is not on disk any more.");
     const photoUrl = `data:${photo.info.mediaType};base64,${photo.data.toString("base64")}`;
@@ -425,8 +432,8 @@ async function handleDocument(doc: TranslateDocument): Promise<void> {
       // Call 5: photo + Japanese text -> the same text as a table.
       const before = doc.japanese;
       const arranged = await askModel(TABLE_SYSTEM_TEXT, tableUserText(before), { photoUrl });
-      if (!hasTable(arranged.text)) {
-        // No table: the old state comes back, with a warning. The document is done.
+      if (!hasRealTable(arranged.text)) {
+        // No table (or one of 1 column): the old state comes back, with a warning. The document is done.
         if (!(await restoreTableCopy(doc))) throw new Error("No table could be made, and the text before could not be put back.");
         doc.warnings.push(NO_TABLE_MADE);
         doc.makeTable = false;
