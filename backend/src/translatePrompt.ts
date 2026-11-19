@@ -54,9 +54,12 @@ export function translateUserText(japanese: string): string {
 
 // Call 3 (FRG-103, plan: docs/translate-overlay.md section 7): the photo and the Japanese text go in,
 // the place of every line comes out, as JSON. Boxes are on a 0-1000 grid of the photo.
+// FRG-111 added "table": does the page have a table? (docs/translate-downloads-and-tables.md section 9).
 export const LAYOUT_SYSTEM_TEXT = `You find where text is written in a photo of a Japanese document.
 You get the photo, and a transcript that was made from the same photo.
-For every line of Japanese text in the photo, give:
+First give "table": true when the page has a table (a grid of rows and columns, often with lines between them),
+also when the transcript does not show it as a table. Otherwise false.
+Then, for every line of Japanese text in the photo, give:
 - "box": the box around the line, as [x1, y1, x2, y2] on a 0-1000 grid.
   0,0 is the top left corner of the photo. 1000,1000 is the bottom right corner.
 - "text": the text of that line, copied from the transcript.
@@ -78,9 +81,11 @@ export function layoutUserText(japanese: string): string {
 // The JSON schema of the call 3 answer. llama-server makes the model follow it.
 // The numbers in "box" have no range here on purpose: the backend checks and cuts them (translateLayout.ts),
 // and the FRG-103 test needs to see the numbers the model really gives.
+// "table" (FRG-111) comes first, so the model decides it before it lists the lines.
 export const LAYOUT_SCHEMA = {
   type: "object",
   properties: {
+    table: { type: "boolean" },
     lines: {
       type: "array",
       items: {
@@ -95,7 +100,7 @@ export const LAYOUT_SCHEMA = {
       },
     },
   },
-  required: ["lines"],
+  required: ["table", "lines"],
 };
 
 // Call 4 (FRG-104, plan: docs/translate-overlay.md section 8): text only, no photo.

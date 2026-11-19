@@ -22,6 +22,8 @@ export type LayoutLine = {
 };
 
 export type LayoutResult = {
+  // Does the page have a table? The model's answer (FRG-111). False when the answer has no true here.
+  table: boolean;
   lines: LayoutLine[];
   // How many lines the model gave, and how many of them failed a check or were over MAX_LINES.
   given: number;
@@ -52,7 +54,8 @@ export function parseLayout(answer: string): LayoutResult | null {
     const line = checkLine(item);
     if (line && lines.length < MAX_LINES) lines.push(line);
   }
-  return { lines, given: given.length, dropped: given.length - lines.length, highestNumber };
+  const table = (parsed as { table?: unknown }).table === true;
+  return { table, lines, given: given.length, dropped: given.length - lines.length, highestNumber };
 }
 
 // One line of the answer, checked (spec 7, checks 1 to 3). Null when it fails a check.
@@ -90,7 +93,8 @@ export type LayoutBlock = {
 };
 
 // layout.json. Boxes are on a 0-1000 grid of the photo.
-export type Layout = { grid: number; blocks: LayoutBlock[] };
+// table: the call 3 answer to "does the page have a table?" (FRG-111). Missing in older files.
+export type Layout = { grid: number; table?: boolean; blocks: LayoutBlock[] };
 
 // The lines of call 3 put together by block number, in the order the blocks first appear.
 // A block takes the direction of its first line.

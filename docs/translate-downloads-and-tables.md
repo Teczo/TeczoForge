@@ -17,8 +17,8 @@ Four small things on the Translate page:
    as one PDF, or as one PNG for each page.
 3. **Remove empty table rows.** When the tables of a file have rows with nothing in them, a bar offers
    to hide those rows on screen and in every download. It can be undone.
-4. **Make it a table.** When a page looks like a table on the photo, but the text was not written as
-   a table, a bar offers to rewrite the text as a table. It can be undone.
+4. **Make it a table.** When the photo of a page has a table (call 3 says so), but the text was not
+   written as a table, a bar offers to rewrite the text as a table. It can be undone.
 
 ## 2. Decisions already made
 
@@ -29,7 +29,7 @@ Four small things on the Translate page:
 | One file per page | A .zip, made in the browser by our own small code | No loose files in Downloads. No new package. PNG and PDF are already compressed, so the zip only stores them. |
 | Translated photos in one PDF | Made in the browser by our own small code, with each photo as a JPEG | The photos are drawn in the browser (FRG-106). Nothing is uploaded. A PDF can hold a JPEG as it is. |
 | Empty rows | One setting for the whole file, saved in `record.json`. The text itself is not changed. | One click for a form of 20 pages. "Show them again" works, and Edit still sees the full text. |
-| Finding a table page | Look at the boxes of call 3 (`layout.json`): do they line up in rows and columns? | No extra model call and no extra time. It is based on the photo. |
+| Finding a table page | One more field in the call 3 answer: `"table": true or false` (changed in FRG-111, section 9) | No extra model call. Call 3 already looks at the photo. The boxes alone could not show a table. |
 | Making the table | A new call 5: the photo and the current Japanese text in, the same text as a Markdown table out | The reading stays the same, also a hand correction. Only the layout changes. |
 | Undo | The old texts are kept in the document folder until the person keeps the table | Undo is instant and needs no GPU. |
 | Cloud | None | The same rule as the whole Translate feature (CLAUDE.md section 7, rule 11). |
@@ -245,44 +245,47 @@ Above the texts, under the photo and the warnings, when the document is `done` a
    When this page has none, but other pages of the file have some: "(none on this page)".
 2. Hidden: "7 empty rows are hidden on screen and in downloads." Button "Show them again".
 
-## 9. Finding a page that looks like a table (FRG-111)
+## 9. Finding a page with a table (FRG-111)
 
-After calls 3 and 4 have made `layout.json`, the backend looks at the boxes.
-New function `looksLikeTable(layout)` in `backend/src/translateLayout.ts`. It gives back the counts and
-the answer: `{ rows: number; columns: number; table: boolean }`.
+Call 3 already looks at the photo. Its answer gets one more field, `"table"`: true when the page has a
+table. It costs no extra model call.
 
-All sizes are on the 0-1000 grid. The numbers are constants at the top of the file, so they are easy to change.
+Changed on 19 November 2026 (FRG-111). The first plan looked at the boxes of call 3: do they line up in
+rows and columns? On `TestPDF.pdf` that did not work. The model draws one box across each whole table row,
+not one box per cell, so the boxes never stand side by side. From the boxes alone, a table looks the same as
+a page of normal lines.
 
-1. Use the horizontal blocks (`dir: "h"`). The box of a block is the box around all its lines.
-2. **Rows.** Go through the blocks from top to bottom (by the top of their box). A block belongs to the row
-   of an earlier block when its middle (top to bottom) lies between the top and the bottom of that block.
-   Otherwise it starts a new row.
-3. A row **has cells** when it has 2 or more blocks next to each other that do not overlap from left to right.
-4. **Columns.** Go through the blocks of the rows with cells. A block belongs to a column when, from left to
-   right, it overlaps the first block of that column by at least half of the narrower of the two.
-   Otherwise it starts a new column.
-5. The page **looks like a table** when at least 3 rows have cells (`MIN_TABLE_ROWS = 3`), and at least
-   2 columns (`MIN_TABLE_COLUMNS = 2`) each have a block in at least 3 of those rows.
+1. The call 3 system text (`backend/src/translatePrompt.ts`) starts with:
+   `First give "table": true when the page has a table (a grid of rows and columns, often with lines between them), also when the transcript does not show it as a table. Otherwise false.`
+2. The JSON schema of call 3 gets `"table": { "type": "boolean" }`, before `"lines"`, and both are required.
+   The model writes `table` first, so it decides before it lists the lines.
+3. `parseLayout()` reads it. Only `true` counts as yes.
+4. `layout.json` saves it: `{ "grid": 1000, "table": true, "blocks": [...] }`. An older file has no `table`.
+5. After calls 3 and 4, the backend logs "has a table" or "has no table" (no document text).
+
+This is the one change to calls 1 to 4 in this feature. Calls 1, 2 and 4 stay exactly as they are.
 
 New field in `record.json`: `tableHint`:
 
 | Value | Meaning |
 |---|---|
 | `"none"` | No bar. Also for an older document without the field. |
-| `"offer"` | The page looks like a table, and the Japanese text has no table (`splitIntoBlocks`). The bar shows. |
+| `"offer"` | Call 3 says the page has a table, and the Japanese text has no table (`splitIntoBlocks`). The bar shows. |
 | `"dismissed"` | The person pressed "Keep as text". It stays like this, also after "Try again". |
 
 It is worked out again after every run of the worker. When the overlay is off or failed, it is `"none"`
 (unless it is `"dismissed"`).
 
-Known limit: call 3 leaves out text that is only numbers or codes. So a column with only numbers has
-no boxes. A table is found only when at least 2 of its columns have Japanese words. For other pages the
-person uses the "Make a table" button (section 12).
+Known limit: it is the model's judgement. The model already missed the table on page 2 once (in call 1).
+When it says no on a table page, the person uses the "Make a table" button (section 12).
 
-**Check script.** `npm run translate-table-check` reads `layout.json` of every done document and prints
-one line for each: the id, rows with cells, columns, and "table" or "no table". With `-- <document id>`
+**Check script.** `npm run translate-table-check` reads `record.json` and `layout.json` of every done
+document and prints one line for each: the id, the page, "table on photo" (the call 3 answer, or "?" for a
+document translated before FRG-111), "table in text", and the saved `tableHint`. With `-- <document id>`
 it does one document. It reads files only: no model, no GPU. It prints no document text.
-It is for Jaya to tune the numbers above on real pages.
+
+`npm run translate-layout-test -- <id>` (FRG-103) also prints the call 3 answer, so one page can be tried
+again without "Try again".
 
 ## 10. Make it a table: call 5 (FRG-112)
 
@@ -419,7 +422,7 @@ New files: `frontend/src/TranslateDownload.tsx` (FRG-107), `frontend/src/zipFile
    in Copy, in the PDF and in the .txt. Edit still shows them. "Show them again" brings them back.
 5. Table: page 2 shows the table bar. Page 4 does not. "Make it a table" gives a table in both texts.
    Compare it with the photo. "Undo" brings the old text back at once. Do it again, then "Keep the table".
-6. `npm run translate-table-check` on all pages. Note the pages where the answer is wrong.
+6. `npm run translate-table-check` on all pages. Note the pages where the "table on photo" answer is wrong.
 
 ## 16. Tickets
 
@@ -429,6 +432,6 @@ New files: `frontend/src/TranslateDownload.tsx` (FRG-107), `frontend/src/zipFile
 | FRG-108 | All pages, one file per page (.zip) | FRG-107 |
 | FRG-109 | Translated photos of all pages in one PDF | FRG-108 |
 | FRG-110 | Remove empty table rows | FRG-107 |
-| FRG-111 | Backend: find pages that look like a table | — |
+| FRG-111 | Backend: find pages with a table (call 3 field) | — |
 | FRG-112 | Backend: make it a table (call 5), Undo | FRG-111 |
 | FRG-113 | Frontend: the table bars and the "Make a table" button | FRG-112 |

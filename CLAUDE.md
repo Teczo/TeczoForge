@@ -199,6 +199,11 @@ Fill this in when the ticket that creates each part is done.
   `npm run translate-layout-test -- <document id>`. The document must be "done". It writes
   `layout-test.html` (the boxes drawn on the photo) and `layout-test.json` into the document's folder in
   `data/translations`, and prints counts only. Uses the GPU like `translate-test`, and stops if ComfyUI has a job.
+  It also prints the call 3 answer to "does the page have a table?" (FRG-111).
+- See which pages have a table (FRG-111): `cd backend`, then `npm run translate-table-check`
+  (all done documents) or `npm run translate-table-check -- <document id>`. It reads the files only
+  (no model, no GPU) and prints yes/no answers, never document text. "?" means the document was
+  translated before FRG-111: press "Try again" on it first.
 - Tests: (not set yet)
 - Lint: (not set yet)
 

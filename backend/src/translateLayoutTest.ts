@@ -63,6 +63,8 @@ async function main() {
   const blocks = new Set(result.lines.map((line) => line.block)).size;
   const vertical = result.lines.filter((line) => line.dir === "v").length;
   const counts = {
+    // Does the page have a table? The model's answer (FRG-111).
+    table: result.table,
     photoWidth: photo.info.width,
     photoHeight: photo.info.height,
     linesGiven: result.given,
@@ -79,6 +81,7 @@ async function main() {
   await writeFile(path.join(folder, "layout-test.json"), JSON.stringify({ counts, lines: result.lines }, null, 2), "utf8");
   await writeFile(path.join(folder, "layout-test.html"), testPage(id, `source.${photo.info.extension}`, photo.info.width, photo.info.height, result.lines, counts), "utf8");
 
+  console.log(`Table on the page (the model's answer): ${result.table ? "yes" : "no"}.`);
   console.log(`Photo: ${counts.photoWidth} x ${counts.photoHeight} pixels.`);
   console.log(`Lines: ${counts.linesGiven} given, ${counts.linesKept} kept, ${counts.linesDropped} dropped by the checks.`);
   console.log(`Blocks: ${blocks}. Horizontal lines: ${counts.horizontal}. Vertical lines: ${vertical}.`);
