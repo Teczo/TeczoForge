@@ -10,7 +10,7 @@ import type { ImageInfo } from "./inputs.js";
 import { IMAGE_TYPES } from "./upload.js";
 import { makeTranslationPdf, pdfFontProblem } from "./translatePdf.js";
 import type { PdfPart } from "./translatePdf.js";
-import { countEmptyRows, withoutEmptyRows } from "./translateTables.js";
+import { countEmptyRows, splitIntoBlocks, withoutEmptyRows } from "./translateTables.js";
 import {
   BLOCKS_SCHEMA,
   blocksSystemText,
@@ -82,6 +82,10 @@ export const TRANSLATE_UPLOAD_TYPES = [...IMAGE_TYPES, "image/heic", "image/heif
 type Status = "waiting" | "reading" | "translating" | "placing" | "done" | "failed";
 // The translation on the photo: "none" (not made: switched off, or an old document), "done" or "failed".
 type Overlay = "none" | "done" | "failed";
+// The offer to make a table (FRG-111, plan: docs/translate-downloads-and-tables.md section 9).
+// "none": no offer. "offer": the photo looks like a table, but the Japanese text has no table.
+// "dismissed": the person said "Keep as text". It stays like this, also after "Try again".
+type TableHint = "none" | "offer" | "dismissed";
 
 // This is record.json (spec 10).
 type TranslateDocument = {
@@ -106,7 +110,13 @@ type TranslateDocument = {
   // True when the empty rows of the tables are hidden on screen and in downloads (FRG-110).
   // The same for all pages of one file. The texts themselves are not changed.
   hideEmptyRows: boolean;
+  tableHint: TableHint;
 };
+
+// True when a text has a Markdown table in it (FRG-111).
+function hasTable(text: string): boolean {
+  return splitIntoBlocks(text).some((block) => block.kind === "table");
+}
 
 // A text as it is shown and downloaded: without the empty table rows when the person hid them (FRG-110).
 function shownText(doc: TranslateDocument, text: string): string {
@@ -158,6 +168,8 @@ export function loadTranslateDocuments(): void {
       doc.overlay ??= "none";
       // Documents from before FRG-110 have no hideEmptyRows field.
       doc.hideEmptyRows ??= false;
+      // Documents from before FRG-111 have no tableHint field.
+      doc.tableHint ??= "none";
       if (doc.status === "reading" || doc.status === "translating" || doc.status === "placing") doc.status = "waiting";
       documents.set(doc.id, doc);
     } catch {
@@ -301,6 +313,8 @@ async function handleDocument(doc: TranslateDocument): Promise<void> {
     // The old overlay goes first, so an overlay never belongs to older texts.
     doc.overlay = "none";
     await rm(path.join(folderOf(doc.id), "layout.json"), { force: true });
+    // The offer to make a table is worked out again at the end. "Keep as text" stays (FRG-111).
+    if (doc.tableHint !== "dismissed") doc.tableHint = "none";
     doc.model = settings.modelName;
     doc.imageTokens = `${settings.imageMinTokens}-${settings.imageMaxTokens}`;
     doc.seconds = 0;
@@ -333,6 +347,10 @@ async function handleDocument(doc: TranslateDocument): Promise<void> {
         await writeFile(path.join(folderOf(doc.id), "layout.json"), JSON.stringify(layout.layout, null, 2), "utf8");
         doc.overlay = "done";
         if (layout.missing > 0) doc.warnings.push(OVERLAY_PARTLY);
+        // Call 3 says the page has a table, but the text has no table? Then offer to make one (FRG-111).
+        const pageHasTable = layout.layout.table === true;
+        if (doc.tableHint !== "dismissed") doc.tableHint = pageHasTable && !hasTable(doc.japanese) ? "offer" : "none";
+        console.log(`Translation: ${doc.id} ${pageHasTable ? "has a table" : "has no table"} on the photo.`);
       } catch (error) {
         doc.overlay = "failed";
         doc.warnings.push(OVERLAY_FAILED);
@@ -387,7 +405,7 @@ async function makeLayout(doc: TranslateDocument, photoUrl: string, language: st
     return text === undefined ? [] : [{ ...block, english: text }];
   });
   console.log(`Translation: ${doc.id} placed ${drawn.length} of ${blocks.length} block(s) on the photo.`);
-  return { layout: { grid: GRID_SIZE, blocks: drawn }, missing: blocks.length - drawn.length };
+  return { layout: { grid: GRID_SIZE, table: found.table, blocks: drawn }, missing: blocks.length - drawn.length };
 }
 
 // ---------- Checks on a result (FRG-94, spec 11) ----------
@@ -587,6 +605,7 @@ export async function createDocumentHandler(req: Request, res: Response) {
       seconds: 0,
       overlay: "none",
       hideEmptyRows: false,
+      tableHint: "none",
     };
     await mkdir(folderOf(doc.id), { recursive: true });
     await writeFile(path.join(folderOf(doc.id), `source.${info.extension}`), data);
