@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChangeEvent, DragEvent } from "react";
-import { AlertTriangle, Check, Copy, Download, ExternalLink, ImagePlus, Pencil, RefreshCw, Trash2 } from "lucide-react";
+import { AlertTriangle, Check, Copy, Download, ExternalLink, ImagePlus, Pencil, RefreshCw, Rows3, Trash2 } from "lucide-react";
 import { askConfirm, showMessage } from "./dialogs";
 import { btn, CARD, EmptyState, FIELD, Loading, Notice, PageHeader, Tabs } from "./ui";
 import { TranslateOverlay, useOverlay } from "./TranslateOverlay";
 import type { Overlay } from "./TranslateOverlay";
 import { DownloadDialog } from "./TranslateDownload";
 import { forEachPdfPage, isPdf } from "./pdfPages";
-import { splitIntoBlocks } from "./translateTables";
+import { splitIntoBlocks, withoutEmptyRows } from "./translateTables";
 
 // The Translate page (FRG-92, plan: docs/japanese-translate.md section 13).
 // The user adds photos or PDF files of handwritten Japanese documents. A PDF file is cut into
@@ -43,6 +43,10 @@ type DocSummary = {
   seconds: number;
   // The translation on the photo (FRG-104): "none", "done" or "failed".
   overlay: "none" | "done" | "failed";
+  // True when the empty table rows are hidden on screen and in downloads (FRG-110). Same for all pages of a file.
+  hideEmptyRows: boolean;
+  // How many empty table rows the translation has. Only in the list, not in one document (FRG-110).
+  emptyRows: number;
 };
 // One document with both texts, as GET /api/translate/documents/<id> returns it.
 type DocDetail = DocSummary & { japanese: string; english: string };
@@ -245,6 +249,22 @@ export default function TranslatePage() {
     }
   }
 
+  // Hide or show the empty table rows, for all pages of the file (FRG-110).
+  async function setHideEmptyRows(id: string, hide: boolean) {
+    setError(null);
+    try {
+      const response = await fetch(`/api/translate/documents/${id}/empty-rows`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ hide }),
+      });
+      if (!response.ok) throw new Error(await errorOf(response));
+      await loadDocs();
+    } catch (problem) {
+      setError(problem instanceof TypeError ? NO_BACKEND : (problem as Error).message);
+    }
+  }
+
   // Save a corrected Japanese text. The backend translates it again without reading the photo (FRG-94).
   // Returns true when it was saved.
   async function saveJapanese(id: string, japanese: string): Promise<boolean> {
@@ -349,7 +369,7 @@ export default function TranslatePage() {
 
               {/* Right: the picked document. */}
               <div className="min-w-0 flex-1">
-                {picked && <Result doc={picked} filePages={pagesOfFile(docs, picked)} detail={detail?.id === picked.id ? detail : null} onTryAgain={() => void tryAgain(picked.id)} onRemove={() => void remove(picked)} onSaveJapanese={(text) => saveJapanese(picked.id, text)} />}
+                {picked && <Result doc={picked} filePages={pagesOfFile(docs, picked)} detail={detail?.id === picked.id ? detail : null} onTryAgain={() => void tryAgain(picked.id)} onRemove={() => void remove(picked)} onSaveJapanese={(text) => saveJapanese(picked.id, text)} onHideEmptyRows={(hide) => void setHideEmptyRows(picked.id, hide)} />}
               </div>
             </div>
           )}
@@ -442,6 +462,7 @@ function Result({
   onTryAgain,
   onRemove,
   onSaveJapanese,
+  onHideEmptyRows,
 }: {
   doc: DocSummary;
   filePages: DocSummary[];
@@ -449,6 +470,7 @@ function Result({
   onTryAgain: () => void;
   onRemove: () => void;
   onSaveJapanese: (japanese: string) => Promise<boolean>;
+  onHideEmptyRows: (hide: boolean) => void;
 }) {
   const imageUrl = `/api/translate/documents/${doc.id}/image`;
   const finished = isFinished(doc.status);
@@ -515,6 +537,8 @@ function Result({
         </div>
       )}
 
+      {doc.status === "done" && <EmptyRowsBar doc={doc} filePages={filePages} onHide={onHideEmptyRows} />}
+
       <p className="mt-0 mb-4 text-sm text-ink-2">
         Machine reading of handwriting makes mistakes. Check the Japanese text against the photo.
       </p>
@@ -525,11 +549,12 @@ function Result({
         title={doc.japaneseEdited ? "Japanese (corrected by hand)" : "Japanese"}
         lang="ja"
         text={detail?.japanese ?? ""}
+        hideEmptyRows={doc.hideEmptyRows}
         waiting={doc.status === "waiting" || doc.status === "reading"}
         onSave={finished ? onSaveJapanese : undefined}
       />
       {/* While the text is placed on the photo, the translation is already there. */}
-      <TextBox title="Translation" text={detail?.english ?? ""} waiting={!finished && doc.status !== "placing"} />
+      <TextBox title="Translation" text={detail?.english ?? ""} hideEmptyRows={doc.hideEmptyRows} waiting={!finished && doc.status !== "placing"} />
 
       {finished && (
         <p className="mt-4 mb-0 text-xs text-ink-3">
@@ -542,21 +567,56 @@ function Result({
   );
 }
 
+// "1 empty row" or "3 empty rows".
+function rowsWord(count: number): string {
+  return count === 1 ? "1 empty row" : `${count} empty rows`;
+}
+
+// The bar that offers to hide the empty table rows of the file (FRG-110, plan: docs/translate-downloads-and-tables.md section 8.5).
+// Shown only when the tables of the file have empty rows. The setting is the same for all pages of the file.
+function EmptyRowsBar({ doc, filePages, onHide }: { doc: DocSummary; filePages: DocSummary[]; onHide: (hide: boolean) => void }) {
+  const inFile = filePages.reduce((sum, one) => sum + one.emptyRows, 0);
+  if (inFile === 0) return null;
+  const onPage = doc.emptyRows;
+  let message: string;
+  if (doc.hideEmptyRows) {
+    message = `${rowsWord(inFile)} ${inFile === 1 ? "is" : "are"} hidden on screen and in downloads.`;
+  } else if (filePages.length > 1) {
+    message = `The tables in this file have ${rowsWord(inFile)} (${onPage === 0 ? "none" : onPage} on this page).`;
+  } else {
+    message = `The tables on this page have ${rowsWord(inFile)}.`;
+  }
+  return (
+    <Notice tone="neutral" className="mb-4 flex flex-wrap items-center gap-3">
+      <Rows3 size={16} className="shrink-0" />
+      <span className="min-w-0 flex-1">{message}</span>
+      <button type="button" onClick={() => onHide(!doc.hideEmptyRows)} className={btn("secondary", "sm")}>
+        {doc.hideEmptyRows ? "Show them again" : "Remove empty rows"}
+      </button>
+    </Notice>
+  );
+}
+
 // One text with its "Copy" button. With onSave it also has "Edit": the text becomes a box to
 // type in, with "Save and translate again" (FRG-94).
+// hideEmptyRows (FRG-110): the empty table rows are left out on screen and in Copy. Edit still shows
+// and saves the full text.
 function TextBox({
   title,
   text,
   lang,
+  hideEmptyRows = false,
   waiting,
   onSave,
 }: {
   title: string;
   text: string;
   lang?: string;
+  hideEmptyRows?: boolean;
   waiting: boolean;
   onSave?: (text: string) => Promise<boolean>;
 }) {
+  const shown = hideEmptyRows ? withoutEmptyRows(text) : text;
   const [copied, setCopied] = useState(false);
   // The text being corrected, or null when not editing.
   const [draft, setDraft] = useState<string | null>(null);
@@ -606,7 +666,7 @@ function TextBox({
 
   async function copy() {
     try {
-      await navigator.clipboard.writeText(text);
+      await navigator.clipboard.writeText(shown);
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1500);
     } catch {
@@ -641,7 +701,7 @@ function TextBox({
         </button>
       </div>
       <div lang={lang} className="min-h-12 rounded-xl border border-line bg-sidebar px-4 py-3 text-[15px] leading-relaxed text-ink">
-        {text !== "" ? <TextWithTables text={text} /> : <span className="text-ink-3">{waiting ? "Not ready yet..." : "No text."}</span>}
+        {text !== "" ? <TextWithTables text={shown} /> :<span className="text-ink-3">{waiting ? "Not ready yet..." : "No text."}</span>}
       </div>
     </section>
   );
