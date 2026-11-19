@@ -280,7 +280,7 @@ Known limit: it is the model's judgement. The model already missed the table on 
 When it says no on a table page, the person uses the "Make a table" button (section 12).
 
 **Check script.** `npm run translate-table-check` reads `record.json` and `layout.json` of every done
-document and prints one line for each: the id, the page, "table on photo" (the call 3 answer, or "?" for a
+document and prints one line for each: the id, the page, "table on photo" (the call 3 answer, or "not asked" for a
 document translated before FRG-111), "table in text", and the saved `tableHint`. With `-- <document id>`
 it does one document. It reads files only: no model, no GPU. It prints no document text.
 
