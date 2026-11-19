@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChangeEvent, DragEvent } from "react";
-import { AlertTriangle, Check, Copy, Download, ExternalLink, ImageDown, ImagePlus, Pencil, RefreshCw, Trash2 } from "lucide-react";
+import { AlertTriangle, Check, Copy, Download, ExternalLink, ImagePlus, Pencil, RefreshCw, Trash2 } from "lucide-react";
 import { askConfirm, showMessage } from "./dialogs";
 import { btn, CARD, EmptyState, FIELD, Loading, Notice, PageHeader, Tabs } from "./ui";
-import { overlayPng, TranslateOverlay, useOverlay } from "./TranslateOverlay";
+import { TranslateOverlay, useOverlay } from "./TranslateOverlay";
 import type { Overlay } from "./TranslateOverlay";
+import { DownloadDialog } from "./TranslateDownload";
 import { forEachPdfPage, isPdf } from "./pdfPages";
 import { splitIntoBlocks } from "./translateTables";
 
@@ -348,7 +349,7 @@ export default function TranslatePage() {
 
               {/* Right: the picked document. */}
               <div className="min-w-0 flex-1">
-                {picked && <Result doc={picked} detail={detail?.id === picked.id ? detail : null} onTryAgain={() => void tryAgain(picked.id)} onRemove={() => void remove(picked)} onSaveJapanese={(text) => saveJapanese(picked.id, text)} />}
+                {picked && <Result doc={picked} filePages={pagesOfFile(docs, picked)} detail={detail?.id === picked.id ? detail : null} onTryAgain={() => void tryAgain(picked.id)} onRemove={() => void remove(picked)} onSaveJapanese={(text) => saveJapanese(picked.id, text)} />}
               </div>
             </div>
           )}
@@ -371,9 +372,10 @@ function hasOverlayOf(doc: DocSummary): boolean {
   return doc.status === "done" && doc.overlay === "done";
 }
 
-// A title as a file name: characters that Windows does not allow in a file name become "_".
-function fileNameOf(title: string): string {
-  return title.replace(/[\\/:*?"<>|\u0000-\u001f]/g, "_").trim() || "document";
+// All pages of the file of a document, in page order (FRG-107). For a photo: only the document itself.
+function pagesOfFile(docs: DocSummary[], doc: DocSummary): DocSummary[] {
+  if (!doc.fileId) return [doc];
+  return docs.filter((other) => other.fileId === doc.fileId).sort((a, b) => a.page - b.page);
 }
 
 // The photo. With a translation on the photo (FRG-105): the tabs "Translated" | "Original" above it.
@@ -435,12 +437,14 @@ function PhotoView({
 // The photo, the two texts and the buttons of one document.
 function Result({
   doc,
+  filePages,
   detail,
   onTryAgain,
   onRemove,
   onSaveJapanese,
 }: {
   doc: DocSummary;
+  filePages: DocSummary[];
   detail: DocDetail | null;
   onTryAgain: () => void;
   onRemove: () => void;
@@ -451,67 +455,23 @@ function Result({
   // The translation on the photo, loaded once for the screen and the PNG download (FRG-105, FRG-106).
   // The version changes when the document is translated again, so a new overlay is drawn.
   const { overlay, problem } = useOverlay(doc.id, imageUrl, hasOverlayOf(doc) ? `${doc.status}-${doc.seconds}` : null);
-  const [saving, setSaving] = useState(false);
-
-  // Save the translated photo as a PNG. It is made in the browser: nothing is sent to the backend.
-  async function downloadImage() {
-    if (!overlay) return;
-    setSaving(true);
-    try {
-      const blob = await overlayPng(overlay);
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `${fileNameOf(titleOf(doc))} - translated.png`;
-      link.click();
-      URL.revokeObjectURL(url);
-    } catch (error) {
-      await showMessage({
-        title: "Could not make the image",
-        message: error instanceof Error ? error.message : "The image could not be made.",
-      });
-    } finally {
-      setSaving(false);
-    }
-  }
+  // The Download dialog (FRG-107): the translated photo, the translated text or the plain text.
+  const [downloading, setDownloading] = useState(false);
 
   return (
     <div className={`${CARD} p-5`}>
       <div className="mb-4 flex flex-wrap items-center gap-3">
         <h2 className="m-0 min-w-0 flex-1 truncate text-lg font-medium text-ink">{titleOf(doc)}</h2>
         <span className={`text-sm ${statusColour(doc.status)}`}>{STATUS_WORDS[doc.status]}</span>
-        <a
-          href={`/api/translate/documents/${doc.id}/text`}
-          download
-          className={`${btn("secondary", "sm")} ${
-            doc.status === "done" ? "" : "pointer-events-none opacity-40"
-          }`}
-        >
-          <Download size={14} />
-          Download .txt
-        </a>
-        {/* The translation as a PDF, with tables. For a page of a PDF file: all pages of that file (FRG-95). */}
-        <a
-          href={`/api/translate/documents/${doc.id}/pdf`}
-          download
-          title={doc.fileId ? "The translation of all pages of this PDF file" : "The translation as a PDF file"}
-          className={`${btn("secondary", "sm")} ${
-            doc.status === "done" ? "" : "pointer-events-none opacity-40"
-          }`}
-        >
-          <Download size={14} />
-          Download PDF
-        </a>
-        {/* The photo with the translation on it, as a PNG made in the browser (FRG-106). */}
         <button
           type="button"
-          onClick={() => void downloadImage()}
-          disabled={!hasOverlayOf(doc) || overlay === null || saving}
-          title={hasOverlayOf(doc) ? "The photo with the translation on it, as a PNG file" : "This document has no translation on the photo"}
+          onClick={() => setDownloading(true)}
+          disabled={doc.status !== "done"}
+          title="Save the translation as a file"
           className={btn("secondary", "sm")}
         >
-          <ImageDown size={14} />
-          Download translated image
+          <Download size={14} />
+          Download
         </button>
         <button
           type="button"
@@ -576,6 +536,8 @@ function Result({
           Model: {doc.model} · Image tokens: {doc.imageTokens} · {doc.seconds} seconds
         </p>
       )}
+
+      {downloading && <DownloadDialog doc={doc} filePages={filePages} overlay={overlay} onClose={() => setDownloading(false)} />}
     </div>
   );
 }
