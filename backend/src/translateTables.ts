@@ -74,3 +74,44 @@ export function splitIntoBlocks(text: string): TextBlock[] {
   endText();
   return blocks;
 }
+
+// ---------- Empty rows (FRG-110, plan: docs/translate-downloads-and-tables.md section 8) ----------
+
+// The line numbers of the empty rows of the tables in a text. An empty row is a table line where every
+// cell is empty or only spaces. The header row (the line above "|---|") is never an empty row.
+// A single line with "|" around it is not a table (see splitIntoBlocks), so it is never an empty row.
+function emptyRowLines(lines: string[]): Set<number> {
+  const found = new Set<number>();
+  let start = 0;
+  while (start < lines.length) {
+    if (!isTableLine(lines[start])) {
+      start++;
+      continue;
+    }
+    // One table: the table lines that follow each other.
+    let end = start;
+    while (end < lines.length && isTableLine(lines[end])) end++;
+    if (end - start >= 2) {
+      for (let index = start; index < end; index++) {
+        const cells = cellsOf(lines[index]);
+        if (cells.some((cell) => cell !== "") || isSeparator(cells)) continue;
+        const isHeader = index + 1 < end && isSeparator(cellsOf(lines[index + 1]));
+        if (!isHeader) found.add(index);
+      }
+    }
+    start = end;
+  }
+  return found;
+}
+
+// How many empty rows the tables of a text have.
+export function countEmptyRows(text: string): number {
+  return emptyRowLines(text.split("\n")).size;
+}
+
+// The same text without the lines of empty rows. All other lines stay exactly as they are.
+export function withoutEmptyRows(text: string): string {
+  const lines = text.split("\n");
+  const empty = emptyRowLines(lines);
+  return empty.size === 0 ? text : lines.filter((_line, index) => !empty.has(index)).join("\n");
+}

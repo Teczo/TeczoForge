@@ -10,6 +10,7 @@ import type { ImageInfo } from "./inputs.js";
 import { IMAGE_TYPES } from "./upload.js";
 import { makeTranslationPdf, pdfFontProblem } from "./translatePdf.js";
 import type { PdfPart } from "./translatePdf.js";
+import { countEmptyRows, withoutEmptyRows } from "./translateTables.js";
 import {
   BLOCKS_SCHEMA,
   blocksSystemText,
@@ -102,7 +103,15 @@ type TranslateDocument = {
   imageTokens: string;
   seconds: number;
   overlay: Overlay;
+  // True when the empty rows of the tables are hidden on screen and in downloads (FRG-110).
+  // The same for all pages of one file. The texts themselves are not changed.
+  hideEmptyRows: boolean;
 };
+
+// A text as it is shown and downloaded: without the empty table rows when the person hid them (FRG-110).
+function shownText(doc: TranslateDocument, text: string): string {
+  return doc.hideEmptyRows ? withoutEmptyRows(text) : text;
+}
 
 // All documents, by id. Read from disk once at the start, then every change is also saved to disk.
 const documents = new Map<string, TranslateDocument>();
@@ -147,6 +156,8 @@ export function loadTranslateDocuments(): void {
       doc.pages ??= 1;
       // Documents from before FRG-104 have no overlay field.
       doc.overlay ??= "none";
+      // Documents from before FRG-110 have no hideEmptyRows field.
+      doc.hideEmptyRows ??= false;
       if (doc.status === "reading" || doc.status === "translating" || doc.status === "placing") doc.status = "waiting";
       documents.set(doc.id, doc);
     } catch {
@@ -575,6 +586,7 @@ export async function createDocumentHandler(req: Request, res: Response) {
       imageTokens: `${settings.imageMinTokens}-${settings.imageMaxTokens}`,
       seconds: 0,
       overlay: "none",
+      hideEmptyRows: false,
     };
     await mkdir(folderOf(doc.id), { recursive: true });
     await writeFile(path.join(folderOf(doc.id), `source.${info.extension}`), data);
@@ -590,10 +602,11 @@ export async function createDocumentHandler(req: Request, res: Response) {
 
 // GET /api/translate/documents
 // All documents, newest first, without the two long texts.
+// emptyRows: how many empty table rows the translation has (FRG-110). Worked out here, not saved.
 export function listDocumentsHandler(_req: Request, res: Response) {
   const list = [...documents.values()]
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-    .map(({ japanese: _japanese, english: _english, ...rest }) => rest);
+    .map(({ japanese: _japanese, english, ...rest }) => ({ ...rest, emptyRows: countEmptyRows(english) }));
   res.json({ documents: list });
 }
 
@@ -696,6 +709,26 @@ function pagesOfFile(doc: TranslateDocument): TranslateDocument[] {
     : [doc];
 }
 
+// PUT /api/translate/documents/:id/empty-rows  (FRG-110)
+// Body: { "hide": true } or { "hide": false }. Hides or shows the empty table rows, for all pages of the
+// file. It is only a setting: the texts are not changed, so it works in every status.
+// Answer: { changed: <number of pages> }.
+export async function emptyRowsHandler(req: Request, res: Response) {
+  try {
+    const doc = findDocument(req);
+    const hide = req.body?.hide;
+    if (typeof hide !== "boolean") throw new HttpError(400, 'Send { "hide": true } or { "hide": false }.');
+    const group = pagesOfFile(doc);
+    for (const one of group) {
+      one.hideEmptyRows = hide;
+      await saveDocument(one);
+    }
+    res.json({ changed: group.length });
+  } catch (error) {
+    sendError(res, error);
+  }
+}
+
 // GET /api/translate/documents/:id/text
 // A .txt download with the file name, the Japanese text and the translation.
 // With ?pages=all (FRG-107): all pages of the file, in page order, each with its title line.
@@ -705,12 +738,12 @@ export function documentTextHandler(req: Request, res: Response) {
     const language = translateSettings().targetLanguage;
     let text: string;
     if (pagesOption(req, "one") === "one") {
-      text = [`File: ${doc.originalName}`, "", "Japanese:", doc.japanese, "", `${language}:`, doc.english, ""].join("\r\n");
+      text = [`File: ${doc.originalName}`, "", "Japanese:", shownText(doc, doc.japanese), "", `${language}:`, shownText(doc, doc.english), ""].join("\r\n");
     } else {
       text = pagesOfFile(doc)
         .map((one) =>
           one.status === "done"
-            ? [titleOf(one), "", "Japanese:", one.japanese, "", `${language}:`, one.english, ""].join("\r\n")
+            ? [titleOf(one), "", "Japanese:", shownText(one, one.japanese), "", `${language}:`, shownText(one, one.english), ""].join("\r\n")
             : [titleOf(one), "", "This page is not translated yet.", ""].join("\r\n"),
         )
         .join("\r\n");
@@ -742,7 +775,7 @@ export async function documentPdfHandler(req: Request, res: Response) {
     if (problem) throw new HttpError(503, problem);
 
     const group = pages === "one" ? [doc] : pagesOfFile(doc);
-    const parts: PdfPart[] = group.map((one) => ({ title: titleOf(one), text: one.status === "done" ? one.english : null }));
+    const parts: PdfPart[] = group.map((one) => ({ title: titleOf(one), text: one.status === "done" ? shownText(one, one.english) : null }));
     const pdf = await makeTranslationPdf(parts);
     // The download is named after the id, so the user's file name never goes into a header.
     res.setHeader("Content-Type", "application/pdf");
