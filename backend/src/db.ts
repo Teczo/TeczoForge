@@ -99,6 +99,9 @@ export type ChatMessage = {
   stopped?: boolean; // The user pressed Stop. The text is what arrived until then.
   cards?: { id: string; title: string; presetId: string }[]; // Board cards Claude made in this reply (FRG-24).
   images?: { id: string; path: string }[]; // Pictures attached to this message, kept in data/inputs (FRG-25).
+  // Only on replies: which model wrote it (FRG-115). Missing means Claude (all replies from before FRG-115).
+  model?: "claude" | "local";
+  modelLabel?: string; // For example the CLAUDE_MODEL value, or CHAT_LOCAL_LABEL.
 };
 
 // A chat conversation. Only its owner can read it.
@@ -119,7 +122,9 @@ export type Conversation = {
 export type ChatUsage = {
   username: string;
   conversationId: string;
+  // "claude" or "local" (FRG-115). Rows from before FRG-115 have the Claude model name here: they are Claude too.
   model: string;
+  modelLabel?: string; // The CLAUDE_MODEL value, or CHAT_LOCAL_LABEL (FRG-115).
   inputTokens: number;
   outputTokens: number;
   createdAt: Date;

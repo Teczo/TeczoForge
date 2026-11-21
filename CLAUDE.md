@@ -37,7 +37,7 @@ ComfyUI does the real generation work. This app is a simple, friendly layer on t
 | Database | MongoDB Atlas (cloud) | Address from env var `MONGODB_URI`. First used in FRG-7. |
 | Generation engine | ComfyUI | Portable build in `comfyui/` inside the repo folder, NOT in git. Models in `models/` (or `MODELS_DIR`). See `docs/comfyui-setup.md`. |
 | File storage | Local disk | Outputs in `data/outputs/`. |
-| Translation engine | llama.cpp llama-server | Installed separately on System 1. Not part of this repo. Feature plan: `docs/japanese-translate.md`. |
+| Local model engine | llama.cpp llama-server | Used by Translate and Chat. Installed separately on System 1. Not part of this repo. Feature plans: `docs/japanese-translate.md`, `docs/tickets/FRG-114-118_Chat_local_model_tickets.md`. |
 
 Rules:
 - Frontend and backend stay in separate folders with separate `package.json` files.

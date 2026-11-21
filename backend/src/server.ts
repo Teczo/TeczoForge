@@ -13,6 +13,7 @@ import {
 import { connectDatabase } from "./db.js";
 import { contentTypeOf } from "./outputKinds.js";
 import {
+  chatModelsHandler,
   chatStatusHandler,
   checkChatSetup,
   createConversationHandler,
@@ -260,6 +261,7 @@ app.post("/api/translate/documents/:id/table", express.json(), tableHandler);
 
 // Chat with Claude (see chat.ts). Each user only sees their own conversations.
 app.get("/api/chat/status", chatStatusHandler);
+app.get("/api/chat/models", chatModelsHandler);
 app.get("/api/chat/conversations", listConversationsHandler);
 app.post("/api/chat/conversations", express.json(), createConversationHandler);
 app.get("/api/chat/conversations/:id", getConversationHandler);
