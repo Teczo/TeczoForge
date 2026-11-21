@@ -116,6 +116,8 @@ export async function isTranslateServerRunning(): Promise<boolean> {
 // Sharing the GPU with ComfyUI (FRG-93). The translation model and a ComfyUI job do not fit on
 // the GPU together. This is true from the moment the translation worker takes the GPU until
 // llama-server has stopped. While it is true, no work is sent to ComfyUI (see queueWorkflow in comfyui.ts).
+// Since FRG-114 it means "the local model holds the GPU", for Translate or Chat. localModel.ts sets it.
+// The name stays, so comfyui.ts does not change.
 let holdsGpu = false;
 
 export function translationHoldsGpu(): boolean {
