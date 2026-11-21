@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChangeEvent, DragEvent } from "react";
-import { AlertTriangle, Check, Copy, Download, ExternalLink, ImagePlus, Pencil, RefreshCw, Rows3, Trash2 } from "lucide-react";
+import { AlertTriangle, Check, Copy, Download, ExternalLink, ImagePlus, Pencil, RefreshCw, Rows3, Table2, Trash2 } from "lucide-react";
 import { askConfirm, showMessage } from "./dialogs";
 import { btn, CARD, EmptyState, FIELD, Loading, Notice, PageHeader, Tabs } from "./ui";
 import { TranslateOverlay, useOverlay } from "./TranslateOverlay";
@@ -8,6 +8,11 @@ import type { Overlay } from "./TranslateOverlay";
 import { DownloadDialog } from "./TranslateDownload";
 import { forEachPdfPage, isPdf } from "./pdfPages";
 import { splitIntoBlocks, withoutEmptyRows } from "./translateTables";
+
+// True when a text has a Markdown table in it (FRG-113, the same rule as the backend).
+function hasTable(text: string): boolean {
+  return splitIntoBlocks(text).some((block) => block.kind === "table");
+}
 
 // The Translate page (FRG-92, plan: docs/japanese-translate.md section 13).
 // The user adds photos or PDF files of handwritten Japanese documents. A PDF file is cut into
@@ -48,7 +53,14 @@ type DocSummary = {
   hideEmptyRows: boolean;
   // How many empty table rows the translation has. Only in the list, not in one document (FRG-110).
   emptyRows: number;
+  // "Make it a table" (FRG-111 to FRG-113). tableHint "offer": the photo has a table, the text does not.
+  // tableUndo: the text before the table is kept, so it can be put back.
+  tableHint: "none" | "offer" | "dismissed";
+  tableUndo: boolean;
 };
+
+// The actions of POST /api/translate/documents/<id>/table (FRG-112).
+type TableAction = "make" | "undo" | "keep" | "dismiss";
 // One document with both texts, as GET /api/translate/documents/<id> returns it.
 type DocDetail = DocSummary & { japanese: string; english: string };
 
@@ -136,9 +148,10 @@ export default function TranslatePage() {
     return () => window.clearInterval(timer);
   }, [anyUnfinished, loadDocs]);
 
-  // The picked document with its texts. Read again whenever its status changes in the list.
+  // The picked document with its texts. Read again whenever its status changes in the list, and when
+  // Undo or "Keep the table" changes its texts without a new status (FRG-113).
   const picked = docs?.find((doc) => doc.id === pickedId) ?? null;
-  const pickedStatus = picked?.status;
+  const pickedStatus = picked ? versionOf(picked) : undefined;
   useEffect(() => {
     if (!pickedId) {
       setDetail(null);
@@ -245,6 +258,23 @@ export default function TranslatePage() {
       if (!response.ok) throw new Error(await errorOf(response));
       // Nothing is picked now, so the newest document that is left is opened.
       setPickedId(null);
+      await loadDocs();
+    } catch (problem) {
+      setError(problem instanceof TypeError ? NO_BACKEND : (problem as Error).message);
+    }
+  }
+
+  // "Make it a table" (FRG-113): make, undo, keep the table, or keep as text.
+  // Making a table runs on the GPU like a translation; the list shows its status.
+  async function tableAction(id: string, action: TableAction) {
+    setError(null);
+    try {
+      const response = await fetch(`/api/translate/documents/${id}/table`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action }),
+      });
+      if (!response.ok) throw new Error(await errorOf(response));
       await loadDocs();
     } catch (problem) {
       setError(problem instanceof TypeError ? NO_BACKEND : (problem as Error).message);
@@ -371,7 +401,7 @@ export default function TranslatePage() {
 
               {/* Right: the picked document. */}
               <div className="min-w-0 flex-1">
-                {picked && <Result doc={picked} filePages={pagesOfFile(docs, picked)} detail={detail?.id === picked.id ? detail : null} onTryAgain={() => void tryAgain(picked.id)} onRemove={() => void remove(picked)} onSaveJapanese={(text) => saveJapanese(picked.id, text)} onHideEmptyRows={(hide) => void setHideEmptyRows(picked.id, hide)} />}
+                {picked && <Result doc={picked} filePages={pagesOfFile(docs, picked)} detail={detail?.id === picked.id ? detail : null} onTryAgain={() => void tryAgain(picked.id)} onRemove={() => void remove(picked)} onSaveJapanese={(text) => saveJapanese(picked.id, text)} onHideEmptyRows={(hide) => void setHideEmptyRows(picked.id, hide)} onTableAction={(action) => tableAction(picked.id, action)} />}
               </div>
             </div>
           )}
@@ -392,6 +422,12 @@ type PhotoMode = "translated" | "original";
 // True when the document has the translation on the photo (FRG-104).
 function hasOverlayOf(doc: DocSummary): boolean {
   return doc.status === "done" && doc.overlay === "done";
+}
+
+// Changes whenever the texts or the overlay of a document may have changed: a new status or run time,
+// or Undo / "Keep the table", which change the texts but keep the status "done" (FRG-113).
+function versionOf(doc: DocSummary): string {
+  return `${doc.status}-${doc.seconds}-${doc.tableUndo}`;
 }
 
 // All pages of the file of a document, in page order (FRG-107). For a photo: only the document itself.
@@ -465,6 +501,7 @@ function Result({
   onRemove,
   onSaveJapanese,
   onHideEmptyRows,
+  onTableAction,
 }: {
   doc: DocSummary;
   filePages: DocSummary[];
@@ -473,14 +510,26 @@ function Result({
   onRemove: () => void;
   onSaveJapanese: (japanese: string) => Promise<boolean>;
   onHideEmptyRows: (hide: boolean) => void;
+  onTableAction: (action: TableAction) => Promise<void>;
 }) {
   const imageUrl = `/api/translate/documents/${doc.id}/image`;
   const finished = isFinished(doc.status);
   // The translation on the photo, loaded once for the screen and the PNG download (FRG-105, FRG-106).
   // The version changes when the document is translated again, so a new overlay is drawn.
-  const { overlay, problem } = useOverlay(doc.id, imageUrl, hasOverlayOf(doc) ? `${doc.status}-${doc.seconds}` : null);
+  const { overlay, problem } = useOverlay(doc.id, imageUrl, hasOverlayOf(doc) ? versionOf(doc) : null);
   // The Download dialog (FRG-107): the translated photo, the translated text or the plain text.
   const [downloading, setDownloading] = useState(false);
+  // True while a "Make it a table" request is sent (FRG-113), so a button is not pressed twice.
+  const [tableBusy, setTableBusy] = useState(false);
+
+  async function runTableAction(action: TableAction) {
+    setTableBusy(true);
+    await onTableAction(action);
+    setTableBusy(false);
+  }
+
+  // "Make a table" next to Edit (FRG-113): only on a done page whose Japanese text has no table.
+  const canMakeTable = doc.status === "done" && detail !== null && detail.japanese !== "" && !hasTable(detail.japanese);
 
   return (
     <div className={`${CARD} p-5`}>
@@ -520,7 +569,7 @@ function Result({
       </div>
 
       {/* key: each document starts in the "Translated" view, and a new overlay is drawn after Try again. */}
-      <PhotoView key={`${doc.id}-${doc.status}-${doc.seconds}`} doc={doc} imageUrl={imageUrl} overlay={overlay} problem={problem} />
+      <PhotoView key={`${doc.id}-${versionOf(doc)}`} doc={doc} imageUrl={imageUrl} overlay={overlay} problem={problem} />
 
       {doc.status === "failed" && (
         <p className="mb-4 rounded-xl border border-danger-line bg-danger-soft px-4 py-3 text-sm text-danger">
@@ -539,6 +588,7 @@ function Result({
         </div>
       )}
 
+      <TableBars doc={doc} busy={tableBusy} onAction={(action) => void runTableAction(action)} />
       {doc.status === "done" && <EmptyRowsBar doc={doc} filePages={filePages} onHide={onHideEmptyRows} />}
 
       <p className="mt-0 mb-4 text-sm text-ink-2">
@@ -554,6 +604,8 @@ function Result({
         hideEmptyRows={doc.hideEmptyRows}
         waiting={doc.status === "waiting" || doc.status === "reading"}
         onSave={finished ? onSaveJapanese : undefined}
+        onMakeTable={canMakeTable ? () => void runTableAction("make") : undefined}
+        makeTableBusy={tableBusy}
       />
       {/* While the text is placed on the photo, the translation is already there. */}
       <TextBox title="Translation" text={detail?.english ?? ""} hideEmptyRows={doc.hideEmptyRows} waiting={!finished && doc.status !== "placing"} />
@@ -567,6 +619,41 @@ function Result({
       {downloading && <DownloadDialog doc={doc} filePages={filePages} overlay={overlay} onClose={() => setDownloading(false)} />}
     </div>
   );
+}
+
+// The table bars (FRG-113, plan: docs/translate-downloads-and-tables.md section 12).
+// Offer: the photo has a table, but the text is not written as one. After: a table was made, and the
+// text before it can still be put back.
+function TableBars({ doc, busy, onAction }: { doc: DocSummary; busy: boolean; onAction: (action: TableAction) => void }) {
+  if (doc.tableUndo && (doc.status === "done" || doc.status === "failed")) {
+    return (
+      <Notice tone="success" className="mb-4 flex flex-wrap items-center gap-3">
+        <Table2 size={16} className="shrink-0" />
+        <span className="min-w-0 flex-1">The text is now a table. Check it against the photo.</span>
+        <button type="button" onClick={() => onAction("undo")} disabled={busy} className={btn("secondary", "sm")}>
+          Undo
+        </button>
+        <button type="button" onClick={() => onAction("keep")} disabled={busy} className={btn("secondary", "sm")}>
+          Keep the table
+        </button>
+      </Notice>
+    );
+  }
+  if (doc.tableHint === "offer" && doc.status === "done") {
+    return (
+      <Notice tone="info" className="mb-4 flex flex-wrap items-center gap-3">
+        <Table2 size={16} className="shrink-0" />
+        <span className="min-w-0 flex-1">This page looks like a table, but the text is not written as one.</span>
+        <button type="button" onClick={() => onAction("make")} disabled={busy} className={btn("primary", "sm")}>
+          Make it a table
+        </button>
+        <button type="button" onClick={() => onAction("dismiss")} disabled={busy} className={btn("secondary", "sm")}>
+          Keep as text
+        </button>
+      </Notice>
+    );
+  }
+  return null;
 }
 
 // "1 empty row" or "3 empty rows".
@@ -603,6 +690,7 @@ function EmptyRowsBar({ doc, filePages, onHide }: { doc: DocSummary; filePages: 
 // type in, with "Save and translate again" (FRG-94).
 // hideEmptyRows (FRG-110): the empty table rows are left out on screen and in Copy. Edit still shows
 // and saves the full text.
+// onMakeTable (FRG-113): a "Make a table" button next to Edit, for a page where the table bar does not show.
 function TextBox({
   title,
   text,
@@ -610,6 +698,8 @@ function TextBox({
   hideEmptyRows = false,
   waiting,
   onSave,
+  onMakeTable,
+  makeTableBusy = false,
 }: {
   title: string;
   text: string;
@@ -617,6 +707,8 @@ function TextBox({
   hideEmptyRows?: boolean;
   waiting: boolean;
   onSave?: (text: string) => Promise<boolean>;
+  onMakeTable?: () => void;
+  makeTableBusy?: boolean;
 }) {
   const shown = hideEmptyRows ? withoutEmptyRows(text) : text;
   const [copied, setCopied] = useState(false);
@@ -681,6 +773,18 @@ function TextBox({
     <section className="mt-4">
       <div className="mb-2 flex items-center justify-between">
         <h3 className="m-0 mr-auto text-sm font-medium text-ink">{title}</h3>
+        {onMakeTable && (
+          <button
+            type="button"
+            onClick={onMakeTable}
+            disabled={makeTableBusy}
+            title="Rewrite this text as a table, then translate it again. It can be undone."
+            className={`${btn("secondary", "xs")} mr-2`}
+          >
+            <Table2 size={12} />
+            Make a table
+          </button>
+        )}
         {onSave && (
           <button
             type="button"
