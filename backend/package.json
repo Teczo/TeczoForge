@@ -13,6 +13,7 @@
     "translate-test": "tsx src/translateTest.ts",
     "translate-layout-test": "tsx src/translateLayoutTest.ts",
     "translate-table-check": "tsx src/translateTableCheck.ts",
+    "local-model-test": "tsx src/localModelTest.ts",
     "games-add-steps": "tsx src/gamesAddSteps.ts",
     "typecheck": "tsc --noEmit"
   },
