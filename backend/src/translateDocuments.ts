@@ -4,7 +4,7 @@ import { copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { Request, Response } from "express";
 import { HttpError } from "./httpError.js";
-import { freeMemory, getQueue } from "./comfyui.js";
+import { releaseLocalModel, takeLocalModel } from "./localModel.js";
 import { imageInfo } from "./inputs.js";
 import type { ImageInfo } from "./inputs.js";
 import { IMAGE_TYPES } from "./upload.js";
@@ -30,10 +30,6 @@ import type { Layout } from "./translateLayout.js";
 import {
   checkTranslateSetup,
   isTranslateServerRunning,
-  setTranslationHoldsGpu,
-  translationHoldsGpu,
-  startTranslateServer,
-  stopTranslateServer,
   translateServerUrl,
   translateSettings,
 } from "./translateServer.js";
@@ -81,8 +77,6 @@ const TABLE_COPY_LAYOUT = "before-table-layout.json";
 const MAX_JAPANESE_LENGTH = 20_000;
 // While ComfyUI has a job, look at its queue again this often (FRG-93).
 const GPU_CHECK_MS = 10_000;
-// After asking ComfyUI to unload its models, give it this long to do it.
-const FREE_WAIT_MS = 3000;
 // The body types the upload route reads. The first bytes decide what the file really is.
 // HEIC is read too, only so we can refuse it with a clear message.
 export const TRANSLATE_UPLOAD_TYPES = [...IMAGE_TYPES, "image/heic", "image/heif", "application/octet-stream"];
@@ -297,16 +291,6 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// What ComfyUI is doing: "busy" (a job is running or waiting), "idle", or "off" (not running).
-async function comfyuiState(): Promise<"busy" | "idle" | "off"> {
-  try {
-    const queue = await getQueue();
-    return queue.running.length > 0 || queue.pending.length > 0 ? "busy" : "idle";
-  } catch {
-    return "off";
-  }
-}
-
 // The oldest waiting document, or null.
 function nextWaiting(): TranslateDocument | null {
   const waiting = [...documents.values()].filter((doc) => doc.status === "waiting");
@@ -323,45 +307,19 @@ async function runWorker(): Promise<void> {
   if (working) return;
   working = true;
   try {
-    // True after ComfyUI was asked to unload its models for this run.
-    let askedComfyUIToFree = false;
     for (let doc = nextWaiting(); doc; doc = nextWaiting()) {
-      if (!translationHoldsGpu()) {
-        // Take the GPU first, then look at ComfyUI's queue. From here on no new job is sent to
-        // ComfyUI, so a job cannot slip in between the look and the start of llama-server.
-        setTranslationHoldsGpu(true);
-        const comfyui = await comfyuiState();
-        if (comfyui === "busy") {
-          // A generation job is running or waiting. Give the GPU back and look again later.
-          setTranslationHoldsGpu(false);
-          if (!gpuBusy) console.log("Translation: waiting, because ComfyUI has a job.");
-          gpuBusy = true;
-          await sleep(GPU_CHECK_MS);
-          continue;
-        }
-        gpuBusy = false;
-        if (comfyui === "idle") {
-          try {
-            await freeMemory();
-            askedComfyUIToFree = true;
-            await sleep(FREE_WAIT_MS);
-          } catch (error) {
-            // Not fatal: llama-server may still fit. If it does not, the documents fail with a clear text.
-            console.warn(`Warning: ComfyUI did not free its memory. ${messageOf(error)}`);
-          }
-        }
-      }
+      let model: "ready" | "busy";
       try {
-        // The first document starts llama-server. For the next ones it is already running.
-        await startTranslateServer();
+        // The first document loads the local model (localModel.ts takes the GPU from ComfyUI first).
+        // For the next ones it is already loaded.
+        // As soon as ComfyUI turns out to be free, the documents no longer wait for it.
+        model = await takeLocalModel("translate", () => {
+          gpuBusy = false;
+        });
       } catch (error) {
         // llama-server cannot start. Trying again for every document would only take longer.
-        console.error(`Translation: llama-server could not start. ${messageOf(error)}`);
-        // ComfyUI is running and was asked to unload, but the model still did not load:
-        // most likely a custom node kept its models on the GPU.
-        const reason = askedComfyUIToFree
-          ? "The GPU is full. Restart ComfyUI, or wait until it is idle, then press Try again."
-          : messageOf(error);
+        // The error text is already plain English ("The GPU is full..." when ComfyUI kept its models).
+        const reason = messageOf(error);
         for (const waiting of documents.values()) {
           if (waiting.status !== "waiting") continue;
           waiting.status = "failed";
@@ -370,16 +328,27 @@ async function runWorker(): Promise<void> {
         }
         break;
       }
+      if (model === "busy") {
+        // A generation job is running or waiting in ComfyUI. Look again later.
+        if (!gpuBusy) console.log("Translation: waiting, because ComfyUI has a job.");
+        gpuBusy = true;
+        await sleep(GPU_CHECK_MS);
+        continue;
+      }
+      gpuBusy = false;
       // The document was removed while llama-server was starting: skip it.
       if (!documents.has(doc.id)) continue;
       await handleDocument(doc);
     }
-    await stopTranslateServer();
   } catch (error) {
     console.error(`Translation: the worker stopped with an error. ${messageOf(error)}`);
   } finally {
-    // llama-server has stopped (or never started): generation jobs are allowed again.
-    setTranslationHoldsGpu(false);
+    // Translate is done with the local model. llama-server stops only if Chat does not hold it too.
+    try {
+      await releaseLocalModel("translate");
+    } catch (error) {
+      console.error(`Translation: could not release the local model. ${messageOf(error)}`);
+    }
     gpuBusy = false;
     working = false;
   }
