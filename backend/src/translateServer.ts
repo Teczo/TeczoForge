@@ -54,6 +54,7 @@ export function translateSettings() {
     imageMinTokens: s.imageMinTokens,
     imageMaxTokens: s.imageMaxTokens,
     targetLanguage: s.targetLanguage,
+    context: Number(s.context), // The context size of llama-server, in tokens (used by chat, FRG-115).
   };
 }
 

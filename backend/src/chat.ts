@@ -4,14 +4,16 @@ import type { Collection } from "mongodb";
 import { HttpError } from "./httpError.js";
 import { getChatUsageCollection, getConversationsCollection } from "./db.js";
 import type { ChatMessage, ChatUsage, Conversation } from "./db.js";
-import { CHAT_SYSTEM_PROMPT } from "./chatPrompt.js";
+import { CHAT_SYSTEM_PROMPT, LOCAL_CHAT_SYSTEM_PROMPT } from "./chatPrompt.js";
 import { checkMessageImages, picturesToSend } from "./chatImages.js";
 import { buildChatTools, runChatTool } from "./chatTools.js";
 import { checkProjectId, checkTargetProjectId } from "./projects.js";
 import { CLAUDE_MODEL, claudeClient as client, claudeErrorMessage, fallbackOptions, NOT_SET_UP_MESSAGE, safeLogText } from "./claudeClient.js";
 import type { ChatCard, ChatTools } from "./chatTools.js";
+import { LOCAL_IDLE_MINUTES, LOCAL_LABEL, localChatProblem, localErrorMessage, localHistory, streamLocalReply } from "./localChatClient.js";
+import { localModelUsers, releaseLocalModel, takeLocalModel } from "./localModel.js";
 
-// Chat with Claude (FRG-23). Text only.
+// Chat with Claude (FRG-23), or with the local model Qwen in llama-server (FRG-115, see localChatClient.ts).
 // Claude can make board cards with tools (FRG-24, see chatTools.ts). It never starts a generation.
 // The chat text goes to the Claude API on the internet. Generation stays on this PC.
 // The API key stays here in the backend: it is never sent to the browser and never logged (claudeClient.ts).
@@ -53,6 +55,8 @@ export function checkChatSetup() {
   } else {
     console.warn("Warning: chat is not set up. Put ANTHROPIC_API_KEY and CLAUDE_MODEL into backend/.env to use it.");
   }
+  const localProblem = localChatProblem();
+  console.log(localProblem ? `Chat: the local model cannot be used. ${localProblem}` : `Chat: local model ready (${LOCAL_LABEL})`);
 }
 
 function sendError(res: Response, error: unknown) {
@@ -95,14 +99,15 @@ function checkTitle(title: unknown): string {
 
 const NOT_FOUND = () => new HttpError(404, "There is no conversation with this id.");
 
-// Tokens this user used since midnight (on System 1's clock).
+// Claude tokens this user used since midnight (on System 1's clock).
+// Local model tokens cost nothing, so they do not count (FRG-115).
 async function tokensUsedToday(username: string): Promise<number> {
   const midnight = new Date();
   midnight.setHours(0, 0, 0, 0);
   const rows = await withCollection(getChatUsageCollection, (usage: Collection<ChatUsage>) =>
     usage
       .aggregate<{ total: number }>([
-        { $match: { username, createdAt: { $gte: midnight } } },
+        { $match: { username, createdAt: { $gte: midnight }, model: { $ne: "local" } } },
         { $group: { _id: null, total: { $sum: { $add: ["$inputTokens", "$outputTokens"] } } } },
       ])
       .toArray(),
@@ -144,11 +149,66 @@ async function historyFor(messages: ChatMessage[]): Promise<Anthropic.Beta.BetaM
   });
 }
 
+// ---- The two engines (FRG-115) ----
+
+// "claude": the Claude API. "local": Qwen in llama-server on this PC.
+type Engine = "claude" | "local";
+
+function checkEngine(value: unknown): Engine {
+  if (value === undefined) return "claude";
+  if (value === "claude" || value === "local") return value;
+  throw new HttpError(400, 'model must be "claude" or "local".');
+}
+
+// What an engine made for one reply. sendMessageHandler saves it.
+type ReplyParts = { text: string; cards: ChatCard[]; inputTokens: number; outputTokens: number; errorText: string | null };
+
+// The Stop button: the page closes the request. `current` is the model request running now.
+type StopState = { stopped: boolean; current: { abort(): void } | null };
+
+// The local model stays loaded for CHAT_LOCAL_IDLE_MINUTES after the last local reply, so the next
+// message is fast. Then chat lets go of it, and llama-server stops if Translate does not use it.
+let localReplies = 0; // Local replies running now.
+let idleTimer: ReturnType<typeof setTimeout> | null = null;
+
+function localReplyStarts() {
+  localReplies++;
+  if (idleTimer) {
+    clearTimeout(idleTimer);
+    idleTimer = null;
+  }
+}
+
+function localReplyEnds() {
+  localReplies--;
+  if (localReplies > 0) return;
+  const letGo = () => {
+    idleTimer = null;
+    if (localReplies > 0 || !localModelUsers().includes("chat")) return;
+    releaseLocalModel("chat").then(
+      () => console.log("Chat: let go of the local model (no local message for a while)."),
+      (error: unknown) => console.error(`Chat: could not let go of the local model. ${safeLogText(error)}`),
+    );
+  };
+  if (LOCAL_IDLE_MINUTES === 0) letGo();
+  else idleTimer = setTimeout(letGo, LOCAL_IDLE_MINUTES * 60_000);
+}
+
 // ---- Routes ----
 
 // GET /api/chat/status  Answer: { "ready": true } or { "ready": false, "error": "Chat is not set up..." }
 export function chatStatusHandler(_req: Request, res: Response) {
   res.json(client ? { ready: true } : { ready: false, error: NOT_SET_UP_MESSAGE });
+}
+
+// GET /api/chat/models  The models the chat can use (FRG-115). Does not start llama-server.
+// Answer: [{ "id": "claude", "label": "Claude", "ready": true }, { "id": "local", "label": "Qwen3.8-27B", "ready": false, "problem": "..." }]
+export function chatModelsHandler(_req: Request, res: Response) {
+  const localProblem = localChatProblem();
+  res.json([
+    { id: "claude", label: "Claude", ready: client !== null, ...(client ? {} : { problem: NOT_SET_UP_MESSAGE }) },
+    { id: "local", label: LOCAL_LABEL, ready: localProblem === null, ...(localProblem ? { problem: localProblem } : {}) },
+  ]);
 }
 
 // GET /api/chat/conversations  My conversations, newest first, without their messages.
@@ -257,84 +317,224 @@ export async function deleteConversationHandler(req: Request, res: Response) {
 //   event: error  data: { "error": "<plain English>" }
 // Problems found before the reply starts (not set up, limit reached, ...) are a normal JSON error.
 // If the page closes the request (the Stop button), the text so far is saved as the reply.
+//
+// Body field "model" (FRG-115): "claude" (also when missing) or "local" (Qwen in llama-server).
+// The local model sends the same events, never "card", and one more:
+//   event: status data: { "text": "Loading Qwen. ..." }  while the model loads
+// The local model answers 409 before the stream when the GPU is busy with a generation or a translation.
 export async function sendMessageHandler(req: Request, res: Response) {
   const username: string = res.locals.username;
-  let conversation: Conversation;
-  let tools: ChatTools;
-  let usedBefore = 0; // Tokens this user used today before this reply (only counted when there is a limit).
-  try {
-    if (!client) throw new HttpError(503, NOT_SET_UP_MESSAGE);
-    const id = checkId(req.params.conversationId);
-    const text = req.body?.text ?? "";
-    // Check the pictures first: a picture Claude cannot take gives a clear message and no API call.
-    const images = await checkMessageImages(req.body?.images);
-    if (typeof text !== "string" || (text.trim() === "" && images.length === 0)) {
-      throw new HttpError(400, "Type a message or attach a picture first.");
-    }
-    if (text.length > MAX_MESSAGE_LENGTH) {
-      throw new HttpError(
-        400,
-        `A message can be at most ${MAX_MESSAGE_LENGTH.toLocaleString("en")} characters. This one has ${text.length.toLocaleString("en")}.`,
-      );
-    }
-
-    const found = await withConversations((c) => c.findOne({ id, owner: username }, { projection: { _id: 0 } }));
-    if (!found) throw NOT_FOUND();
-    conversation = found;
-
-    if (dailyTokenLimit > 0) usedBefore = await tokensUsedToday(username);
-    if (dailyTokenLimit > 0 && usedBefore >= dailyTokenLimit) {
-      throw new HttpError(
-        429,
-        `You have used your chat limit for today (${dailyTokenLimit.toLocaleString("en")} tokens). It starts again at midnight.`,
-      );
-    }
-
-    // Save the message first. The first message also becomes the title of a new chat.
-    const message: ChatMessage = {
-      role: "user",
-      text,
-      createdAt: new Date(),
-      username,
-      ...(images.length > 0 ? { images } : {}),
-    };
-    const fields: Partial<Conversation> = { updatedAt: message.createdAt };
-    if (conversation.messages.length === 0 && conversation.title === DEFAULT_TITLE) {
-      fields.title = text.trim().replace(/\s+/g, " ").slice(0, 60) || "Picture";
-    }
-    await withConversations((c) => c.updateOne({ id, owner: username }, { $push: { messages: message }, $set: fields }));
-    conversation.messages.push(message);
-
-    // The card tools, from the preset folders as they are now.
-    tools = await buildChatTools();
-  } catch (error) {
-    sendError(res, error);
-    return;
-  }
-
-  // From here on the answer is an SSE stream.
-  res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" });
-  res.flushHeaders();
+  // The SSE stream. For the local model it can start early, to show that the model is loading.
+  let streaming = false;
+  const startStream = () => {
+    if (streaming) return;
+    streaming = true;
+    res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" });
+    res.flushHeaders();
+  };
   const sendEvent = (event: string, data: unknown) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 
-  // Stop button: the page closes the request. Stop asking Claude, keep what arrived.
-  let stoppedByUser = false;
-  let current: { abort(): void } | null = null; // The request to Claude that is running now.
+  // Stop button: the page closes the request. Stop asking the model, keep what arrived.
+  const stop: StopState = { stopped: false, current: null };
   res.on("close", () => {
     if (!res.writableEnded) {
-      stoppedByUser = true;
-      current?.abort();
+      stop.stopped = true;
+      stop.current?.abort();
     }
   });
 
+  let engine: Engine = "claude";
+  let localStarted = false; // localReplyStarts() was called, so localReplyEnds() must follow.
+  try {
+    let conversation: Conversation;
+    let tools: ChatTools | null = null;
+    let usedBefore = 0; // Claude tokens this user used today before this reply (only counted when there is a limit).
+    try {
+      engine = checkEngine(req.body?.model);
+      if (engine === "claude" && !client) throw new HttpError(503, NOT_SET_UP_MESSAGE);
+      if (engine === "local") {
+        const problem = localChatProblem();
+        if (problem) throw new HttpError(503, problem);
+      }
+      const id = checkId(req.params.conversationId);
+      const text = req.body?.text ?? "";
+      // Check the pictures first: a picture the model cannot take gives a clear message and no model call.
+      const images = await checkMessageImages(req.body?.images);
+      if (typeof text !== "string" || (text.trim() === "" && images.length === 0)) {
+        throw new HttpError(400, "Type a message or attach a picture first.");
+      }
+      if (text.length > MAX_MESSAGE_LENGTH) {
+        throw new HttpError(
+          400,
+          `A message can be at most ${MAX_MESSAGE_LENGTH.toLocaleString("en")} characters. This one has ${text.length.toLocaleString("en")}.`,
+        );
+      }
+
+      const found = await withConversations((c) => c.findOne({ id, owner: username }, { projection: { _id: 0 } }));
+      if (!found) throw NOT_FOUND();
+      conversation = found;
+
+      if (engine === "claude") {
+        if (dailyTokenLimit > 0) usedBefore = await tokensUsedToday(username);
+        if (dailyTokenLimit > 0 && usedBefore >= dailyTokenLimit) {
+          throw new HttpError(
+            429,
+            `You have used your chat limit for today (${dailyTokenLimit.toLocaleString("en")} tokens). It starts again at midnight.`,
+          );
+        }
+      } else {
+        // Do not wait in line behind a translation: it can take minutes.
+        if (localModelUsers().includes("translate")) {
+          throw new HttpError(409, "Qwen is busy with a translation. Use Claude, or try again later.");
+        }
+        localReplyStarts();
+        localStarted = true;
+        const state = await takeLocalModel("chat", () => {
+          // ComfyUI is free and the model starts to load: start the stream and say so.
+          startStream();
+          sendEvent("status", { text: "Loading Qwen. The first time takes about a minute." });
+        }).catch((error: unknown) => {
+          throw new HttpError(503, error instanceof Error ? error.message : String(error));
+        });
+        if (state === "busy") {
+          throw new HttpError(409, "The GPU is busy with a generation. Use Claude, or try again when it is done.");
+        }
+      }
+
+      // Save the message first. The first message also becomes the title of a new chat.
+      const message: ChatMessage = {
+        role: "user",
+        text,
+        createdAt: new Date(),
+        username,
+        ...(images.length > 0 ? { images } : {}),
+      };
+      const fields: Partial<Conversation> = { updatedAt: message.createdAt };
+      if (conversation.messages.length === 0 && conversation.title === DEFAULT_TITLE) {
+        fields.title = text.trim().replace(/\s+/g, " ").slice(0, 60) || "Picture";
+      }
+      await withConversations((c) => c.updateOne({ id, owner: username }, { $push: { messages: message }, $set: fields }));
+      conversation.messages.push(message);
+
+      // The card tools, from the preset folders as they are now. Only Claude gets them.
+      if (engine === "claude") tools = await buildChatTools();
+    } catch (error) {
+      if (streaming) {
+        sendEvent("error", { error: error instanceof HttpError ? error.message : "Something went wrong on the server. See the backend log." });
+        res.end();
+      } else {
+        sendError(res, error);
+      }
+      return;
+    }
+
+    // From here on the answer is an SSE stream.
+    startStream();
+    if (stop.stopped) return; // Stopped while the model was loading.
+    const parts =
+      engine === "claude"
+        ? await claudeReply(client!, conversation, username, tools!, usedBefore, sendEvent, stop)
+        : await localReply(conversation, sendEvent, stop);
+    await saveReply(engine, parts, conversation, username, sendEvent, stop);
+    if (!stop.stopped) {
+      if (parts.errorText) sendEvent("error", { error: parts.errorText });
+      res.end();
+    }
+  } finally {
+    if (localStarted) localReplyEnds();
+  }
+}
+
+// Save the reply, its cards and its tokens, also when it was stopped or cut off.
+// If saving fails, parts.errorText says so.
+async function saveReply(
+  engine: Engine,
+  parts: ReplyParts,
+  conversation: Conversation,
+  username: string,
+  sendEvent: (event: string, data: unknown) => void,
+  stop: StopState,
+) {
+  if (parts.text === "" && parts.cards.length === 0 && parts.inputTokens === 0 && parts.outputTokens === 0) return;
+  const modelLabel = engine === "claude" ? CLAUDE_MODEL : LOCAL_LABEL;
+  const reply: ChatMessage = {
+    role: "assistant",
+    text: parts.text,
+    createdAt: new Date(),
+    username,
+    inputTokens: parts.inputTokens,
+    outputTokens: parts.outputTokens,
+    ...(stop.stopped ? { stopped: true } : {}),
+    ...(parts.cards.length > 0 ? { cards: parts.cards } : {}),
+    model: engine,
+    modelLabel,
+  };
+  try {
+    await withConversations((c) =>
+      c.updateOne({ id: conversation.id, owner: username }, { $push: { messages: reply }, $set: { updatedAt: reply.createdAt } }),
+    );
+    await withCollection(getChatUsageCollection, (usage: Collection<ChatUsage>) =>
+      usage.insertOne({
+        username,
+        conversationId: conversation.id,
+        model: engine,
+        modelLabel,
+        inputTokens: parts.inputTokens,
+        outputTokens: parts.outputTokens,
+        createdAt: reply.createdAt,
+      }),
+    );
+    if (!stop.stopped) sendEvent("done", { message: reply });
+  } catch (error) {
+    parts.errorText ??= error instanceof HttpError ? error.message : "The reply could not be saved. See the backend log.";
+  }
+}
+
+// The local engine (FRG-115): one request to Qwen in llama-server, streamed. No tools, no cards.
+async function localReply(
+  conversation: Conversation,
+  sendEvent: (event: string, data: unknown) => void,
+  stop: StopState,
+): Promise<ReplyParts> {
+  const parts: ReplyParts = { text: "", cards: [], inputTokens: 0, outputTokens: 0, errorText: null };
+  const controller = new AbortController();
+  stop.current = controller;
+  try {
+    const history = await localHistory(conversation.messages, LOCAL_CHAT_SYSTEM_PROMPT, (m) => m.text + cardsNote(m), HISTORY_LIMIT);
+    const result = await streamLocalReply(history.messages, controller.signal, (piece) => {
+      parts.text += piece;
+      sendEvent("text", { text: piece });
+    });
+    parts.inputTokens = result.inputTokens;
+    parts.outputTokens = result.outputTokens;
+    if (result.finish === "length") parts.errorText = "The reply was too long and was cut off. Ask for a shorter answer.";
+    if (history.leftOut) {
+      const note = `${parts.text === "" ? "" : "\n\n"}Older messages were left out, because they do not fit in the local model.`;
+      parts.text += note;
+      sendEvent("text", { text: note });
+    }
+  } catch (error) {
+    if (!stop.stopped) parts.errorText = localErrorMessage(error);
+  }
+  return parts;
+}
+
+// The Claude engine (FRG-23, FRG-24): rounds of API requests, with the card tools.
+async function claudeReply(
+  api: Anthropic,
+  conversation: Conversation,
+  username: string,
+  tools: ChatTools,
+  usedBefore: number,
+  sendEvent: (event: string, data: unknown) => void,
+  stop: StopState,
+): Promise<ReplyParts> {
   // The conversation for the API. Tool calls and their results are added during this reply only.
   let messages: Anthropic.Beta.BetaMessageParam[];
   try {
     messages = await historyFor(conversation.messages);
   } catch (error) {
-    sendEvent("error", { error: claudeErrorMessage(error) });
-    res.end();
-    return;
+    return { text: "", cards: [], inputTokens: 0, outputTokens: 0, errorText: claudeErrorMessage(error) };
   }
   // Pictures attached anywhere in this chat: their ids can be used as start images on cards.
   const imageIds = conversation.messages.flatMap((m) => (m.images ?? []).map((image) => image.id));
@@ -349,8 +549,8 @@ export async function sendMessageHandler(req: Request, res: Response) {
 
   try {
     // One round per API request. When Claude calls a tool, run it and ask again with the result.
-    while (!stoppedByUser) {
-      const stream = client.beta.messages.stream({
+    while (!stop.stopped) {
+      const stream = api.beta.messages.stream({
         model: CLAUDE_MODEL,
         max_tokens: MAX_REPLY_TOKENS,
         system: CHAT_SYSTEM_PROMPT,
@@ -359,7 +559,7 @@ export async function sendMessageHandler(req: Request, res: Response) {
         cache_control: { type: "ephemeral" }, // Reuse the earlier part of the conversation: cheaper and faster.
         ...fallbackOptions(),
       });
-      current = stream;
+      stop.current = stream;
       roundInput = 0;
       roundOutput = 0;
       let firstText = true;
@@ -445,7 +645,7 @@ export async function sendMessageHandler(req: Request, res: Response) {
       messages.push({ role: "user", content: results });
     }
   } catch (error) {
-    if (stoppedByUser) {
+    if (stop.stopped) {
       inputTokens += roundInput;
       outputTokens += roundOutput;
     } else {
@@ -453,33 +653,5 @@ export async function sendMessageHandler(req: Request, res: Response) {
     }
   }
 
-  // Save the reply, its cards and its tokens, also when it was stopped or cut off.
-  if (replyText !== "" || cards.length > 0 || inputTokens > 0 || outputTokens > 0) {
-    const reply: ChatMessage = {
-      role: "assistant",
-      text: replyText,
-      createdAt: new Date(),
-      username,
-      inputTokens,
-      outputTokens,
-      ...(stoppedByUser ? { stopped: true } : {}),
-      ...(cards.length > 0 ? { cards } : {}),
-    };
-    try {
-      await withConversations((c) =>
-        c.updateOne({ id: conversation.id, owner: username }, { $push: { messages: reply }, $set: { updatedAt: reply.createdAt } }),
-      );
-      await withCollection(getChatUsageCollection, (usage: Collection<ChatUsage>) =>
-        usage.insertOne({ username, conversationId: conversation.id, model: CLAUDE_MODEL, inputTokens, outputTokens, createdAt: reply.createdAt }),
-      );
-      if (!stoppedByUser) sendEvent("done", { message: reply });
-    } catch (error) {
-      errorText ??= error instanceof HttpError ? error.message : "The reply could not be saved. See the backend log.";
-    }
-  }
-
-  if (!stoppedByUser) {
-    if (errorText) sendEvent("error", { error: errorText });
-    res.end();
-  }
+  return { text: replyText, cards, inputTokens, outputTokens, errorText };
 }
