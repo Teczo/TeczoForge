@@ -102,6 +102,22 @@ export type ChatMessage = {
   // Only on replies: which model wrote it (FRG-115). Missing means Claude (all replies from before FRG-115).
   model?: "claude" | "local";
   modelLabel?: string; // For example the CLAUDE_MODEL value, or CHAT_LOCAL_LABEL.
+  // Only on replies (FRG-117): the answers made by "run again". The first answer stays in the
+  // fields above, so old code and old replies keep working.
+  versions?: ReplyVersion[];
+  // Which answer the chat goes on with. 0 (or missing) is the first answer, 1 is versions[0], and so on.
+  chosen?: number;
+};
+
+// One answer made by "run again" (FRG-117).
+export type ReplyVersion = {
+  model: "claude" | "local";
+  modelLabel: string;
+  text: string;
+  inputTokens: number;
+  outputTokens: number;
+  stopped?: boolean;
+  createdAt: Date;
 };
 
 // A chat conversation. Only its owner can read it.

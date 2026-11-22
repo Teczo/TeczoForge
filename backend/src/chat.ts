@@ -3,7 +3,7 @@ import type { Request, Response } from "express";
 import type { Collection } from "mongodb";
 import { HttpError } from "./httpError.js";
 import { getChatUsageCollection, getConversationsCollection } from "./db.js";
-import type { ChatMessage, ChatUsage, Conversation } from "./db.js";
+import type { ChatMessage, ChatUsage, Conversation, ReplyVersion } from "./db.js";
 import { CHAT_SYSTEM_PROMPT, LOCAL_CHAT_SYSTEM_PROMPT } from "./chatPrompt.js";
 import { checkMessageImages, picturesToSend } from "./chatImages.js";
 import { buildChatTools, runChatTool } from "./chatTools.js";
@@ -33,6 +33,8 @@ const MAX_REPLY_TOKENS = 16000;
 const DEFAULT_TITLE = "New chat";
 const MAX_TITLE_LENGTH = 80;
 const LIST_LIMIT = 100;
+// The most rerun answers per reply (FRG-117). With the first answer that makes 5.
+const MAX_VERSIONS = 4;
 // The most tool calls (cards) for one user message.
 const MAX_TOOL_CALLS = 8;
 const ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -122,17 +124,25 @@ function cardsNote(message: ChatMessage): string {
   return `\n\n[Cards made in this reply: ${list}]`;
 }
 
+// The text of a message as the model sees it (FRG-117): for a reply, its chosen answer.
+// Only answer 0 can have cards, so the card note only goes with answer 0.
+function historyText(message: ChatMessage): string {
+  const chosen = message.chosen ?? 0;
+  const version = chosen > 0 ? message.versions?.[chosen - 1] : undefined;
+  return version ? version.text : message.text + cardsNote(message);
+}
+
 // The newest messages, as the API wants them. The first one must be from the user.
 // Attached pictures go along as image content, each after a line "Image <id>:" (FRG-25).
 async function historyFor(messages: ChatMessage[]): Promise<Anthropic.Beta.BetaMessageParam[]> {
   const recent = messages
-    .filter((m) => (m.text + cardsNote(m)).trim() !== "" || (m.images?.length ?? 0) > 0)
+    .filter((m) => historyText(m).trim() !== "" || (m.images?.length ?? 0) > 0)
     .slice(-HISTORY_LIMIT);
   while (recent.length > 0 && recent[0].role !== "user") recent.shift();
 
   const sent = await picturesToSend(recent.flatMap((m) => (m.images ?? []).map((image) => image.id)));
   return recent.map((m) => {
-    const text = (m.text + cardsNote(m)).trim();
+    const text = historyText(m).trim();
     if (!m.images?.length) return { role: m.role, content: text };
     const blocks: Anthropic.Beta.BetaContentBlockParam[] = [];
     for (const image of m.images) {
@@ -331,6 +341,146 @@ export async function deleteConversationHandler(req: Request, res: Response) {
 //   event: status data: { "text": "Loading Qwen. ..." }  while the model loads
 // The local model answers 409 before the stream when the GPU is busy with a generation or a translation.
 export async function sendMessageHandler(req: Request, res: Response) {
+  await streamReply(req, res, async (engine, username) => {
+    const id = checkId(req.params.conversationId);
+    const text = req.body?.text ?? "";
+    // Check the pictures first: a picture the model cannot take gives a clear message and no model call.
+    const images = await checkMessageImages(req.body?.images);
+    if (typeof text !== "string" || (text.trim() === "" && images.length === 0)) {
+      throw new HttpError(400, "Type a message or attach a picture first.");
+    }
+    if (text.length > MAX_MESSAGE_LENGTH) {
+      throw new HttpError(
+        400,
+        `A message can be at most ${MAX_MESSAGE_LENGTH.toLocaleString("en")} characters. This one has ${text.length.toLocaleString("en")}.`,
+      );
+    }
+    const conversation = await withConversations((c) => c.findOne({ id, owner: username }, { projection: { _id: 0 } }));
+    if (!conversation) throw NOT_FOUND();
+
+    return {
+      conversation,
+      withTools: true,
+      // Save the message once the model is ready. The first message also becomes the title of a new chat.
+      commit: async () => {
+        const message: ChatMessage = {
+          role: "user",
+          text,
+          createdAt: new Date(),
+          username,
+          ...(images.length > 0 ? { images } : {}),
+        };
+        // The chat remembers the model of its newest message (FRG-116).
+        const fields: Partial<Conversation> = { updatedAt: message.createdAt, model: engine };
+        if (conversation.messages.length === 0 && conversation.title === DEFAULT_TITLE) {
+          fields.title = text.trim().replace(/\s+/g, " ").slice(0, 60) || "Picture";
+        }
+        await withConversations((c) => c.updateOne({ id, owner: username }, { $push: { messages: message }, $set: fields }));
+        conversation.messages.push(message);
+      },
+      history: () => conversation.messages,
+      // The reply is a new message at the end of the chat.
+      save: async (parts, reply) => {
+        const message: ChatMessage = {
+          role: "assistant",
+          username,
+          ...reply,
+          ...(parts.cards.length > 0 ? { cards: parts.cards } : {}),
+        };
+        await withConversations((c) =>
+          c.updateOne({ id: conversation.id, owner: username }, { $push: { messages: message }, $set: { updatedAt: message.createdAt } }),
+        );
+        return message;
+      },
+    };
+  });
+}
+
+// POST /api/chat/<conversationId>/rerun  Body: { "model": "claude" | "local" }  (FRG-117)
+// Runs the last user message again with the chosen model, and keeps the new answer as a version of
+// the newest reply (in `versions`), which becomes the chosen one. Only the newest reply can be run again.
+// Streams the same SSE events as a message. A rerun never makes board cards, also with Claude.
+// The "done" event has the whole reply, with all its versions.
+export async function rerunHandler(req: Request, res: Response) {
+  await streamReply(req, res, async (_engine, username) => {
+    const id = checkId(req.params.conversationId);
+    const conversation = await withConversations((c) => c.findOne({ id, owner: username }, { projection: { _id: 0 } }));
+    if (!conversation) throw NOT_FOUND();
+    const index = conversation.messages.length - 1;
+    const reply = conversation.messages[index];
+    if (!reply || reply.role !== "assistant") throw new HttpError(400, "Only the newest reply can be run again.");
+    if ((reply.versions?.length ?? 0) >= MAX_VERSIONS) {
+      throw new HttpError(400, `This reply already has ${MAX_VERSIONS + 1} answers.`);
+    }
+    return {
+      conversation,
+      withTools: false,
+      // Everything up to and including the user message before the reply.
+      history: () => conversation.messages.slice(0, index),
+      save: async (_parts, answer) => {
+        const versions = [...(reply.versions ?? []), answer];
+        const chosen = versions.length; // 1 is versions[0], and so on.
+        // The reply is found by its place and its time, so a reply that changed in between is not overwritten.
+        const result = await withConversations((c) =>
+          c.updateOne(
+            { id: conversation.id, owner: username, [`messages.${index}.createdAt`]: reply.createdAt },
+            { $push: { [`messages.${index}.versions`]: answer }, $set: { [`messages.${index}.chosen`]: chosen } },
+          ),
+        );
+        if (result.matchedCount === 0) throw new HttpError(409, "The chat changed while this answer was made. It was not saved.");
+        return { ...reply, versions, chosen };
+      },
+    };
+  });
+}
+
+// PATCH /api/chat/conversations/<id>/chosen  Body: { "chosen": 1 }  (FRG-117)
+// Which answer of the newest reply the chat goes on with. 0 is the first answer, 1 is versions[0], ...
+export async function chooseAnswerHandler(req: Request, res: Response) {
+  try {
+    const id = checkId(req.params.id);
+    const chosen = req.body?.chosen;
+    const owner: string = res.locals.username;
+    const conversation = await withConversations((c) => c.findOne({ id, owner }, { projection: { _id: 0 } }));
+    if (!conversation) throw NOT_FOUND();
+    const index = conversation.messages.length - 1;
+    const reply = conversation.messages[index];
+    if (!reply || reply.role !== "assistant") throw new HttpError(400, "Only the newest reply has answers to choose from.");
+    const count = 1 + (reply.versions?.length ?? 0);
+    if (!Number.isInteger(chosen) || chosen < 0 || chosen >= count) {
+      throw new HttpError(400, `chosen must be a whole number from 0 to ${count - 1}.`);
+    }
+    const result = await withConversations((c) =>
+      c.updateOne({ id, owner, [`messages.${index}.createdAt`]: reply.createdAt }, { $set: { [`messages.${index}.chosen`]: chosen } }),
+    );
+    if (result.matchedCount === 0) throw new HttpError(409, "The chat changed. Open it again and try once more.");
+    res.json({ id, chosen });
+  } catch (error) {
+    sendError(res, error);
+  }
+}
+
+// What a route gives streamReply: the conversation, and how to save the answer.
+type ReplyJob = {
+  conversation: Conversation;
+  withTools: boolean; // Claude gets the card tools. Never for a rerun.
+  // Runs once the model is ready (for the local model: loaded). A new message is saved here,
+  // so a message that gets a 409 (GPU busy) is not saved.
+  commit?: () => Promise<void>;
+  history: () => ChatMessage[]; // The messages the model sees, after commit.
+  // Save the answer. Answers the message for the "done" event.
+  save: (parts: ReplyParts, answer: ReplyVersion) => Promise<ChatMessage>;
+};
+
+// The steps every reply shares (FRG-115, FRG-117): check the model, take the local model or check
+// the Claude limit, stream the reply with the chosen engine, save it, and count its tokens.
+// Problems found before the reply starts are a normal JSON error (400, 404, 409, 429, 503).
+// If the page closes the request (the Stop button), the text so far is saved.
+async function streamReply(
+  req: Request,
+  res: Response,
+  prepare: (engine: Engine, username: string) => Promise<ReplyJob>,
+) {
   const username: string = res.locals.username;
   // The SSE stream. For the local model it can start early, to show that the model is loading.
   let streaming = false;
@@ -354,7 +504,7 @@ export async function sendMessageHandler(req: Request, res: Response) {
   let engine: Engine = "claude";
   let localStarted = false; // localReplyStarts() was called, so localReplyEnds() must follow.
   try {
-    let conversation: Conversation;
+    let job: ReplyJob;
     let tools: ChatTools | null = null;
     let usedBefore = 0; // Claude tokens this user used today before this reply (only counted when there is a limit).
     try {
@@ -364,23 +514,7 @@ export async function sendMessageHandler(req: Request, res: Response) {
         const problem = localChatProblem();
         if (problem) throw new HttpError(503, problem);
       }
-      const id = checkId(req.params.conversationId);
-      const text = req.body?.text ?? "";
-      // Check the pictures first: a picture the model cannot take gives a clear message and no model call.
-      const images = await checkMessageImages(req.body?.images);
-      if (typeof text !== "string" || (text.trim() === "" && images.length === 0)) {
-        throw new HttpError(400, "Type a message or attach a picture first.");
-      }
-      if (text.length > MAX_MESSAGE_LENGTH) {
-        throw new HttpError(
-          400,
-          `A message can be at most ${MAX_MESSAGE_LENGTH.toLocaleString("en")} characters. This one has ${text.length.toLocaleString("en")}.`,
-        );
-      }
-
-      const found = await withConversations((c) => c.findOne({ id, owner: username }, { projection: { _id: 0 } }));
-      if (!found) throw NOT_FOUND();
-      conversation = found;
+      job = await prepare(engine, username);
 
       if (engine === "claude") {
         if (dailyTokenLimit > 0) usedBefore = await tokensUsedToday(username);
@@ -409,24 +543,9 @@ export async function sendMessageHandler(req: Request, res: Response) {
         }
       }
 
-      // Save the message first. The first message also becomes the title of a new chat.
-      const message: ChatMessage = {
-        role: "user",
-        text,
-        createdAt: new Date(),
-        username,
-        ...(images.length > 0 ? { images } : {}),
-      };
-      // The chat remembers the model of its newest message (FRG-116).
-      const fields: Partial<Conversation> = { updatedAt: message.createdAt, model: engine };
-      if (conversation.messages.length === 0 && conversation.title === DEFAULT_TITLE) {
-        fields.title = text.trim().replace(/\s+/g, " ").slice(0, 60) || "Picture";
-      }
-      await withConversations((c) => c.updateOne({ id, owner: username }, { $push: { messages: message }, $set: fields }));
-      conversation.messages.push(message);
-
+      await job.commit?.();
       // The card tools, from the preset folders as they are now. Only Claude gets them.
-      if (engine === "claude") tools = await buildChatTools();
+      if (engine === "claude" && job.withTools) tools = await buildChatTools();
     } catch (error) {
       if (streaming) {
         sendEvent("error", { error: error instanceof HttpError ? error.message : "Something went wrong on the server. See the backend log." });
@@ -440,11 +559,47 @@ export async function sendMessageHandler(req: Request, res: Response) {
     // From here on the answer is an SSE stream.
     startStream();
     if (stop.stopped) return; // Stopped while the model was loading.
+    const history = job.history();
+    // A short line when the history uses rerun answers: which answer of which model. Never the text (FRG-117).
+    const reruns = history
+      .slice(-HISTORY_LIMIT)
+      .filter((m) => (m.chosen ?? 0) > 0)
+      .map((m) => `answer ${m.chosen} (${m.versions?.[m.chosen! - 1]?.model ?? "?"})`);
+    if (reruns.length > 0) console.log(`Chat: the history uses ${reruns.join(", ")}.`);
     const parts =
       engine === "claude"
-        ? await claudeReply(client!, conversation, username, tools!, usedBefore, sendEvent, stop)
-        : await localReply(conversation, sendEvent, stop);
-    await saveReply(engine, parts, conversation, username, sendEvent, stop);
+        ? await claudeReply(client!, history, job.conversation, username, tools, usedBefore, sendEvent, stop)
+        : await localReply(history, sendEvent, stop);
+
+    // Save the answer and its tokens, also when it was stopped or cut off.
+    if (parts.text !== "" || parts.cards.length > 0 || parts.inputTokens > 0 || parts.outputTokens > 0) {
+      const answer: ReplyVersion = {
+        model: engine,
+        modelLabel: engine === "claude" ? CLAUDE_MODEL : LOCAL_LABEL,
+        text: parts.text,
+        inputTokens: parts.inputTokens,
+        outputTokens: parts.outputTokens,
+        ...(stop.stopped ? { stopped: true } : {}),
+        createdAt: new Date(),
+      };
+      try {
+        const saved = await job.save(parts, answer);
+        await withCollection(getChatUsageCollection, (usage: Collection<ChatUsage>) =>
+          usage.insertOne({
+            username,
+            conversationId: job.conversation.id,
+            model: engine,
+            modelLabel: answer.modelLabel,
+            inputTokens: parts.inputTokens,
+            outputTokens: parts.outputTokens,
+            createdAt: answer.createdAt,
+          }),
+        );
+        if (!stop.stopped) sendEvent("done", { message: saved });
+      } catch (error) {
+        parts.errorText ??= error instanceof HttpError ? error.message : "The reply could not be saved. See the backend log.";
+      }
+    }
     if (!stop.stopped) {
       if (parts.errorText) sendEvent("error", { error: parts.errorText });
       res.end();
@@ -454,54 +609,9 @@ export async function sendMessageHandler(req: Request, res: Response) {
   }
 }
 
-// Save the reply, its cards and its tokens, also when it was stopped or cut off.
-// If saving fails, parts.errorText says so.
-async function saveReply(
-  engine: Engine,
-  parts: ReplyParts,
-  conversation: Conversation,
-  username: string,
-  sendEvent: (event: string, data: unknown) => void,
-  stop: StopState,
-) {
-  if (parts.text === "" && parts.cards.length === 0 && parts.inputTokens === 0 && parts.outputTokens === 0) return;
-  const modelLabel = engine === "claude" ? CLAUDE_MODEL : LOCAL_LABEL;
-  const reply: ChatMessage = {
-    role: "assistant",
-    text: parts.text,
-    createdAt: new Date(),
-    username,
-    inputTokens: parts.inputTokens,
-    outputTokens: parts.outputTokens,
-    ...(stop.stopped ? { stopped: true } : {}),
-    ...(parts.cards.length > 0 ? { cards: parts.cards } : {}),
-    model: engine,
-    modelLabel,
-  };
-  try {
-    await withConversations((c) =>
-      c.updateOne({ id: conversation.id, owner: username }, { $push: { messages: reply }, $set: { updatedAt: reply.createdAt } }),
-    );
-    await withCollection(getChatUsageCollection, (usage: Collection<ChatUsage>) =>
-      usage.insertOne({
-        username,
-        conversationId: conversation.id,
-        model: engine,
-        modelLabel,
-        inputTokens: parts.inputTokens,
-        outputTokens: parts.outputTokens,
-        createdAt: reply.createdAt,
-      }),
-    );
-    if (!stop.stopped) sendEvent("done", { message: reply });
-  } catch (error) {
-    parts.errorText ??= error instanceof HttpError ? error.message : "The reply could not be saved. See the backend log.";
-  }
-}
-
 // The local engine (FRG-115): one request to Qwen in llama-server, streamed. No tools, no cards.
 async function localReply(
-  conversation: Conversation,
+  messages: ChatMessage[],
   sendEvent: (event: string, data: unknown) => void,
   stop: StopState,
 ): Promise<ReplyParts> {
@@ -509,7 +619,7 @@ async function localReply(
   const controller = new AbortController();
   stop.current = controller;
   try {
-    const history = await localHistory(conversation.messages, LOCAL_CHAT_SYSTEM_PROMPT, (m) => m.text + cardsNote(m), HISTORY_LIMIT);
+    const history = await localHistory(messages, LOCAL_CHAT_SYSTEM_PROMPT, historyText, HISTORY_LIMIT);
     const result = await streamLocalReply(history.messages, controller.signal, (piece) => {
       parts.text += piece;
       sendEvent("text", { text: piece });
@@ -529,11 +639,13 @@ async function localReply(
 }
 
 // The Claude engine (FRG-23, FRG-24): rounds of API requests, with the card tools.
+// With no tools (a rerun, FRG-117) Claude cannot make cards, and is told so in one extra line.
 async function claudeReply(
   api: Anthropic,
+  history: ChatMessage[],
   conversation: Conversation,
   username: string,
-  tools: ChatTools,
+  tools: ChatTools | null,
   usedBefore: number,
   sendEvent: (event: string, data: unknown) => void,
   stop: StopState,
@@ -541,7 +653,7 @@ async function claudeReply(
   // The conversation for the API. Tool calls and their results are added during this reply only.
   let messages: Anthropic.Beta.BetaMessageParam[];
   try {
-    messages = await historyFor(conversation.messages);
+    messages = await historyFor(history);
   } catch (error) {
     return { text: "", cards: [], inputTokens: 0, outputTokens: 0, errorText: claudeErrorMessage(error) };
   }
@@ -562,8 +674,8 @@ async function claudeReply(
       const stream = api.beta.messages.stream({
         model: CLAUDE_MODEL,
         max_tokens: MAX_REPLY_TOKENS,
-        system: CHAT_SYSTEM_PROMPT,
-        tools: tools.tools,
+        system: tools ? CHAT_SYSTEM_PROMPT : `${CHAT_SYSTEM_PROMPT}\n\nDo not make cards for this answer.`,
+        ...(tools ? { tools: tools.tools } : {}),
         messages,
         cache_control: { type: "ephemeral" }, // Reuse the earlier part of the conversation: cheaper and faster.
         ...fallbackOptions(),
@@ -605,7 +717,8 @@ async function claudeReply(
         break;
       }
       const toolUses = final.content.filter((block) => block.type === "tool_use");
-      if (final.stop_reason !== "tool_use" || toolUses.length === 0) break;
+      // No tools were sent (a rerun): a tool call cannot happen, and is never run.
+      if (final.stop_reason !== "tool_use" || toolUses.length === 0 || !tools) break;
 
       // Run the tool calls. Each one makes a draft card in Ready, or tells Claude what is wrong.
       messages.push({ role: "assistant", content: final.content });
