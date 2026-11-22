@@ -1,4 +1,5 @@
 import type { ChatMessage } from "./db.js";
+import type { ChatTools } from "./chatTools.js";
 import { picturesToSend } from "./chatImages.js";
 import { checkTranslateSetup, translateServerUrl, translateSettings } from "./translateServer.js";
 
@@ -26,6 +27,8 @@ export const LOCAL_ON = (process.env.CHAT_LOCAL ?? "on").trim().toLowerCase() !=
 export const LOCAL_LABEL = (process.env.CHAT_LOCAL_LABEL ?? "").trim() || "Qwen3.8-27B";
 export const LOCAL_IDLE_MINUTES = wholeNumber("CHAT_LOCAL_IDLE_MINUTES", 5);
 const MAX_REPLY_TOKENS = Math.max(1, wholeNumber("CHAT_LOCAL_MAX_REPLY_TOKENS", 4000));
+// The local model makes board cards with the same tools as Claude (FRG-119). off: it only chats.
+export const LOCAL_CARDS = (process.env.CHAT_LOCAL_CARDS ?? "on").trim().toLowerCase() !== "off";
 
 // Why the local model cannot be used in chat, or null when it can. Does not start llama-server.
 export function localChatProblem(): string | null {
@@ -36,7 +39,28 @@ export function localChatProblem(): string | null {
 // ---- The conversation in the OpenAI style ----
 
 type Part = { type: "text"; text: string } | { type: "image_url"; image_url: { url: string } };
-export type LocalMessage = { role: "system" | "user" | "assistant"; content: string | Part[] };
+// A tool call of the model, in the OpenAI style (FRG-119). `arguments` is JSON text.
+export type LocalToolCall = { id: string; type: "function"; function: { name: string; arguments: string } };
+export type LocalMessage =
+  | { role: "system" | "user" | "assistant"; content: string | Part[] }
+  | { role: "assistant"; content: string | null; tool_calls: LocalToolCall[] }
+  | { role: "tool"; tool_call_id: string; content: string };
+
+// A tool in the OpenAI style (FRG-119).
+export type LocalTool = { type: "function"; function: { name: string; description: string; parameters: unknown } };
+
+// Turn the card tools (Claude style, chatTools.ts) into the OpenAI style. The tools themselves are not copied.
+export function toLocalTools(tools: ChatTools): LocalTool[] {
+  return tools.tools.map((tool) => ({
+    type: "function",
+    function: { name: tool.name, description: tool.description ?? "", parameters: tool.input_schema },
+  }));
+}
+
+// About how many tokens the tools take, counted by llama-server. Used to check they fit (FRG-119).
+export async function countToolTokens(tools: LocalTool[]): Promise<number> {
+  return countTokens(JSON.stringify(tools));
+}
 
 // The chat template adds a few tokens around each message. A safe guess.
 const TOKENS_PER_MESSAGE = 10;
@@ -68,10 +92,11 @@ export async function localHistory(
   systemPrompt: string,
   textOf: (message: ChatMessage) => string,
   historyLimit: number,
+  reservedTokens = 0, // Room kept free for something else in the request: the tools (FRG-119).
 ): Promise<{ messages: LocalMessage[]; leftOut: boolean }> {
   const settings = translateSettings();
   const imageTokens = Number(settings.imageMaxTokens);
-  const room = settings.context - MAX_REPLY_TOKENS - (await countTokens(systemPrompt)) - TOKENS_PER_MESSAGE;
+  const room = settings.context - MAX_REPLY_TOKENS - reservedTokens - (await countTokens(systemPrompt)) - TOKENS_PER_MESSAGE;
 
   const recent = messages.filter((m) => textOf(m).trim() !== "" || (m.images?.length ?? 0) > 0).slice(-historyLimit);
 
@@ -133,11 +158,13 @@ export class LocalChatError extends Error {}
 // Ask the model and stream the answer. `onText` gets each new piece of text.
 // Answers the token counts and why the model stopped ("stop", or "length" when the reply was cut off).
 // Throws an AbortError when `signal` is aborted (the Stop button).
+// With `tools` (FRG-119) the model may answer with tool calls: they come back in `toolCalls`.
 export async function streamLocalReply(
   messages: LocalMessage[],
   signal: AbortSignal,
   onText: (piece: string) => void,
-): Promise<{ inputTokens: number; outputTokens: number; finish: string | null }> {
+  tools: LocalTool[] | null = null,
+): Promise<{ inputTokens: number; outputTokens: number; finish: string | null; toolCalls: LocalToolCall[] }> {
   const response = await fetch(`${translateServerUrl()}/v1/chat/completions`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -146,6 +173,7 @@ export async function streamLocalReply(
       stream: true,
       stream_options: { include_usage: true },
       max_tokens: MAX_REPLY_TOKENS,
+      ...(tools && tools.length > 0 ? { tools } : {}),
     }),
     signal,
   });
@@ -163,6 +191,8 @@ export async function streamLocalReply(
   let inputTokens = 0;
   let outputTokens = 0;
   let finish: string | null = null;
+  // Tool calls stream in pieces: the first piece of a call has its id and name, the next ones add to its arguments.
+  const toolCalls: LocalToolCall[] = [];
   const decoder = new TextDecoder();
   let buffer = "";
   const reader = response.body.getReader();
@@ -178,7 +208,13 @@ export async function streamLocalReply(
       const data = line.slice("data: ".length).trim();
       if (data === "[DONE]") continue;
       let chunk: {
-        choices?: { delta?: { content?: string | null }; finish_reason?: string | null }[];
+        choices?: {
+          delta?: {
+            content?: string | null;
+            tool_calls?: { index?: number; id?: string; function?: { name?: string; arguments?: string } }[];
+          };
+          finish_reason?: string | null;
+        }[];
         usage?: { prompt_tokens?: number; completion_tokens?: number };
       };
       try {
@@ -191,6 +227,13 @@ export async function streamLocalReply(
       const choice = chunk.choices?.[0];
       const piece = choice?.delta?.content;
       if (piece) onText(piece);
+      for (const call of choice?.delta?.tool_calls ?? []) {
+        const index = call.index ?? toolCalls.length;
+        toolCalls[index] ??= { id: "", type: "function", function: { name: "", arguments: "" } };
+        if (call.id) toolCalls[index].id = call.id;
+        if (call.function?.name) toolCalls[index].function.name += call.function.name;
+        if (call.function?.arguments) toolCalls[index].function.arguments += call.function.arguments;
+      }
       if (choice?.finish_reason) finish = choice.finish_reason;
       if (chunk.usage) {
         inputTokens = chunk.usage.prompt_tokens ?? inputTokens;
@@ -198,7 +241,9 @@ export async function streamLocalReply(
       }
     }
   }
-  return { inputTokens, outputTokens, finish };
+  // A call with no id gets one, so its result can point to it.
+  const calls = toolCalls.filter(Boolean).map((call, index) => ({ ...call, id: call.id || `call_${index}` }));
+  return { inputTokens, outputTokens, finish, toolCalls: calls };
 }
 
 // A plain-English message for an error from the local model. The details go to the backend log.
