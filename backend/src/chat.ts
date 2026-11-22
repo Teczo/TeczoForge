@@ -4,7 +4,7 @@ import type { Collection } from "mongodb";
 import { HttpError } from "./httpError.js";
 import { getChatUsageCollection, getConversationsCollection } from "./db.js";
 import type { ChatMessage, ChatUsage, Conversation, ReplyVersion } from "./db.js";
-import { CHAT_SYSTEM_PROMPT, LOCAL_CHAT_SYSTEM_PROMPT } from "./chatPrompt.js";
+import { CHAT_SYSTEM_PROMPT, LOCAL_CHAT_SYSTEM_PROMPT, RERUN_SYSTEM_PROMPT } from "./chatPrompt.js";
 import { checkMessageImages, picturesToSend } from "./chatImages.js";
 import { buildChatTools, runChatTool } from "./chatTools.js";
 import { checkProjectId, checkTargetProjectId } from "./projects.js";
@@ -447,6 +447,7 @@ export async function chooseAnswerHandler(req: Request, res: Response) {
     const reply = conversation.messages[index];
     if (!reply || reply.role !== "assistant") throw new HttpError(400, "Only the newest reply has answers to choose from.");
     const count = 1 + (reply.versions?.length ?? 0);
+    if (count === 1) throw new HttpError(400, "The newest reply has only one answer.");
     if (!Number.isInteger(chosen) || chosen < 0 || chosen >= count) {
       throw new HttpError(400, `chosen must be a whole number from 0 to ${count - 1}.`);
     }
@@ -674,7 +675,7 @@ async function claudeReply(
       const stream = api.beta.messages.stream({
         model: CLAUDE_MODEL,
         max_tokens: MAX_REPLY_TOKENS,
-        system: tools ? CHAT_SYSTEM_PROMPT : `${CHAT_SYSTEM_PROMPT}\n\nDo not make cards for this answer.`,
+        system: tools ? CHAT_SYSTEM_PROMPT : RERUN_SYSTEM_PROMPT,
         ...(tools ? { tools: tools.tools } : {}),
         messages,
         cache_control: { type: "ephemeral" }, // Reuse the earlier part of the conversation: cheaper and faster.

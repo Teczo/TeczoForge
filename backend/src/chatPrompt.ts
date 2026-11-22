@@ -15,6 +15,12 @@ export const LOCAL_CHAT_SYSTEM_PROMPT = `${CHAT_HELP_TEXT}
 
 You cannot make board cards. If asked, say the user can switch to Claude for that.`;
 
+// The system prompt for Claude when a reply is run again (FRG-117). A rerun has no card tools.
+// Without the card part: if Claude reads about tools it does not have, it writes made-up tool calls as text.
+export const RERUN_SYSTEM_PROMPT = `${CHAT_HELP_TEXT}
+
+Do not make cards for this answer.`;
+
 export const CHAT_SYSTEM_PROMPT = `${CHAT_HELP_TEXT}
 
 You can make cards on the team's board with the create_card tools, one tool per preset. A card is a saved prompt in the Ready column.
