@@ -15,6 +15,8 @@ import { contentTypeOf } from "./outputKinds.js";
 import {
   chatModelsHandler,
   chatStatusHandler,
+  chooseAnswerHandler,
+  rerunHandler,
   checkChatSetup,
   createConversationHandler,
   deleteConversationHandler,
@@ -269,6 +271,9 @@ app.patch("/api/chat/conversations/:id", express.json(), renameConversationHandl
 app.delete("/api/chat/conversations/:id", deleteConversationHandler);
 // Sends one message and streams the reply (SSE).
 app.post("/api/chat/:conversationId/messages", express.json(), sendMessageHandler);
+// Run the newest reply again with another model, and pick which answer the chat goes on with (FRG-117).
+app.post("/api/chat/:conversationId/rerun", express.json(), rerunHandler);
+app.patch("/api/chat/conversations/:id/chosen", express.json(), chooseAnswerHandler);
 
 // Serve finished files from data/outputs, each ending with its own content type (FRG-29).
 app.use(
