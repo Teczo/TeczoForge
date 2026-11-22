@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { ClipboardEvent, DragEvent, FormEvent, KeyboardEvent, ReactNode } from "react";
-import { ArrowUp, ChevronDown, Paperclip, Square, X } from "lucide-react";
+import { ArrowUp, ChevronDown, Paperclip, Repeat, Square, X } from "lucide-react";
 import { NAV_ITEMS } from "./AppShell";
 import { btn, ICON, Notice } from "./ui";
 import ChatCard from "./ChatCard";
@@ -51,6 +51,9 @@ type Message = {
   // Only on replies: which model wrote it (FRG-115). Missing means Claude.
   model?: ModelId;
   modelLabel?: string;
+  // Only on replies (FRG-117): answers made by "Run with ...", and which answer the chat goes on with.
+  versions?: Answer[];
+  chosen?: number;
 };
 type Conversation = ConversationSummary & { messages: Message[]; model?: ModelId };
 
@@ -63,6 +66,56 @@ type ChatModel = { id: ModelId; label: string; ready: boolean; problem?: string 
 function modelName(id: ModelId | undefined, label: string | undefined): string {
   return id === "local" ? `${label ?? "Local model"} (local)` : "Claude";
 }
+
+// Read the SSE events of a reply. They are separated by a blank line.
+async function readEvents(body: ReadableStream<Uint8Array>, onEvent: (name: string | undefined, data: any) => void) {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let end;
+    while ((end = buffer.indexOf("\n\n")) >= 0) {
+      const block = buffer.slice(0, end);
+      buffer = buffer.slice(end + 2);
+      onEvent(block.match(/^event: (.*)$/m)?.[1], JSON.parse(block.match(/^data: (.*)$/m)?.[1] ?? "{}"));
+    }
+  }
+}
+
+// The answers of a reply (FRG-118): 0 is the first answer (the top-level fields), 1 is versions[0], ...
+type Answer = { model?: ModelId; modelLabel?: string; text: string; stopped?: boolean };
+
+function answersOf(message: Message): Answer[] {
+  return [message, ...(message.versions ?? [])];
+}
+
+// Which answer of a reply is shown and goes on in the chat. 0 when missing.
+function chosenOf(message: Message): number {
+  const chosen = message.chosen ?? 0;
+  return chosen >= 0 && chosen < answersOf(message).length ? chosen : 0;
+}
+
+// The short name of a model on a tab: "Claude", or the first word of the local label ("Qwen").
+function shortName(answer: Answer): string {
+  if (answer.model !== "local") return "Claude";
+  return answer.modelLabel?.match(/^[A-Za-z]+/)?.[0] ?? "Local";
+}
+
+// The tab names of a reply's answers: "Claude", "Qwen", and "Qwen 2" for a second answer of the same model.
+function tabNames(answers: Answer[]): string[] {
+  const seen: Record<string, number> = {};
+  return answers.map((answer) => {
+    const name = shortName(answer);
+    seen[name] = (seen[name] ?? 0) + 1;
+    return seen[name] > 1 ? `${name} ${seen[name]}` : name;
+  });
+}
+
+// A reply has at most this many answers (backend: MAX_VERSIONS + 1).
+const MAX_ANSWERS = 5;
 
 // A new chat starts with the model of the last chat used. Kept in this browser only.
 const MODEL_KEY = "teczoforge.chatModel";
@@ -116,6 +169,9 @@ export default function Chat({
   const [model, setModel] = useState<ModelId>(storedModel); // The model chosen for this chat.
   const [replyModel, setReplyModel] = useState<ModelId>("claude"); // The model of the reply that streams now.
   const [replyStatus, setReplyStatus] = useState<string | null>(null); // "Loading Qwen..." while the model loads.
+  const [rerunning, setRerunning] = useState(false); // The reply that streams is a new answer of the newest reply (FRG-118).
+  const openIdRef = useRef<string | null>(conversationId); // The chat open now, also inside a reply that still streams.
+  openIdRef.current = conversationId;
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false); // An older chat is being opened. Only used for the look.
   const [text, setText] = useState("");
@@ -421,34 +477,20 @@ export default function Chat({
         return;
       }
 
-      // Read the SSE events. They are separated by a blank line.
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        let end;
-        while ((end = buffer.indexOf("\n\n")) >= 0) {
-          const block = buffer.slice(0, end);
-          buffer = buffer.slice(end + 2);
-          const name = block.match(/^event: (.*)$/m)?.[1];
-          const data = JSON.parse(block.match(/^data: (.*)$/m)?.[1] ?? "{}");
-          if (name === "status") {
-            setReplyStatus(data.text); // For example "Loading Qwen..." (FRG-115).
-          } else if (name === "text") {
-            received += data.text;
-            setReplyText(received);
-            setReplyStatus(null);
-          } else if (name === "card") {
-            cards.push(data.card);
-            setReplyCards([...cards]);
-          } else if (name === "error") {
-            setError(data.error);
-          }
+      await readEvents(response.body, (name, data) => {
+        if (name === "status") {
+          setReplyStatus(data.text); // For example "Loading Qwen..." (FRG-115).
+        } else if (name === "text") {
+          received += data.text;
+          setReplyText(received);
+          setReplyStatus(null);
+        } else if (name === "card") {
+          cards.push(data.card);
+          setReplyCards([...cards]);
+        } else if (name === "error") {
+          setError(data.error);
         }
-      }
+      });
     } catch (caught) {
       // Stop pressed: keep the text so far (the backend saves it too).
       if (!(caught instanceof DOMException && caught.name === "AbortError")) setError(NO_BACKEND);
@@ -474,6 +516,105 @@ export default function Chat({
       setStreaming(false);
       stopRef.current = null;
       onListChanged(); // The title and the order may have changed.
+    }
+  }
+
+  // "Run with Qwen" / "Run with Claude" under the newest reply (FRG-118): the same question again with
+  // the other model. The new answer streams in place of the shown one. Both answers are kept.
+  async function rerun(target: ModelId) {
+    const id = conversationId;
+    const before = messages[messages.length - 1];
+    if (!id || streaming || !before || before.role !== "assistant") return;
+    setError(null);
+    setBusyNotice(null);
+    setRerunning(true);
+    setStreaming(true);
+    setReplyModel(target);
+    setReplyStatus(null);
+    setReplyText("");
+    setReplyCards([]);
+    const controller = new AbortController();
+    stopRef.current = controller;
+    let received = "";
+    let saved: Message | null = null; // The whole reply with its new answer, from the "done" event.
+
+    try {
+      const response = await fetch(`/api/chat/${id}/rerun`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model: target }),
+        signal: controller.signal,
+      });
+      // Not a stream: a problem found before the answer started. The shown answer stays as it was.
+      if (!response.headers.get("Content-Type")?.includes("text/event-stream") || !response.body) {
+        const body = await response.json().catch(() => null);
+        if (response.status === 409 && body?.error) setBusyNotice(body.error);
+        else setError(body?.error ?? NO_BACKEND);
+        return;
+      }
+      await readEvents(response.body, (name, data) => {
+        if (name === "status") {
+          setReplyStatus(data.text);
+        } else if (name === "text") {
+          received += data.text;
+          setReplyText(received);
+          setReplyStatus(null);
+        } else if (name === "done") {
+          saved = data.message;
+        } else if (name === "error") {
+          setError(data.error);
+        }
+      });
+    } catch (caught) {
+      // Stop pressed: keep the text so far (the backend saves it as this answer).
+      if (!(caught instanceof DOMException && caught.name === "AbortError")) setError(NO_BACKEND);
+    } finally {
+      const stopped = controller.signal.aborted;
+      // Only change the chat if it is still the open one (another chat may have been opened meanwhile).
+      if (openIdRef.current === id) {
+        const kept: Message | null =
+          saved ??
+          (stopped && received !== ""
+            ? {
+                ...before,
+                versions: [
+                  ...(before.versions ?? []),
+                  { model: target, modelLabel: models?.find((m) => m.id === target)?.label, text: received, stopped: true },
+                ],
+                chosen: (before.versions?.length ?? 0) + 1,
+              }
+            : null);
+        if (kept) setMessages((current) => [...current.slice(0, -1), kept]);
+      }
+      setReplyStatus(null);
+      setReplyText("");
+      setStreaming(false);
+      setRerunning(false);
+      stopRef.current = null;
+    }
+  }
+
+  // A tab above the newest reply (FRG-118): show that answer and make it the one the chat goes on with.
+  async function chooseAnswer(index: number) {
+    const id = conversationId;
+    const before = messages[messages.length - 1];
+    if (!id || streaming || !before || chosenOf(before) === index) return;
+    setError(null);
+    setMessages((current) => [...current.slice(0, -1), { ...before, chosen: index }]);
+    try {
+      const response = await fetch(`/api/chat/conversations/${encodeURIComponent(id)}/chosen`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chosen: index }),
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.error ?? "The answer could not be chosen.");
+      }
+    } catch (caught) {
+      // Put the tab back, so the page shows what the chat really goes on with.
+      if (openIdRef.current === id) setMessages((current) => [...current.slice(0, -1), before]);
+      setError(caught instanceof TypeError ? NO_BACKEND : (caught as Error).message);
     }
   }
 
@@ -509,27 +650,38 @@ export default function Chat({
         <div ref={columnRef} className="mx-auto flex w-full max-w-3xl flex-col gap-4 pt-6">
           {setupError && <Notice tone="danger">{setupError}</Notice>}
           {loading && <p className="m-0 text-sm text-ink-3">Opening the chat...</p>}
-          {messages.map((message, index) => (
-            <Bubble key={index} role={message.role}>
-              {message.images && message.images.length > 0 && (
-                <div className="chat-images">
-                  {message.images.map((image) => (
-                    <a key={image.id} href={inputUrl(image.id)} target="_blank" rel="noreferrer" title={image.id}>
-                      <img src={inputUrl(image.id)} alt={`Attached picture ${image.id}`} />
-                    </a>
-                  ))}
-                </div>
-              )}
-              {message.role === "assistant" ? <Markdown text={message.text} /> : message.text && <p>{message.text}</p>}
-              {message.stopped && <p className="chat-note">Stopped.</p>}
-              {message.cards?.map((card) => (
-                <ChatCard key={card.id} card={card} presets={presets} onOpenInGenerate={onOpenInGenerate} />
-              ))}
-              {message.role === "assistant" && (
-                <p className="m-0 mt-1 text-xs text-ink-3">{modelName(message.model, message.modelLabel)}</p>
-              )}
-            </Bubble>
-          ))}
+          {/* While a new answer of the newest reply streams, it shows in place of that reply (FRG-118). */}
+          {(rerunning ? messages.slice(0, -1) : messages).map((message, index) => {
+            if (message.role === "assistant") {
+              return (
+                <ReplyBubble
+                  key={index}
+                  message={message}
+                  newest={index === messages.length - 1}
+                  streaming={streaming}
+                  models={models}
+                  presets={presets}
+                  onOpenInGenerate={onOpenInGenerate}
+                  onChoose={chooseAnswer}
+                  onRerun={rerun}
+                />
+              );
+            }
+            return (
+              <Bubble key={index} role="user">
+                {message.images && message.images.length > 0 && (
+                  <div className="chat-images">
+                    {message.images.map((image) => (
+                      <a key={image.id} href={inputUrl(image.id)} target="_blank" rel="noreferrer" title={image.id}>
+                        <img src={inputUrl(image.id)} alt={`Attached picture ${image.id}`} />
+                      </a>
+                    ))}
+                  </div>
+                )}
+                {message.text && <p>{message.text}</p>}
+              </Bubble>
+            );
+          })}
           {streaming && (
             <Bubble role="assistant">
               {replyText ? (
@@ -695,6 +847,82 @@ export default function Chat({
         )}
       </div>
     </main>
+  );
+}
+
+// One reply of a model (FRG-118). It shows its chosen answer, with the model's name under it.
+// The newest reply also gets small tabs when it has more than one answer, and a button that runs
+// the same question again with the other model. Older replies only show their chosen answer.
+// Board cards belong to the first answer only, so they show only when it is the shown one.
+function ReplyBubble({
+  message,
+  newest,
+  streaming,
+  models,
+  presets,
+  onOpenInGenerate,
+  onChoose,
+  onRerun,
+}: {
+  message: Message;
+  newest: boolean;
+  streaming: boolean;
+  models: ChatModel[] | null;
+  presets: Preset[];
+  onOpenInGenerate: (values: StartValues) => void;
+  onChoose: (index: number) => void;
+  onRerun: (model: ModelId) => void;
+}) {
+  const answers = answersOf(message);
+  const shown = chosenOf(message);
+  const answer = answers[shown];
+  const names = tabNames(answers);
+  // The other model: "Run with Qwen" under a Claude answer, "Run with Claude" under a Qwen answer.
+  const other: ModelId = answer.model === "local" ? "claude" : "local";
+  const otherModel = models?.find((m) => m.id === other);
+  const full = answers.length >= MAX_ANSWERS;
+  return (
+    <Bubble role="assistant">
+      {newest && answers.length > 1 && (
+        <div role="tablist" aria-label="Answers" className="mb-2 flex flex-wrap gap-1">
+          {answers.map((_, index) => (
+            <button
+              key={index}
+              type="button"
+              role="tab"
+              aria-selected={index === shown}
+              onClick={() => onChoose(index)}
+              disabled={streaming}
+              title={index === shown ? "The chat goes on with this answer" : "Show this answer and go on with it"}
+              className={`h-7 cursor-pointer rounded-full border px-3 text-xs transition-colors disabled:cursor-not-allowed ${
+                index === shown ? "border-line-strong bg-hover text-ink" : "border-line bg-card text-ink-3 hover:bg-hover hover:text-ink"
+              }`}
+            >
+              {names[index]}
+            </button>
+          ))}
+        </div>
+      )}
+      <Markdown text={answer.text} />
+      {answer.stopped && <p className="chat-note">Stopped.</p>}
+      {shown === 0 &&
+        message.cards?.map((card) => <ChatCard key={card.id} card={card} presets={presets} onOpenInGenerate={onOpenInGenerate} />)}
+      <div className="mt-1 flex flex-wrap items-center gap-2">
+        <p className="m-0 text-xs text-ink-3">{modelName(answer.model, answer.modelLabel)}</p>
+        {newest && !streaming && otherModel?.ready && (
+          <button
+            type="button"
+            onClick={() => onRerun(other)}
+            disabled={full}
+            title={full ? `This reply already has ${MAX_ANSWERS} answers.` : "Ask the same question again with the other model. Both answers are kept."}
+            className={btn("ghost", "sm", true)}
+          >
+            <Repeat size={14} strokeWidth={1.75} />
+            Run with {other === "local" ? shortName({ model: "local", modelLabel: otherModel.label, text: "" }) : "Claude"}
+          </button>
+        )}
+      </div>
+    </Bubble>
   );
 }
 
