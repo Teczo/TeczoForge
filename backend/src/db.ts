@@ -112,6 +112,8 @@ export type Conversation = {
   // Older conversations get "Unsorted" when the backend starts (see moveOldConversationsToUnsorted).
   projectId: string;
   title: string;
+  // The model chosen for this chat on the page (FRG-116). Missing means Claude.
+  model?: "claude" | "local";
   messages: ChatMessage[];
   createdAt: Date;
   updatedAt: Date;

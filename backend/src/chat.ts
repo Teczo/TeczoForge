@@ -272,24 +272,32 @@ export async function getConversationHandler(req: Request, res: Response) {
   }
 }
 
-// PATCH /api/chat/conversations/<id>  Body: any of { "title": "...", "projectId": "..." }
-// Rename one of my conversations, or move it to another project (FRG-43).
-// An unknown or archived project answers 400. Moving does not change the order of the list.
+// PATCH /api/chat/conversations/<id>  Body: any of { "title": "...", "projectId": "...", "model": "claude" | "local" }
+// Rename one of my conversations, or move it to another project (FRG-43), or change its model (FRG-116).
+// An unknown or archived project answers 400. Moving or changing the model does not change the order of the list.
 export async function renameConversationHandler(req: Request, res: Response) {
   try {
     const id = checkId(req.params.id);
-    const { title, projectId } = req.body ?? {};
-    if (title === undefined && projectId === undefined) throw new HttpError(400, "Send a title or a projectId to change.");
-    const fields: { title?: string; updatedAt?: Date; projectId?: string } = {};
+    const { title, projectId, model } = req.body ?? {};
+    if (title === undefined && projectId === undefined && model === undefined) {
+      throw new HttpError(400, "Send a title, a projectId or a model to change.");
+    }
+    const fields: { title?: string; updatedAt?: Date; projectId?: string; model?: Engine } = {};
     if (title !== undefined) {
       fields.title = checkTitle(title);
       fields.updatedAt = new Date();
     }
     if (projectId !== undefined) fields.projectId = await checkTargetProjectId(projectId);
+    if (model !== undefined) fields.model = checkEngine(model);
     const owner: string = res.locals.username;
     const result = await withConversations((c) => c.updateOne({ id, owner }, { $set: fields }));
     if (result.matchedCount === 0) throw NOT_FOUND();
-    res.json({ id, ...(fields.title ? { title: fields.title } : {}), ...(fields.projectId ? { projectId: fields.projectId } : {}) });
+    res.json({
+      id,
+      ...(fields.title ? { title: fields.title } : {}),
+      ...(fields.projectId ? { projectId: fields.projectId } : {}),
+      ...(fields.model ? { model: fields.model } : {}),
+    });
   } catch (error) {
     sendError(res, error);
   }
@@ -409,7 +417,8 @@ export async function sendMessageHandler(req: Request, res: Response) {
         username,
         ...(images.length > 0 ? { images } : {}),
       };
-      const fields: Partial<Conversation> = { updatedAt: message.createdAt };
+      // The chat remembers the model of its newest message (FRG-116).
+      const fields: Partial<Conversation> = { updatedAt: message.createdAt, model: engine };
       if (conversation.messages.length === 0 && conversation.title === DEFAULT_TITLE) {
         fields.title = text.trim().replace(/\s+/g, " ").slice(0, 60) || "Picture";
       }
