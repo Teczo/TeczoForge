@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { ClipboardEvent, DragEvent, FormEvent, KeyboardEvent, ReactNode } from "react";
-import { ArrowUp, Paperclip, Square, X } from "lucide-react";
+import { ArrowUp, ChevronDown, Paperclip, Square, X } from "lucide-react";
 import { NAV_ITEMS } from "./AppShell";
 import { btn, ICON, Notice } from "./ui";
 import ChatCard from "./ChatCard";
@@ -48,8 +48,40 @@ type Message = {
   stopped?: boolean;
   cards?: ChatCardRef[];
   images?: { id: string; path: string }[];
+  // Only on replies: which model wrote it (FRG-115). Missing means Claude.
+  model?: ModelId;
+  modelLabel?: string;
 };
-type Conversation = ConversationSummary & { messages: Message[] };
+type Conversation = ConversationSummary & { messages: Message[]; model?: ModelId };
+
+// The chat models (FRG-116), from GET /api/chat/models.
+// "claude": the Claude API. "local": Qwen in llama-server on this PC.
+type ModelId = "claude" | "local";
+type ChatModel = { id: ModelId; label: string; ready: boolean; problem?: string };
+
+// The name of a model on the page: "Claude", or for example "Qwen3.8-27B (local)".
+function modelName(id: ModelId | undefined, label: string | undefined): string {
+  return id === "local" ? `${label ?? "Local model"} (local)` : "Claude";
+}
+
+// A new chat starts with the model of the last chat used. Kept in this browser only.
+const MODEL_KEY = "teczoforge.chatModel";
+
+function storedModel(): ModelId {
+  try {
+    return localStorage.getItem(MODEL_KEY) === "local" ? "local" : "claude";
+  } catch {
+    return "claude";
+  }
+}
+
+function storeModel(id: ModelId) {
+  try {
+    localStorage.setItem(MODEL_KEY, id);
+  } catch {
+    // Private window or blocked storage: the next new chat starts with Claude.
+  }
+}
 
 const NO_BACKEND = "Could not reach the backend. Make sure it is running, then try again.";
 
@@ -79,7 +111,11 @@ export default function Chat({
   onListChanged,
   onShowProject,
 }: ChatProps) {
-  const [setupError, setSetupError] = useState<string | null>(null);
+  const [backendError, setBackendError] = useState<string | null>(null);
+  const [models, setModels] = useState<ChatModel[] | null>(null);
+  const [model, setModel] = useState<ModelId>(storedModel); // The model chosen for this chat.
+  const [replyModel, setReplyModel] = useState<ModelId>("claude"); // The model of the reply that streams now.
+  const [replyStatus, setReplyStatus] = useState<string | null>(null); // "Loading Qwen..." while the model loads.
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false); // An older chat is being opened. Only used for the look.
   const [text, setText] = useState("");
@@ -92,6 +128,7 @@ export default function Chat({
   const [dragOver, setDragOver] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<string | null>(null);
+  const [busyNotice, setBusyNotice] = useState<string | null>(null); // A 409 answer: the GPU is busy.
   const stopRef = useRef<AbortController | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const boxRef = useRef<HTMLTextAreaElement>(null);
@@ -111,12 +148,12 @@ export default function Chat({
     window.location.hash = id ? `#/chat/${id}` : "#/chat";
   }
 
-  // Is chat set up? And the presets for the cards. Once, when the page opens.
+  // The chat models and whether each is ready (FRG-116). And the presets for the cards. Once, when the page opens.
   useEffect(() => {
-    fetch("/api/chat/status")
-      .then((response) => response.json())
-      .then((body) => setSetupError(body.ready ? null : (body.error ?? "Chat is not set up.")))
-      .catch(() => setSetupError(NO_BACKEND));
+    fetch("/api/chat/models")
+      .then((response) => (response.ok ? response.json() : Promise.reject()))
+      .then((body: ChatModel[]) => setModels(body))
+      .catch(() => setBackendError(NO_BACKEND));
     fetch("/api/presets")
       .then((response) => response.json())
       .then((body) => setPresets(body.presets ?? []))
@@ -139,7 +176,10 @@ export default function Chat({
     setError(null);
     setOpenProjectId(null);
     setLoading(false);
-    if (!conversationId) return;
+    if (!conversationId) {
+      setModel(storedModel()); // A new chat: the model of the last chat used.
+      return;
+    }
     async function loadConversation() {
       setLoading(true);
       try {
@@ -149,6 +189,7 @@ export default function Chat({
         else if (!response.ok) setError(body.error ?? "Could not open this conversation.");
         else {
           setMessages((body as Conversation).messages);
+          setModel((body as Conversation).model ?? "claude"); // Older chats have no model: Claude.
           // A chat of another project (for example from a link): switch the picker to it (FRG-42).
           setOpenProjectId((body as Conversation).projectId ?? null);
           onShowProject((body as Conversation).projectId);
@@ -276,6 +317,26 @@ export default function Chat({
     return () => observer.disconnect();
   }, []);
 
+  // The dropdown next to Send (FRG-116). The open chat remembers the choice; it does not move in the list.
+  async function chooseModel(id: ModelId) {
+    setModel(id);
+    storeModel(id);
+    if (!conversationId) return; // A new chat saves its model with its first message.
+    try {
+      const response = await fetch(`/api/chat/conversations/${encodeURIComponent(conversationId)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model: id }),
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        setError(body?.error ?? "The model of this chat could not be saved.");
+      }
+    } catch {
+      setError(NO_BACKEND);
+    }
+  }
+
   async function newChat(): Promise<string | null> {
     setError(null);
     try {
@@ -307,6 +368,7 @@ export default function Chat({
     const images = attached;
     if ((message.trim() === "" && images.length === 0) || streaming || attaching) return;
     setError(null);
+    setBusyNotice(null);
 
     let id = conversationId;
     if (!id) {
@@ -326,7 +388,11 @@ export default function Chat({
         images: images.map((a) => ({ id: a.id, path: `data/inputs/${a.id}` })),
       },
     ]);
+    const sentModel = model;
+    storeModel(sentModel); // The next new chat starts with this model.
     setStreaming(true);
+    setReplyModel(sentModel);
+    setReplyStatus(null);
     setReplyText("");
     setReplyCards([]);
     const controller = new AbortController();
@@ -338,14 +404,16 @@ export default function Chat({
       const response = await fetch(`/api/chat/${id}/messages`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: message, images: images.map((a) => a.id) }),
+        body: JSON.stringify({ text: message, images: images.map((a) => a.id), model: sentModel }),
         signal: controller.signal,
       });
 
       // Not a stream: a problem found before the reply started (not set up, limit reached, ...).
       if (!response.headers.get("Content-Type")?.includes("text/event-stream") || !response.body) {
         const body = await response.json().catch(() => null);
-        setError(body?.error ?? NO_BACKEND);
+        // 409: the GPU is busy (a generation or a translation, FRG-115). Not an error: a normal notice under the box.
+        if (response.status === 409 && body?.error) setBusyNotice(body.error);
+        else setError(body?.error ?? NO_BACKEND);
         // The message was not saved, so take it off the screen and put it back in the box.
         setMessages((current) => current.slice(0, -1));
         setText(message);
@@ -367,9 +435,12 @@ export default function Chat({
           buffer = buffer.slice(end + 2);
           const name = block.match(/^event: (.*)$/m)?.[1];
           const data = JSON.parse(block.match(/^data: (.*)$/m)?.[1] ?? "{}");
-          if (name === "text") {
+          if (name === "status") {
+            setReplyStatus(data.text); // For example "Loading Qwen..." (FRG-115).
+          } else if (name === "text") {
             received += data.text;
             setReplyText(received);
+            setReplyStatus(null);
           } else if (name === "card") {
             cards.push(data.card);
             setReplyCards([...cards]);
@@ -386,9 +457,18 @@ export default function Chat({
       if (received !== "" || cards.length > 0) {
         setMessages((current) => [
           ...current,
-          { role: "assistant", text: received, createdAt: new Date().toISOString(), stopped, cards },
+          {
+            role: "assistant",
+            text: received,
+            createdAt: new Date().toISOString(),
+            stopped,
+            cards,
+            model: sentModel,
+            modelLabel: models?.find((m) => m.id === sentModel)?.label,
+          },
         ]);
       }
+      setReplyStatus(null);
       setReplyText("");
       setReplyCards([]);
       setStreaming(false);
@@ -405,6 +485,9 @@ export default function Chat({
     }
   }
 
+  // The chosen model cannot be used: say why, and do not let a message go out.
+  const chosen = models?.find((m) => m.id === model);
+  const setupError = backendError ?? (chosen && !chosen.ready ? (chosen.problem ?? "This model is not set up.") : null);
   const tooLong = text.length > MAX_MESSAGE_LENGTH;
   const canSend = !setupError && !tooLong && !attaching && (text.trim() !== "" || attached.length > 0);
   // No messages yet: the "home" look, with the box in the middle of the page.
@@ -442,11 +525,20 @@ export default function Chat({
               {message.cards?.map((card) => (
                 <ChatCard key={card.id} card={card} presets={presets} onOpenInGenerate={onOpenInGenerate} />
               ))}
+              {message.role === "assistant" && (
+                <p className="m-0 mt-1 text-xs text-ink-3">{modelName(message.model, message.modelLabel)}</p>
+              )}
             </Bubble>
           ))}
           {streaming && (
             <Bubble role="assistant">
-              {replyText ? <Markdown text={replyText} /> : <p className="chat-note">Claude is thinking...</p>}
+              {replyText ? (
+                <Markdown text={replyText} />
+              ) : (
+                <p className="chat-note">
+                  {replyStatus ?? `${replyModel === "local" ? (models?.find((m) => m.id === "local")?.label ?? "The local model") : "Claude"} is thinking...`}
+                </p>
+              )}
               {replyCards.map((card) => (
                 <ChatCard key={card.id} card={card} presets={presets} onOpenInGenerate={onOpenInGenerate} />
               ))}
@@ -469,8 +561,9 @@ export default function Chat({
             <h1 className="m-0 text-[30px] leading-tight font-medium tracking-[-0.02em] text-ink">What would you like to create?</h1>
             {!setupError && (
               <p className="mx-auto mt-3 mb-0 max-w-xl text-[13px] text-ink-2">
-                Plan a scene or ask for a prompt. Claude answers short. The chat text is sent to the Claude API on the
-                internet; images and videos are still made on this PC.
+                {model === "local"
+                  ? "Plan a scene or ask for a prompt. The local model runs on this PC, so the chat text does not go to the Claude API. Chats are still saved in the cloud database."
+                  : "Plan a scene or ask for a prompt. Claude answers short. The chat text is sent to the Claude API on the internet; images and videos are still made on this PC."}
               </p>
             )}
           </div>
@@ -532,10 +625,28 @@ export default function Chat({
               <Paperclip {...ICON} />
               Attach
             </button>
-            <div className="flex items-center gap-3">
-              <span className={`text-xs ${tooLong ? "text-danger" : "text-ink-3"}`}>
+            <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+              <span className={`hidden text-xs sm:inline ${tooLong ? "text-danger" : "text-ink-3"}`}>
                 {text.length} / {MAX_MESSAGE_LENGTH}
               </span>
+              {/* Which model answers (FRG-116). A model that is not ready is greyed out; hover shows why. */}
+              <div className="relative min-w-0">
+                <select
+                  aria-label="Model"
+                  value={model}
+                  onChange={(event) => chooseModel(event.target.value as ModelId)}
+                  disabled={streaming || models === null}
+                  title={chosen?.ready === false ? chosen.problem : "The model that answers"}
+                  className="h-8 max-w-[12rem] min-w-0 cursor-pointer appearance-none truncate rounded-full border border-line bg-card pr-7 pl-3 text-xs text-ink-2 outline-none hover:border-line-strong focus:border-accent focus:ring-3 focus:ring-focus-ring disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {(models ?? [{ id: model, label: "", ready: true }]).map((m) => (
+                    <option key={m.id} value={m.id} disabled={!m.ready} title={m.ready ? undefined : m.problem}>
+                      {modelName(m.id, m.label)}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown size={14} className="pointer-events-none absolute top-1/2 right-2.5 -translate-y-1/2 text-ink-3" />
+              </div>
               {streaming ? (
                 <button
                   type="button"
@@ -562,6 +673,9 @@ export default function Chat({
             </div>
           </div>
         </form>
+        {busyNotice && (
+          <Notice className="pointer-events-auto w-full max-w-3xl">{busyNotice}</Notice>
+        )}
 
         {/* Shortcuts to the other pages: a round outlined icon with a label under it. */}
         {home && (
