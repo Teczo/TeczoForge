@@ -10,7 +10,18 @@ import { buildChatTools, runChatTool } from "./chatTools.js";
 import { checkProjectId, checkTargetProjectId } from "./projects.js";
 import { CLAUDE_MODEL, claudeClient as client, claudeErrorMessage, fallbackOptions, NOT_SET_UP_MESSAGE, safeLogText } from "./claudeClient.js";
 import type { ChatCard, ChatTools } from "./chatTools.js";
-import { LOCAL_IDLE_MINUTES, LOCAL_LABEL, localChatProblem, localErrorMessage, localHistory, streamLocalReply } from "./localChatClient.js";
+import {
+  countToolTokens,
+  LOCAL_CARDS,
+  LOCAL_IDLE_MINUTES,
+  LOCAL_LABEL,
+  localChatProblem,
+  localErrorMessage,
+  localHistory,
+  streamLocalReply,
+  toLocalTools,
+} from "./localChatClient.js";
+import { translateSettings } from "./translateServer.js";
 import { localModelUsers, releaseLocalModel, takeLocalModel } from "./localModel.js";
 
 // Chat with Claude (FRG-23), or with the local model Qwen in llama-server (FRG-115, see localChatClient.ts).
@@ -545,8 +556,9 @@ async function streamReply(
       }
 
       await job.commit?.();
-      // The card tools, from the preset folders as they are now. Only Claude gets them.
-      if (engine === "claude" && job.withTools) tools = await buildChatTools();
+      // The card tools, from the preset folders as they are now. Never for a rerun.
+      // The local model gets them too, unless CHAT_LOCAL_CARDS=off (FRG-119).
+      if (job.withTools && (engine === "claude" || LOCAL_CARDS)) tools = await buildChatTools();
     } catch (error) {
       if (streaming) {
         sendEvent("error", { error: error instanceof HttpError ? error.message : "Something went wrong on the server. See the backend log." });
@@ -570,7 +582,7 @@ async function streamReply(
     const parts =
       engine === "claude"
         ? await claudeReply(client!, history, job.conversation, username, tools, usedBefore, sendEvent, stop)
-        : await localReply(history, sendEvent, stop);
+        : await localReply(history, job.conversation, username, tools, sendEvent, stop);
 
     // Save the answer and its tokens, also when it was stopped or cut off.
     if (parts.text !== "" || parts.cards.length > 0 || parts.inputTokens > 0 || parts.outputTokens > 0) {
@@ -610,24 +622,122 @@ async function streamReply(
   }
 }
 
-// The local engine (FRG-115): one request to Qwen in llama-server, streamed. No tools, no cards.
+// The local engine (FRG-115): requests to Qwen in llama-server, streamed.
+// With the card tools (FRG-119) it has the same round loop as Claude: when Qwen calls a tool, run it
+// with runChatTool, send the result back as a "tool" message, and ask again. Without tools: one request.
 async function localReply(
   messages: ChatMessage[],
+  conversation: Conversation,
+  username: string,
+  tools: ChatTools | null,
   sendEvent: (event: string, data: unknown) => void,
   stop: StopState,
 ): Promise<ReplyParts> {
   const parts: ReplyParts = { text: "", cards: [], inputTokens: 0, outputTokens: 0, errorText: null };
   const controller = new AbortController();
   stop.current = controller;
+  // Text after a tool call starts on a new paragraph.
+  const addText = (piece: string) => {
+    parts.text += piece;
+    sendEvent("text", { text: piece });
+  };
   try {
-    const history = await localHistory(messages, LOCAL_CHAT_SYSTEM_PROMPT, historyText, HISTORY_LIMIT);
-    const result = await streamLocalReply(history.messages, controller.signal, (piece) => {
-      parts.text += piece;
-      sendEvent("text", { text: piece });
-    });
-    parts.inputTokens = result.inputTokens;
-    parts.outputTokens = result.outputTokens;
-    if (result.finish === "length") parts.errorText = "The reply was too long and was cut off. Ask for a shorter answer.";
+    // The tools must fit next to the history. If they take more than half of the room, Qwen chats without them.
+    let localTools = tools ? toLocalTools(tools) : null;
+    let toolTokens = 0;
+    if (localTools) {
+      toolTokens = await countToolTokens(localTools);
+      const context = translateSettings().context;
+      if (toolTokens > context / 2) {
+        console.warn(
+          `Warning: the card tools take about ${toolTokens} tokens, more than half of TRANSLATE_CONTEXT (${context}). Qwen chats without cards.`,
+        );
+        localTools = null;
+        toolTokens = 0;
+      }
+    }
+    const systemPrompt = localTools ? CHAT_SYSTEM_PROMPT : LOCAL_CHAT_SYSTEM_PROMPT;
+    const history = await localHistory(messages, systemPrompt, historyText, HISTORY_LIMIT, toolTokens);
+    const request = history.messages; // Tool calls and their results are added during this reply only.
+    // Pictures attached anywhere in this chat: their ids can be used as start images on cards.
+    const imageIds = conversation.messages.flatMap((m) => (m.images ?? []).map((image) => image.id));
+    let toolCalls = 0;
+    let failedInARow = 0; // Tool calls that failed one after another. After 2, stop.
+
+    // One round per request. When Qwen calls a tool, run it and ask again with the result.
+    while (!stop.stopped) {
+      let firstText = true;
+      let roundText = "";
+      const result = await streamLocalReply(
+        request,
+        controller.signal,
+        (piece) => {
+          if (firstText && parts.text !== "" && !parts.text.endsWith("\n")) piece = `\n\n${piece}`;
+          firstText = false;
+          roundText += piece;
+          addText(piece);
+        },
+        localTools,
+      );
+      parts.inputTokens += result.inputTokens;
+      parts.outputTokens += result.outputTokens;
+      if (result.finish === "length") {
+        // A tool call cut off here may look complete, so it is never run.
+        parts.errorText = "The reply was too long and was cut off. Ask for a shorter answer.";
+        break;
+      }
+      if (!localTools || result.toolCalls.length === 0) break;
+
+      // Run the tool calls. Each one makes a draft card in Ready, or tells Qwen what is wrong.
+      request.push({ role: "assistant", content: roundText.trim() || null, tool_calls: result.toolCalls });
+      for (const call of result.toolCalls) {
+        toolCalls++;
+        let content: string;
+        if (toolCalls > MAX_TOOL_CALLS) {
+          content = `Not made: at most ${MAX_TOOL_CALLS} cards per message.`;
+        } else {
+          let input: unknown;
+          try {
+            input = JSON.parse(call.function.arguments || "{}");
+          } catch {
+            input = undefined;
+          }
+          if (input === undefined) {
+            content = "Error: the arguments are not valid JSON. Send them again as one JSON object.";
+            failedInARow++;
+          } else {
+            const block = { type: "tool_use", id: call.id, name: call.function.name, input } as Anthropic.Beta.BetaToolUseBlock;
+            const outcome = await runChatTool(block, {
+              tools: tools!,
+              username,
+              conversationId: conversation.id,
+              projectId: conversation.projectId,
+              imageIds,
+            });
+            const text = typeof outcome.result.content === "string" ? outcome.result.content : "Done.";
+            content = outcome.result.is_error ? `Error: ${text}` : text;
+            if (outcome.card) {
+              parts.cards.push(outcome.card);
+              sendEvent("card", { card: outcome.card });
+              failedInARow = 0;
+            } else {
+              failedInARow++;
+            }
+          }
+        }
+        request.push({ role: "tool", tool_call_id: call.id, content });
+      }
+      // Qwen asked for more than the limit: stop here and say so.
+      if (toolCalls > MAX_TOOL_CALLS) {
+        addText(`${parts.text === "" ? "" : "\n\n"}I stopped here: I can make at most ${MAX_TOOL_CALLS} cards for one message.`);
+        break;
+      }
+      // A wrong card gets one more try. A second failure in a row ends the reply.
+      if (failedInARow >= 2) {
+        addText(`${parts.text === "" ? "" : "\n\n"}Qwen could not make this card. Try again, or use Claude.`);
+        break;
+      }
+    }
     if (history.leftOut) {
       const note = `${parts.text === "" ? "" : "\n\n"}Older messages were left out, because they do not fit in the local model.`;
       parts.text += note;
